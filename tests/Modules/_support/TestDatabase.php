@@ -177,7 +177,7 @@ final class TestDatabase
         $db ??= $this->db;
         $clock = new Clock();
         $history ??= new ActivityLogger($db, $clock, static fn (): ?string => null);
-        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($this->dir . '/brand'), $clock,
+        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($this->dir)), $clock,
             $this->config->values(), static fn (string $m): null => null, new CommandLine());
         $images = new ImageStore($settings, new OriginalStore(new LocalStorage($this->config->originalsDir(), 0640)),
             new ServedImageWriter(new LocalStorage($this->dir)), new ImagickDecoder(), new RequestCleanup(static function (): void {
@@ -200,7 +200,7 @@ final class TestDatabase
         $db ??= $this->db;
         $clock = new Clock();
         $history ??= new ActivityLogger($db, $clock, static fn (): ?string => null);
-        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($this->dir . '/brand'), $clock,
+        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($this->dir)), $clock,
             $this->config->values(), static fn (string $m): null => null, new CommandLine());
         $images = new ImageStore($settings, new OriginalStore(new LocalStorage($this->config->originalsDir(), 0640)),
             new ServedImageWriter(new LocalStorage($this->dir)), new ImagickDecoder(), new RequestCleanup(static function (): void {

@@ -8,6 +8,9 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **storage:** photos, originals, attachments and imports follow the selected storage; storage mode uses R2, and a selected R2 backend that cannot be used is an error, not a disk fallback ([#259](https://github.com/thordin9/apotheke/pull/259))
+- **storage:** brand logos and icons follow the selected storage; storage mode uses R2 and does not create photo directories on the container, and a selected R2 backend that cannot be used is an error, not a disk fallback ([#259](https://github.com/thordin9/apotheke/pull/259))
+
 ## [3.31.0] - 2026-11-11
 
 - Hosted storage mode now selects the Installation database: the Worker starts the container with `DB_DRIVER=d1` (set in code, never from a Worker var), PHP accepts `d1` only with `STORAGE_BACKEND=r2` and refuses to start or serve when storage mode is set without `d1` (so it cannot fall back to SQLite on the container disk), the CI4 config reads `STORAGE_BACKEND`, the SQL executor is the batch-only bridge, and the schema is migrated on the Installation object at the first request under a lease. Self-hosting is unchanged (P4-5). ([#258](https://github.com/thordin9/apotheke/pull/258))

@@ -15,6 +15,7 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Exceptions\PageNotFoundException;
 use CodeIgniter\HTTP\IncomingRequest;
 use CodeIgniter\HTTP\Response;
@@ -76,7 +77,7 @@ final class RefusalCacheControlTest extends CIUnitTestCase
     {
         $this->database = TestDatabase::create('sqlite');
         $database = $this->database;
-        Services::injectMock('settings', new SettingsService(new SettingsRepository($database->db), new SettingsSchema(), new LocalBrandStore($database->dataDir() . '/brand'),
+        Services::injectMock('settings', new SettingsService(new SettingsRepository($database->db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($database->dataDir())),
             new Clock(), $database->config->values(), static fn (string $m): null => null, new CommandLine()));
         $cross = ['HTTP_ORIGIN' => 'http://other.example'];
         $this->assertRefusal(403, (new SameOriginFilter())->before($this->request($cross)), (new SameOriginFilter())->before($this->request($cross + self::JSON)));

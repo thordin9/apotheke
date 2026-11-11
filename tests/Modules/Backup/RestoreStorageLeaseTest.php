@@ -20,6 +20,7 @@ use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
 use Apotheke\Undo\UndoTokens;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use Tests\Support\TestDatabase;
 
@@ -73,7 +74,7 @@ final class RestoreStorageLeaseTest extends CIUnitTestCase
     {
         $this->database = TestDatabase::create('sqlite');
         $d = $this->database;
-        $settings = new SettingsService(new SettingsRepository($d->db), new SettingsSchema(), new LocalBrandStore($d->dataDir() . '/brand'), new Clock(), $d->config->values(), actor: new CommandLine());
+        $settings = new SettingsService(new SettingsRepository($d->db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($d->dataDir())), new Clock(), $d->config->values(), actor: new CommandLine());
         $undo = new UndoTokens($d->db, new Clock(), 600, static function (string $file): void {
         }, static function (string $file): void {
         });

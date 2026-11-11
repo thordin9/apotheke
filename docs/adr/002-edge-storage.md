@@ -371,6 +371,10 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    request, under a lease row (`apotheke_migration_lease`, 300 s): one atomic claim, then a check of the owner; a
    request without the lease fails and the next one checks again, and a run releases only its own lease. The PDO
    runner and `apotheke:migrate` refuse `d1`. The app's write paths move to the batch path next.
+   The app's photos, originals, attachments, imports and brand files are selected through `StorageFactory`: storage mode uses R2,
+   default mode keeps `LocalStorage`, and a selected R2 backend that cannot be used is an error, not a disk fallback.
+   In storage mode, storage preflight creates only the data and sessions directories, not photo, thumb or originals directories.
+   Sessions still use the container's disk.
 
 ## Ownership
 
