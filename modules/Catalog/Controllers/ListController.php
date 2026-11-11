@@ -61,7 +61,7 @@ final class ListController extends CatalogController
         $recent = service('recentItems');
 
         return $this->html($view->page($q, $rawQ, $f, $sort, $res, $locs, $cats, $items->stats(), $this->catalogStats(), $tags, $items->favouriteCount(),
-            $this->saved()->all(), $recent->items(), $toast, $cookie !== '0', $select, ($get['all'] ?? '') === '1', $items->hosted()));
+            $this->saved()->all(), $recent->items(), $toast, $cookie !== '0', $select, ($get['all'] ?? '') === '1'));
     }
 
     public function stats(): ResponseInterface
