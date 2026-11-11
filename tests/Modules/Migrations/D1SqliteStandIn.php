@@ -30,6 +30,8 @@ final class D1SqliteStandIn implements D1Executor
     {
         $this->db = new PDO('sqlite::memory:');
         $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        // Like D1: sqlite_master lists an internal _cf_ table that no statement may touch.
+        $this->db->exec('CREATE TABLE _cf_METADATA (key INTEGER PRIMARY KEY, value BLOB)');
     }
 
     public function query(string $sql, array $params = []): array
@@ -45,10 +47,19 @@ final class D1SqliteStandIn implements D1Executor
 
     private function execute(string $sql, array $params): array
     {
+        $this->refuseInternal($sql);
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** D1 answers SQLITE_AUTH for any statement naming one of its _cf_ tables. */
+    private function refuseInternal(string $sql): void
+    {
+        if (preg_match('/(?<![\w$])_cf_/i', $sql) === 1) {
+            throw new WriteFailed('Database write failed: the batch');
+        }
     }
 
     public function run(array $statements): array
@@ -98,6 +109,7 @@ final class D1SqliteStandIn implements D1Executor
             if ($this->reject !== null && ($this->reject)($statement) === true) {
                 throw new WriteFailed('Database write failed: the batch');
             }
+            $this->refuseInternal($statement);
             try {
                 $this->db->exec($statement);
             } catch (Throwable $e) {
