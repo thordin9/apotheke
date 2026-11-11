@@ -2,7 +2,7 @@
 
 - PR: https://github.com/thordin9/apotheke/pull/272 (Coder)
 - Reviewed head: `3190c1e7251f02795ece4bd699378a1921ce9e1a` (fix delta on top of `8b78e14f`, first read at that head)
-- Merge-only read: `65fb9f18e839c078655f9677287fae759dcc58a2` (plain merge of main `37afbdd7` (#262) into `869486a2`). 0 behind main; the PR's 4 files and their changes are unchanged. CI, including the three Visual E2E shards (blocked by the Launchpad outage), must be green on the final head before merging.
+- Merge-only read: `5e42f362d92b4bc6fc0c4a8e7fdcb9c7f1bbe218` (plain merge of main `8bdb2801` (#275) into `3ab1b1f2`, after the earlier read at the #262 merge). 0 behind main; the PR's 4 files and their changes are unchanged. CI, including the three Visual E2E shards (now on the #275 prebuilt PHP), must be green on the final head before merging.
 - Gate: light (diff read, CI, shellcheck and input checks on the script; no suites, no live run)
 - Reviewer: Apotheke QA 2
 
@@ -28,4 +28,4 @@
 
 ## Verdict
 
-**PASS** at `3190c1e7`, confirmed by the merge-only read at `65fb9f18`. Not run against a live Preview; the first real run on the flip Preview is the functional proof. Squash-merge with the PR title as the subject.
+**PASS** at `3190c1e7`, confirmed by the merge-only read at `5e42f362`. Not run against a live Preview; the first real run on the flip Preview is the functional proof. Squash-merge with the PR title as the subject.
