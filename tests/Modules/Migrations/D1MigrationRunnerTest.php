@@ -432,4 +432,47 @@ final class D1MigrationRunnerTest extends CIUnitTestCase
         $pdo->commit();
     }
 
+    /** N-1850: like local D1, a _cf_ table is refused in any case or quoting, on every path. */
+    public static function internalNameStatements(): array
+    {
+        return [
+            'bare' => ['query', 'SELECT * FROM _cf_METADATA'],
+            'double quoted' => ['query', 'SELECT * FROM "_cf_METADATA"'],
+            'upper case' => ['query', 'SELECT * FROM "_CF_METADATA"'],
+            'mixed case' => ['query', 'SELECT * FROM _Cf_METADATA'],
+            'backticks' => ['query', 'SELECT * FROM `_cf_METADATA`'],
+            'brackets' => ['query', 'SELECT * FROM [_cf_METADATA]'],
+            'other _cf_ name' => ['query', 'CREATE TABLE _cf_user (a)'],
+            'name after a literal' => ['query', "SELECT '_cf_' AS s FROM _cf_METADATA"],
+            'batch' => ['run', 'SELECT * FROM "_CF_METADATA"'],
+            'exec' => ['exec', 'SELECT 1; SELECT * FROM "_CF_METADATA"'],
+        ];
+    }
+
+    #[DataProvider('internalNameStatements')]
+    public function testStandInRefusesD1InternalNames(string $path, string $sql): void
+    {
+        $standIn = new D1SqliteStandIn();
+        $this->expectException(WriteFailed::class);
+        match ($path) {
+            'query' => $standIn->query($sql, []),
+            'run' => $standIn->run([['sql' => $sql, 'params' => []]]),
+            'exec' => $standIn->exec($sql),
+        };
+    }
+
+    /** N-1850: like local D1, _cf_ in a string literal, a comment or a longer name is not refused. */
+    public function testStandInAcceptsCfTextThatIsNotAName(): void
+    {
+        $standIn = new D1SqliteStandIn();
+        $this->assertSame([['s' => '_cf_METADATA']], $standIn->query("SELECT '_cf_METADATA' AS s", []));
+        $this->assertSame([['name' => '_cf_METADATA']],
+            $standIn->query("SELECT name FROM sqlite_master WHERE name LIKE '_cf_%'", []));
+        $this->assertSame([['1' => 1]], $standIn->query("SELECT 1 AS \"1\" -- _cf_METADATA", []));
+        $this->assertSame([['1' => 1]], $standIn->query('SELECT 1 AS "1" /* _cf_METADATA */', []));
+        $this->assertSame(['count' => 3], $standIn->exec(
+            "CREATE TABLE items_cf_extra (a); CREATE TABLE items\$_cf_extra (a); INSERT INTO items_cf_extra VALUES ('_cf_x')",
+        ));
+    }
+
 }
