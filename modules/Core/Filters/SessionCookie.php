@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Filters;
 
-use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Http\CookieConsent;
+use Apotheke\Core\Http\DatabaseSessionHandler;
 use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Http\RequestScheme;
 use Apotheke\Core\Http\SessionGate;
@@ -49,7 +49,7 @@ final class SessionCookie implements FilterInterface
         if (!CookieConsent::configured()->given($request instanceof IncomingRequest ? (array)$request->getCookie() : $_COOKIE)) {
             return null;
         }
-        $config = ApothekeConfig::fromEnvironment();
+        $config = Services::apothekeConfig();
         $server = $request->getServer();
         $server = is_array($server) ? $server : [];
         // trust_proxy and public_url come from this request's SettingsService, on
@@ -71,13 +71,26 @@ final class SessionCookie implements FilterInterface
         $session->cookieName = $name;
         $session->expiration = $lifetime;
         $save = $config->dataDir() . '/sessions';
-        if (!is_dir($save)) {
-            @mkdir($save, 0775, true);
+        $driver = strtolower((string)($config->values()['db']['driver'] ?? ''));
+        $exists = null;
+        if ($driver === 'd1') {
+            $handler = new DatabaseSessionHandler(
+                Services::sqlExecutor(),
+                $lifetime,
+                static fn (): int => time(),
+                static function (int $us): void { usleep($us); },
+            );
+            session_set_save_handler($handler, true);
+            $exists = $handler->exists(...);
+        } else {
+            if (!is_dir($save)) {
+                @mkdir($save, 0775, true);
+            }
+            $session->savePath = $save;
+            session_save_path($save);
         }
-        $session->savePath = $save;
         ini_set('session.gc_maxlifetime', (string)$lifetime);
         ini_set('session.use_strict_mode', '1');
-        session_save_path($save);
         session_name($name);
         session_set_cookie_params([
             'lifetime' => $lifetime,
@@ -91,7 +104,7 @@ final class SessionCookie implements FilterInterface
         // any other session after session_days without use (SEC-N6).
         $id = SessionGate::requestId(static fn (string $n): mixed => $request instanceof IncomingRequest ? $request->getCookie($n) : ($_COOKIE[$n] ?? null), $secure);
         $gate = new SessionGate(time());
-        if ($id !== null && $gate->isLive($id, $save)) {
+        if ($id !== null && $gate->isLive($id, $save, $exists)) {
             if (!isset($_COOKIE[$name])) {
                 session_id($id);   // it came under the plain name on HTTPS: PHP sends it again under the new one
             }

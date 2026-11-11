@@ -52,6 +52,26 @@ final class SessionGateTest extends CIUnitTestCase
         }
     }
 
+    public function testIsLiveUsesTheDatabaseProbeWhenGiven(): void
+    {
+        $gate = new SessionGate(self::NOW);
+        $id = str_repeat('a', 26);
+        touch($this->dir . '/sess_' . $id);
+        $this->assertTrue($gate->isLive($id, $this->dir));
+        $this->assertFalse($gate->isLive($id, $this->dir, static fn (string $given): bool => false), 'a negative probe wins over a file');
+        $missing = str_repeat('b', 26);
+        $this->assertFalse($gate->isLive($missing, $this->dir));
+        $seen = [];
+        $this->assertTrue($gate->isLive($missing, $this->dir, static function (string $given) use (&$seen, $missing): bool {
+            $seen[] = $given;
+
+            return $given === $missing;
+        }));
+        $this->assertSame([$missing], $seen);
+        $this->assertFalse($gate->isLive('short', $this->dir, static fn (string $given): bool => true), 'an invalid id is never probed');
+    }
+
+
     public function testAnAnonymousSessionEndsAfterTheLifetimeIdle(): void
     {
         $gate = new SessionGate(self::NOW);

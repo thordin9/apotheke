@@ -112,7 +112,9 @@ final class TurnOnPaceTest extends CIUnitTestCase
     /** A stored session holding $csrf, named by the request's apothekesid cookie (as in AutofillTest). */
     private function liveSession(string $csrf): void
     {
-        $save = (string)getenv('DATA_DIR') . '/sessions';
+        $database = $this->database;
+        $this->assertNotNull($database);
+        $save = $database->dataDir() . '/sessions';
         if (!is_dir($save)) {
             mkdir($save, 0775, true);
         }
