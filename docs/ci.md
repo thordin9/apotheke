@@ -177,15 +177,20 @@ scripts/check-commits.sh --message "feat(stock): add low-stock alerts"
   Before every attempt, `ci-apt.sh` checks whichever of `azure.archive.ubuntu.com`, `archive.ubuntu.com` and
   `security.ubuntu.com` apt is configured to use (its sources or the runner's mirror list) with `getent ahostsv4`. A host that resolves natively is left alone, and the log says
   `ci-apt: dns <host>: native (<IPs>)`. When a host doesn't resolve natively, as on 11 Nov 2026 when the runners
-  couldn't resolve the Ubuntu mirrors, the script asks DNS-over-HTTPS at Google (`dns.google`) and Cloudflare
-  (`cloudflare-dns.com`). It reaches each by IP, alternating between the provider's two addresses (8.8.8.8/8.8.4.4,
-  1.1.1.1/1.0.0.1), tries each up to 8 times with a 5 s pause on SERVFAIL, and keeps only final A
-  records, so a CNAME chain resolves to its end. It pins the addresses both providers return (the intersection).
-  If the intersection is empty but both returned valid A records, which can happen for the geo-steered Azure
-  mirror, it pins the union of the two. The lines are added to `/etc/hosts` with a `# ci-apt DoH pin` comment, and
-  the log (stderr) says `DoH intersection` or `DoH union` with the IPs. If either provider fails, the step prints
-  `::error::` and the attempt fails; after the last attempt the step fails, so no install is skipped. apt itself is
-  unchanged: it fetches over http from the mirror, checks the Release signatures, and never runs with
+  couldn't resolve the Ubuntu mirrors, the script asks DNS-over-HTTPS at Google (`dns.google`), Cloudflare
+  (`cloudflare-dns.com`) and Quad9 (`dns.quad9.net:5053`, JSON). All three are queried in parallel for every host
+  that needs it. Each is reached by IP, alternating its two anycast addresses, with up to 6 tries (10 s cap each, 3 s
+  apart; at most about 75 s per attempt). Only final A records count, so a CNAME chain resolves to its end. The rule
+  is logged per host:
+  - **two-provider:** two or three providers answered. Pin the intersection of their answers, or their union if the
+    intersection is empty (the geo-steered Azure mirror can differ between resolvers).
+  - **single-provider:** only one provider answered after its retries. Pin its answer and emit
+    `::warning::single-provider pin <host> via <provider>: <ips>`.
+  - **none:** no provider answered. Print `::error::` and fail the attempt; after the last attempt the step fails,
+    so no install is skipped.
+
+  The pins go into `/etc/hosts` with a `# ci-apt DoH pin` comment, and the log (stderr) shows the rule and the IPs. apt
+  itself is unchanged: it fetches over http from the mirror, checks the Release signatures, and never runs with
   `--allow-unauthenticated` or `[trusted=yes]`, so a wrong address can only make a fetch fail. This runs as root in
   the Visual E2E container and through `sudo` on the host runners.
 
