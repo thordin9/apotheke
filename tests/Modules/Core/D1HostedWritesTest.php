@@ -420,9 +420,8 @@ final class D1HostedWritesTest extends CIUnitTestCase
     public function testFeaturesNotConvertedYetAreRefusedBeforeAnyWrite(): void
     {
         $cases = [
-            'CSV import' => fn () => $this->bare(\Apotheke\ImportExport\Imports::class)->upload(null),
-            'CSV import ' => fn () => $this->bare(\Apotheke\ImportExport\Imports::class)->run([], true),
-            'CSV import  ' => fn () => $this->bare(\Apotheke\ImportExport\Imports::class)->commitRows([], (new \ReflectionClass(\Apotheke\Core\Jobs\JobContext::class))->newInstanceWithoutConstructor()),
+            // Imports::commit() imports line by line there (D1HostedImportTest); run()'s transaction stays refused.
+            'CSV import' => fn () => $this->bare(\Apotheke\ImportExport\Imports::class)->run([], true),
             'Restoring a backup' => fn () => $this->bare(\Apotheke\Backup\Restorer::class)->restore('/nonexistent.zip', false),
             'Restoring a backup ' => fn () => \Apotheke\Backup\RestoreFence::claim($this->db(), 'token'),
             'Restoring a backup  ' => fn () => \Apotheke\Backup\RestoreMutation::replace($this->db(), 'token',
