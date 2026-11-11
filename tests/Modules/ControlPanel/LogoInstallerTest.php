@@ -11,6 +11,7 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
@@ -111,7 +112,7 @@ final class LogoInstallerTest extends CIUnitTestCase
     private function installer(): array
     {
         $this->database = TestDatabase::create('sqlite');
-        $store = new LocalBrandStore($this->database->dataDir() . '/brand');
+        $store = new LocalBrandStore(new LocalStorage($this->database->dataDir()));
         $settings = new SettingsService(new SettingsRepository($this->database->db), new SettingsSchema(), $store, new Clock(), $this->database->config->values(),
             static function (string $message): void {
             });

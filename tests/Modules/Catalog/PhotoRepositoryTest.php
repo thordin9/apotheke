@@ -198,7 +198,7 @@ final class PhotoRepositoryTest extends CIUnitTestCase
     {
         $this->database = TestDatabase::create($driver);
         $db = $this->database->db;
-        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($this->database->dataDir() . '/brand'), new Clock(), $this->database->config->values(), static fn (string $m): null => null, new CommandLine());
+        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($this->database->dataDir())), new Clock(), $this->database->config->values(), static fn (string $m): null => null, new CommandLine());
         $served = new class (new LocalStorage($this->database->dataDir()), fn (): ?Closure => $this->takeHook()) implements Storage {
             public function __construct(private readonly Storage $inner, private readonly Closure $hook)
             {

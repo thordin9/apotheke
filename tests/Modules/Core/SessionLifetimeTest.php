@@ -10,6 +10,7 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use Config\Services;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -76,7 +77,7 @@ final class SessionLifetimeTest extends CIUnitTestCase
     {
         $database = TestDatabase::create($driver);
         try {
-            $settings = new SettingsService(new SettingsRepository($database->db), new SettingsSchema(), new LocalBrandStore($database->dataDir() . '/brand'), new Clock(), $database->config->values(), static fn (string $m): null => null);
+            $settings = new SettingsService(new SettingsRepository($database->db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($database->dataDir())), new Clock(), $database->config->values(), static fn (string $m): null => null);
             Services::injectMock('settings', $settings);
             $this->assertSame(30 * 86400, Services::sessionLifetime(false)->seconds(), 'default');
             $this->assertSame([], $settings->save(['session_days' => 7]));

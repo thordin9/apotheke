@@ -90,4 +90,21 @@ PHP;
         $this->expectException(R2StorageException::class);
         $bridge->list();
     }
+
+    public function testLocalDiskKeepsAttachmentDirectoryMode(): void
+    {
+        $dir = sys_get_temp_dir() . '/factory-mode-' . bin2hex(random_bytes(4));
+        $files = StorageFactory::create(['data_dir' => $dir], null, 0770);
+        $this->assertInstanceOf(LocalStorage::class, $files);
+        $this->assertSame(0770, (new \ReflectionProperty($files, 'dirMode'))->getValue($files));
+        $default = StorageFactory::create(['data_dir' => $dir]);
+        $this->assertSame(0700, (new \ReflectionProperty($default, 'dirMode'))->getValue($default));
+        $this->assertInstanceOf(R2Storage::class, StorageFactory::create(['storage' => ['backend' => 'r2']], 0640, 0770));
+    }
+
+    public function testSelectedR2DoesNotFallBackToDisk(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        StorageFactory::create(['data_dir' => sys_get_temp_dir(), 'storage' => ['backend' => 'r2', 'max_write_bytes' => 1024, 'r2_base_url' => 'http://r2.internal/path']]);
+    }
 }
