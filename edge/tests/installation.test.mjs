@@ -4,31 +4,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
+const { doStorage } = await import(new URL('./do-storage.mjs', import.meta.url).href);
 
 const { D1Outbound, Installation, ApothekeContainer, default: publicWorker } = await import('../src/index.ts');
 const { installationStub, INSTALLATION_NAME } = await import('../src/installation.ts');
-
-/** Durable Object storage over a real SQLite: exec refuses transaction statements, transactionSync rolls back. */
-function doStorage() {
-  const db = new DatabaseSync(':memory:');
-  const storage = {
-    db,
-    sql: {
-      exec(sql, ...params) {
-        if (/^\s*(BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b/i.test(sql)) throw new Error('transaction statements are not allowed');
-        if (params.length === 0 && /;\s*\S/.test(sql.trim().replace(/;\s*$/, ''))) { db.exec(sql); return { toArray: () => [] }; }
-        const rows = db.prepare(sql).all(...params).map((r) => ({ ...r }));
-        return { toArray: () => rows };
-      },
-    },
-    transactionSync(fn) {
-      db.exec('BEGIN');
-      try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; }
-    },
-  };
-  return storage;
-}
 
 /** A namespace whose root refuses id creation: ids may only come from jurisdiction("eu"). */
 function namespace(storage, calls = []) {
@@ -186,6 +165,7 @@ test('P4-5b: the container starts only with the whole fragment, and PHP is not y
   const [ok, full] = await start(fullEnv());
   assert.equal(ok, 200);
   assert.equal(full.env.STORAGE_BACKEND, 'r2');
+  assert.equal(full.env.TRUST_PROXY, '1');
   assert.equal(full.env.DB_DRIVER, undefined, 'the PHP d1 driver is the next piece');
   for (const env of [{ STORAGE: bucket(), DB: {} }, { INSTALLATION: {} }, { STORAGE: bucket(), INSTALLATION: {} }]) {
     const [status, started] = await start(env);

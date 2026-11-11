@@ -188,6 +188,31 @@ final class DockerfileTest extends TestCase
         $this->assertStringContainsString('fastcgi_temp_path /run/apotheke-nginx/fastcgi;', $nginx);
     }
 
+    /** /run is often a fresh mount at runtime; the FrankenPHP entrypoint recreates Caddy's dirs before it starts. */
+    public function testFrankenphpEntrypointRecreatesRuntimeDirs(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $sh = (string)file_get_contents($root . '/docker/frankenphp/entrypoint.sh');
+        $docker = (string)file_get_contents($root . '/Dockerfile.frankenphp');
+        $mkdir = strpos($sh, 'mkdir -p /run/apotheke-caddy/config /run/apotheke-caddy/data');
+        $this->assertNotFalse($mkdir);
+        $validate = strpos($sh, 'frankenphp validate --config /etc/apotheke/Caddyfile');
+        $run = strpos($sh, 'as_www frankenphp run');
+        $this->assertNotFalse($validate);
+        $this->assertNotFalse($run);
+        $this->assertLessThan($validate, $mkdir, 'directories exist before frankenphp validate');
+        $this->assertLessThan($run, $mkdir, 'directories exist before FrankenPHP starts');
+        $this->assertStringContainsString('if [ "$(id -u)" = 0 ]; then', $sh);
+        $chown = strpos($sh, 'chown -R www-data:www-data /run/apotheke-caddy');
+        $this->assertNotFalse($chown);
+        $this->assertGreaterThan($mkdir, $chown);
+        $this->assertStringContainsString('chmod 0750 /run/apotheke-caddy /run/apotheke-caddy/config /run/apotheke-caddy/data', $sh);
+        // the image still creates the directories for a persistent /run and --user www-data
+        $this->assertStringContainsString('/run/apotheke-caddy/config /run/apotheke-caddy/data', $docker);
+        $this->assertStringContainsString('chown -R www-data:www-data /var/www/app/writable /run/apotheke-caddy /data;', $docker);
+        $this->assertDoesNotMatchRegularExpression('/^USER /m', $docker, 'the entrypoint starts as root so it can create /run');
+    }
+
     public function testNginx421HasTheAppsText(): void
     {
         $root = dirname(__DIR__, 2);
