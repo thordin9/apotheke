@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- CSV import now works on the hosted database: the preview checks every row without writing anything, and the import goes in line by line, so an import that stopped half-way picks up where it left off and two submits of the same file never import a line twice; the "Not available on hosted yet" notice is gone from the import page. ([#270](https://github.com/thordin9/apotheke/pull/270))
+
 ## [3.35.0] - 2026-11-11
 
 - Bulk editing (move, category, tags, delete) now works on the hosted database: the whole selection commits as one batch, so a failed run changes nothing and can simply be retried; the "Not available on hosted yet" notice is gone from the list's bulk sheet. ([#265](https://github.com/thordin9/apotheke/pull/265))
