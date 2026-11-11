@@ -4,6 +4,7 @@
 - Reviewed head: `e872ebfe5e857859137b23ead9a05378b5e02042`
 - Gate: light (diff read, CI, docs only; no suites)
 - Reviewer: Apotheke QA 2
+- Merge-only read: `16eb158250fcd74251c0ffa5ed74098605ce928f`. It plain-merges main `9bccc634` on top of `d5c117a6` (this doc). 0 behind main. The PR diff against main is still `docs/deployment-and-operations.md` (+9/−5, the same added and removed lines as at the PASS head) plus this doc.
 
 ## Checklist
 
@@ -23,4 +24,4 @@
 
 ## Verdict
 
-**PASS** at `e872ebfe`. Squash-merge with the PR title as the subject.
+**PASS** at `e872ebfe`, confirmed by the merge-only read at `16eb1582`. Squash-merge with the PR title as the subject.
