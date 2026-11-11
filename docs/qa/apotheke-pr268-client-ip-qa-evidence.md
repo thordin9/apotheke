@@ -1,13 +1,13 @@
 # PR 268 client IP rate-limit keys — evidence
 
-Read-only. Head `47595b865f408953cb562174c44756a0e2f541f7` matches `refs/pull/268/head`. Parents: `de59ba4685e47e234d817124c89e07d60ac07051` and `67b9471bb27384283c28aa32e419b8523757745c` (main, the #279 merge). Behind main: 0. Rechecked live head: unchanged.
+Read-only. Head `693ac32f937ae3cfcb30e55bdb00240839afb4dd` matches `refs/pull/268/head`. Parents: `fb4b08ee2943a2d4d0abd6135abd172550d82a54` and `a9d89163557e4452fc36371dab23c3fc8f1466c2` (main, v3.36.1). Behind main: 0. Rechecked live head: unchanged.
 
-`git diff fc7e3aa2 de59ba46` and `git diff 67b9471b 47595b86`, both excluding `CHANGELOG.md` and with `index` lines dropped, are identical. The diff against main touches 15 files (+222/-7), including the two existing QA docs.
+`git diff 67b9471b fb4b08ee` and `git diff a9d89163 693ac32f`, both excluding `CHANGELOG.md` and with `index` lines dropped, are identical. `git diff a9d89163 693ac32f -- README.md VERSION` is empty.
 
-Changelog: the Unreleased `### Fixed` section holds the #268 bullet and then main's #279 bullet. `#268` occurs once. The only other changelog hunk is one added blank line before `## [3.30.0]`, already present in `git diff fc7e3aa2 de59ba46` (N-1851).
+Main moved from `67b9471b` to `a9d89163` in `CHANGELOG.md` (+9/-1), `README.md` and `VERSION` only.
 
-Main moved from `fc7e3aa2` to `67b9471b` with `CHANGELOG.md`, `docs/HANDOFF.md`, two QA docs, `DatabaseSessionHandler.php` and four test files. None overlap #268's own files except the changelog and the handoff, and the handoff diff against main is unchanged.
+`git diff a9d89163 693ac32f -- CHANGELOG.md` has two hunks: `### Fixed` plus the #268 bullet under `## [Unreleased]`, before `## [3.36.1]`; and one added blank line before `## [3.30.0]` (N-1851). `#268` occurs once. `## [3.36.1]` holds only main's #279 and #276 entries.
 
-CI run `43119966090`. D1 job `130857636135` pass. SQLite job `130857636255` and PostgreSQL job `130857636100` pending. No failed check.
+CI run `43121041546`. D1 job `130861399434`, SQLite job `130861399486` and PostgreSQL job `130861399605` pending at the read. No failed check.
 
-H-1849 closed. N-1850 open. N-1851 new, non-blocking. Next free id: 1852.
+H-1849 closed. N-1850 open. N-1851 open, non-blocking. Next free id: 1852.
