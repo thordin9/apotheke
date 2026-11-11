@@ -312,13 +312,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install PHP ${{ matrix.php }}
+        # Green runs take about 3 minutes here; the cap stops a stalled Launchpad/PPA fetch holding the whole job.
+        timeout-minutes: 15
         run: scripts/e2e-container-setup.sh "${{ matrix.php }}"
       - name: Install Playwright test runner
         run: npm ci --ignore-scripts --no-audit --no-fund
       # Specs that need an unported page skip (CI4_UNPORTED in tests/visual/fixtures.ts, listed in docs/HANDOFF.md).
       - name: Install the runtime (intl, Composer, vendor)
         run: |
-          apt-get -o Acquire::Retries=5 install -y -qq --no-install-recommends php8.4-intl >/dev/null
+          # The prebuilt PHP already has intl; only the ppa:ondrej/php fallback needs the package.
+          php -m | grep -qix intl || apt-get -o Acquire::Retries=5 install -y -qq --no-install-recommends php8.4-intl >/dev/null
           # shellcheck disable=SC2016 # PHP code, expanded by php
           php -r '$f = "/usr/local/bin/composer"; copy("https://getcomposer.org/download/2.10.3/composer.phar", $f);
             if (hash_file("sha256", $f) !== "7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6") { unlink($f); fwrite(STDERR, "composer.phar checksum mismatch\n"); exit(1); }
