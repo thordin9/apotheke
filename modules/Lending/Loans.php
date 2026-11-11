@@ -6,6 +6,7 @@ namespace Apotheke\Lending;
 
 use Apotheke\Catalog\Calendar;
 use Apotheke\Catalog\Items\ItemRepository;
+use Apotheke\Core\Database\Ref;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
@@ -62,6 +63,27 @@ final class Loans
     /** Mark an item as lent to someone (also changes who has it or the due date). */
     public function lend(int $id, string $to, ?string $at, ?string $due): void
     {
+        [$to, $at] = $this->checked($to, $at, $due);
+        // The unit lock alone serialises this item (L-1753); no separate row lock.
+        $this->units->run('items', function (UnitOfWork $uow) use ($id, $to, $at, $due): void {
+            $it = $this->items->get($id) ?? throw new UserError('Item not found.', 404);
+            $this->queueLend($uow, $id, (string)$it['name'], $it['lent_to'], $to, $at, $due);
+        }, (string)$id);
+    }
+
+    /**
+     * lend() today, as a step of the caller's unit of work: $id may be the Ref of an item that unit adds, so the
+     * caller gives its name and who had it before (a CSV import's row on the hosted database).
+     */
+    public function lendIn(UnitOfWork $uow, int|Ref $id, string $name, ?string $before, string $to, ?string $due): void
+    {
+        [$to, $at] = $this->checked($to, null, $due);
+        $this->queueLend($uow, $id, $name, $before, $to, $at, $due);
+    }
+
+    /** @return array{0:string,1:string} who, and the lent date */
+    private function checked(string $to, ?string $at, ?string $due): array
+    {
         // Control characters go (a NUL cut the name on SQLite); whitespace ones are spaces, as before.
         $to = Text::cleanLine((string)preg_replace('/[^\P{Cc}\s]/u', '', $to), 100);
         if ($to === '') {
@@ -75,12 +97,14 @@ final class Loans
         if ($due !== null && $due < $at) {
             throw new UserError('The due date cannot be before the lent date.');
         }
-        // The unit lock alone serialises this item (L-1753); no separate row lock.
-        $this->units->run('items', function (UnitOfWork $uow) use ($id, $to, $at, $due): void {
-            $it = $this->items->get($id) ?? throw new UserError('Item not found.', 404);
-            $uow->write('UPDATE items SET lent_to = ?, lent_at = ?, lent_due = ?, updated_at = ? WHERE id = ?', [$to, $at, $due, $this->clock->now(), $id], 'lend', 1);
-            $this->history->queue($uow, $id, (string)$it['name'], 'lent', array_filter(['to' => $to, 'at' => $at, 'due' => $due, 'before' => $it['lent_to']], static fn (mixed $v): bool => $v !== null));
-        }, (string)$id);
+
+        return [$to, $at];
+    }
+
+    private function queueLend(UnitOfWork $uow, int|Ref $id, string $name, mixed $before, string $to, string $at, ?string $due): void
+    {
+        $uow->write('UPDATE items SET lent_to = ?, lent_at = ?, lent_due = ?, updated_at = ? WHERE id = ?', [$to, $at, $due, $this->clock->now(), $id], 'lend', 1);
+        $this->history->queue($uow, $id, $name, 'lent', array_filter(['to' => $to, 'at' => $at, 'due' => $due, 'before' => $before], static fn (mixed $v): bool => $v !== null));
     }
 
     /** Mark a lent item as returned. */

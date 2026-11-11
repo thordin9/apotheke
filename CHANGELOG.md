@@ -8,6 +8,18 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.36.0] - 2026-11-11
+
+- CSV import now works on the hosted database: the preview checks every row without writing anything, and the import goes in line by line, so an import that stopped half-way picks up where it left off and two submits of the same file never import a line twice; the "Not available on hosted yet" notice is gone from the import page. ([#270](https://github.com/thordin9/apotheke/pull/270))
+
+### Added
+
+- **import:** import CSV files on hosted one batch per line ([#270](https://github.com/thordin9/apotheke/pull/270))
+
+### Maintenance
+
+- **ops:** docs: add storage-mode preview persistence check ([#272](https://github.com/thordin9/apotheke/pull/272))
+
 ## [3.35.0] - 2026-11-11
 
 - Bulk editing (move, category, tags, delete) now works on the hosted database: the whole selection commits as one batch, so a failed run changes nothing and can simply be retried; the "Not available on hosted yet" notice is gone from the list's bulk sheet. ([#265](https://github.com/thordin9/apotheke/pull/265))
@@ -1507,7 +1519,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.35.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.0...HEAD
+[3.36.0]: https://github.com/thordin9/apotheke/compare/v3.35.0...v3.36.0
 [3.35.0]: https://github.com/thordin9/apotheke/compare/v3.34.0...v3.35.0
 [3.34.0]: https://github.com/thordin9/apotheke/compare/v3.33.0...v3.34.0
 [3.33.0]: https://github.com/thordin9/apotheke/compare/v3.32.0...v3.33.0
