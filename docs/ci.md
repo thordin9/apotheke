@@ -173,6 +173,20 @@ scripts/check-commits.sh --message "feat(stock): add low-stock alerts"
   exits 0 when it can't resolve or fetch an index, and the install then fails with *Unable to locate package*.
   After a failed attempt on a GitHub-hosted runner, the script removes `azure.archive.ubuntu.com` from
   `/etc/apt/apt-mirrors.txt`, so the retry goes to `archive.ubuntu.com`.
+* **Temporary outage workaround. Remove it once runner DNS is stable ([#278](https://github.com/thordin9/apotheke/issues/278)).**
+  Before every attempt, `ci-apt.sh` checks `azure.archive.ubuntu.com`, `archive.ubuntu.com` and
+  `security.ubuntu.com` with `getent ahostsv4`. A host that resolves natively is left alone, and the log says
+  `ci-apt: dns <host>: native (<IPs>)`. When a host doesn't resolve natively, as on 11 Nov 2026 when the runners
+  couldn't resolve the Ubuntu mirrors, the script asks DNS-over-HTTPS at Google (`dns.google`) and Cloudflare
+  (`cloudflare-dns.com`). It reaches both by IP, retries each up to 5 times on SERVFAIL, and keeps only final A
+  records, so a CNAME chain resolves to its end. It pins the addresses both providers return (the intersection).
+  If the intersection is empty but both returned valid A records, which can happen for the geo-steered Azure
+  mirror, it pins the union of the two. The lines are added to `/etc/hosts` with a `# ci-apt DoH pin` comment, and
+  the log says `DoH intersection` or `DoH union` with the IPs. If either provider fails, the step prints
+  `::error::` and the attempt fails; after the last attempt the step fails, so no install is skipped. apt itself is
+  unchanged: it fetches over http from the mirror, checks the Release signatures, and never runs with
+  `--allow-unauthenticated` or `[trusted=yes]`, so a wrong address can only make a fetch fail. This runs as root in
+  the Visual E2E container and through `sudo` on the host runners.
 
 ## Deploy workflows
 
