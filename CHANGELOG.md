@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **core:** on the hosted database, a session write from a request whose claim another request has since taken stores nothing and returns normally, so that request finishes and the next request on the same worker starts as usual; the other request's session data is kept (L-1894) ([#279](https://github.com/thordin9/apotheke/pull/279))
+
 ## [3.36.0] - 2026-11-11
 
 - CSV import now works on the hosted database: the preview checks every row without writing anything, and the import goes in line by line, so an import that stopped half-way picks up where it left off and two submits of the same file never import a line twice; the "Not available on hosted yet" notice is gone from the import page. ([#270](https://github.com/thordin9/apotheke/pull/270))
