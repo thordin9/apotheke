@@ -8,9 +8,15 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.36.1] - 2026-11-11
+
 ### Fixed
 
 - **core:** on the hosted database, a session write from a request whose claim another request has since taken stores nothing and returns normally, so that request finishes and the next request on the same worker starts as usual; the other request's session data is kept (L-1894) ([#279](https://github.com/thordin9/apotheke/pull/279))
+
+### Maintenance
+
+- **migrations:** test: mask quoted identifiers in the D1 stand-in ([#276](https://github.com/thordin9/apotheke/pull/276))
 
 ## [3.36.0] - 2026-11-11
 
@@ -1523,7 +1529,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.1...HEAD
+[3.36.1]: https://github.com/thordin9/apotheke/compare/v3.36.0...v3.36.1
 [3.36.0]: https://github.com/thordin9/apotheke/compare/v3.35.0...v3.36.0
 [3.35.0]: https://github.com/thordin9/apotheke/compare/v3.34.0...v3.35.0
 [3.34.0]: https://github.com/thordin9/apotheke/compare/v3.33.0...v3.34.0
