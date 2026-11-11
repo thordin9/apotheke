@@ -41,7 +41,7 @@ const server = http.createServer((request, response) => {
 server.listen(0, "127.0.0.1", () => console.log(server.address().port));
 JS);
         $pipe = [];
-        self::$node = proc_open(['node', self::$scratch . '/server.mjs'], [1 => ['pipe', 'w'], 2 => STDOUT], $pipe);
+        self::$node = proc_open(['node', self::$scratch . '/server.mjs'], [1 => ['pipe', 'w'], 2 => STDERR], $pipe);
         self::assertIsResource(self::$node);
         $timeout = microtime(true) + 5;
         while (($port = fgets($pipe[1])) === false && microtime(true) < $timeout) {
@@ -90,7 +90,7 @@ server.listen(0, "127.0.0.1", () => console.log(server.address().port));
 JS;
         file_put_contents($prefix . '.mjs', $server);
         $pipes = [];
-        $node = proc_open(['node', $prefix . '.mjs', $prefix], [1 => ['pipe', 'w'], 2 => STDOUT], $pipes);
+        $node = proc_open(['node', $prefix . '.mjs', $prefix], [1 => ['pipe', 'w'], 2 => STDERR], $pipes);
         self::assertIsResource($node);
         try {
             $port = fgets($pipes[1]);

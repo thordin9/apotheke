@@ -152,6 +152,12 @@ final class Restorer
     ) {
     }
 
+    /** On the hosted database (the D1 driver) this is refused for now (Writes::unavailable()). */
+    public function hosted(): bool
+    {
+        return Writes::onD1($this->db);
+    }
+
     public static function originalNameOk(string $base): bool
     {
         return preg_match('/^[a-f0-9]{64}\.(jpg|png|webp|gif|heic)$/D', $base) === 1;
@@ -202,6 +208,7 @@ final class Restorer
      */
     public function restore(string $zipPath, bool $settings, ?string $run = null, ?LeaseHold $upload = null): array
     {
+        Writes::refuseOnD1($this->db, 'Restoring a backup');
         // One restore at a time, before any file or row changes. On explicit R2 the lease is that same
         // storage and is renewed before each later write. Local disk keeps the filesystem lock.
         // The database stage lock is a different lease; it does not keep this one.
