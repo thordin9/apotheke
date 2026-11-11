@@ -26,7 +26,7 @@ scripts/storage-preview-check.sh
 
 `ADMIN_USER` defaults to `admin`. `SLEEP_WAIT_SECONDS` (or `--sleep-seconds`) overrides the wait: the default is `SLEEP_AFTER_MS` from `edge/wrangler.jsonc`, in seconds, plus 30. `0` skips the wait, which is only useful as a local dry run (it still creates the item, downloads the photo, and cleans up, but it does not prove a cold start).
 
-Equivalent flags: `--base-url`, `--user`, `--password`, `--sleep-seconds`. `--help` prints the same summary and exits 0.
+Equivalent flags: `--base-url`, `--user`, `--sleep-seconds`. The password is read from `ADMIN_PASSWORD` only, so it stays out of the process list and shell history. `--help` prints the same summary and exits 0.
 
 The first `/healthz` after a sleep may cold-start the container; the script retries that for about two minutes, as the preview plan does.
 

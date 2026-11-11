@@ -23,7 +23,8 @@ Usage:
 Inputs (env or flags; flags win):
   BASE_URL              Preview origin, no trailing slash  (required, or --base-url)
   ADMIN_USER            Sign-in name                        (default: admin, or --user)
-  ADMIN_PASSWORD        Sign-in password                    (required, or --password)
+  ADMIN_PASSWORD        Sign-in password                    (required; env only,
+                        so it stays out of argv and shell history)
   SLEEP_WAIT_SECONDS    Seconds to wait after the save      (optional, or --sleep-seconds)
                         Default: SLEEP_AFTER_MS from
                         edge/wrangler.jsonc, in seconds, plus 30.
@@ -55,10 +56,6 @@ while [[ $# -gt 0 ]]; do
       ADMIN_USER=${2:?--user needs a value}
       shift 2
       ;;
-    --password)
-      ADMIN_PASSWORD=${2:?--password needs a value}
-      shift 2
-      ;;
     --sleep-seconds)
       SLEEP_WAIT_SECONDS=${2:?--sleep-seconds needs a value}
       shift 2
@@ -88,7 +85,7 @@ else
 fi
 
 [[ -n $BASE_URL ]] || die "BASE_URL or --base-url is required (https://<preview-host>)"
-[[ -n $ADMIN_PASSWORD ]] || die "ADMIN_PASSWORD or --password is required"
+[[ -n $ADMIN_PASSWORD ]] || die "ADMIN_PASSWORD is required (env only)"
 [[ $ADMIN_USER == *[![:space:]]* ]] || die "ADMIN_USER is empty"
 
 BASE_URL=${BASE_URL%/}
@@ -152,7 +149,7 @@ trap cleanup EXIT
 printf '%s\tFALSE\t/\t%s\t0\tapotheke_consent\tv1\n' "$host" "$secure" > "$jar"
 
 # Tiny 16x16 PNG, written at runtime (not a binary in the repo).
-base64 -d > "$photo" <<'EOF'
+base64 --decode > "$photo" <<'EOF'
 iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAJklEQVR42mPkEpHbZ8PFQDRgIkk1AwMDEwOJYFTDqIaB0ZDwSAQA754DuhC7q00AAAAASUVORK5CYII=
 EOF
 [[ -s $photo ]] || die "failed to write the test photo"
@@ -166,12 +163,11 @@ http_code() {
 
 wait_healthz() {
   local label=$1
-  local code start n
+  local code start
   start=$(date +%s)
-  n=0
-  while [[ $n -lt 24 ]]; do
-    n=$((n + 1))
-    code=$(curl -sS --max-time 60 -o "$WORKDIR/healthz" -w '%{http_code}' "$BASE_URL/healthz" || true)
+  # Retry for about 2 minutes in total, whatever each request takes.
+  while (( $(date +%s) - start < 120 )); do
+    code=$(curl -sS --max-time 15 -o "$WORKDIR/healthz" -w '%{http_code}' "$BASE_URL/healthz" || true)
     if [[ $code == 200 ]]; then
       echo "ok $label /healthz 200 after $(( $(date +%s) - start ))s"
       return 0
