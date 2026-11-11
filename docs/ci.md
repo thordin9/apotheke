@@ -168,7 +168,7 @@ scripts/check-commits.sh --message "feat(stock): add low-stock alerts"
 * Every apt install in `ci.yml` and `scripts/e2e-container-setup.sh` goes through `scripts/ci-apt.sh`:
   `install PKG...` runs `apt-get update --error-on=any` and then the install, and `run CMD...` wraps a command
   that calls apt itself (`npx playwright install --with-deps`). Each attempt is capped (update 180 s, install
-  300 s, run 600 s). A failed attempt is retried up to 5 times with a 15/30/60/120 s pause, so a mirror or DNS
+  300 s, run 300 s). A failed attempt is retried up to 5 times with a 15/30/60/120 s pause, so a mirror or DNS
   outage of about ten minutes doesn't fail the job. `--error-on=any` matters because a plain `apt-get update`
   exits 0 when it can't resolve or fetch an index, and the install then fails with *Unable to locate package*.
   After a failed attempt on a GitHub-hosted runner, the script removes `azure.archive.ubuntu.com` from

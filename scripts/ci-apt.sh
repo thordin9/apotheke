@@ -31,7 +31,7 @@ attempt() {
       ;;
     run)
       shift
-      timeout --kill-after=10 600 "$@"
+      timeout --kill-after=10 300 "$@"
       ;;
     *)
       echo "usage: $0 install PKG... | run CMD..." >&2
