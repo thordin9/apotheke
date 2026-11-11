@@ -7,6 +7,7 @@ namespace Apotheke\ImportExport;
 use Apotheke\Catalog\Calendar;
 use Apotheke\Catalog\Items\ItemInput;
 use Apotheke\Catalog\Items\ItemRepository;
+use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
@@ -71,6 +72,12 @@ final class Imports
         private readonly ?Closure $admin = null,
         private readonly ?Closure $guest = null,
     ) {
+    }
+
+    /** The hosted database (the D1 driver): no run-wide transaction; commit() imports line by line (hostedLine()). */
+    public function hosted(): bool
+    {
+        return Writes::onD1($this->db);
     }
 
     /** L-1500: a guest may not upload, even when the Guest role has Import (the page and the API say why). */
@@ -360,6 +367,10 @@ final class Imports
      */
     public function run(array $imp, bool $commit): array
     {
+        if (!$commit && $this->hosted()) {
+            return $this->preview($imp);   // no transaction to roll back there: the dry run that writes nothing
+        }
+        Writes::refuseOnD1($this->db, 'CSV import');   // commit() imports line by line there
         $create = !empty($imp['options']['create']);
         $skip = !empty($imp['options']['skip_errors']);
         $col = self::columns($imp['mapping']);
@@ -443,11 +454,12 @@ final class Imports
      * that stopped resumes where it was and no run imports a line twice; an error line is tried again. Checkpoints {done, total} every $chunk
      * rows. The import is marked done at the end, its result counted from the markers; with errors and no
      * skip_errors the job fails instead (the rows without errors stay imported, and a new commit resumes).
+     * On the hosted database each line is hostedLine(). $ctx null: the page's commit there (no job, no checkpoints).
      *
      * @param Import $imp
      * @return array{created:int,updated:int,unchanged:int,skipped:int,made:Made}
      */
-    public function commitRows(array $imp, JobContext $ctx, int $chunk = 50): array
+    public function commitRows(array $imp, ?JobContext $ctx, int $chunk = 50): array
     {
         $db = $this->db;
         $id = $imp['id'];
@@ -470,38 +482,41 @@ final class Imports
         $knownTags = $this->knownTags();
         $tomorrow = $this->calendar->now()->modify('+86400 seconds')->format('Y-m-d');
         $total = count($rows);
-        $ctx->checkpoint(['done' => 0, 'total' => $total]);
+        $ctx?->checkpoint(['done' => 0, 'total' => $total]);
         foreach ($rows as $n => $r) {
             $line = $n + 2;
             $tags = $knownTags;
-            try {
-                Writes::transaction($db, function () use ($db, $id, $line, $r, $col, $create, $tomorrow, &$knownTags): void {
-                    // The marker first: 0 rows means another run imported this line (the key guards it).
-                    Writes::check($db->query("INSERT INTO import_rows (import_id, line, state) VALUES (?, ?, 'new')
-                        ON CONFLICT (import_id, line) DO UPDATE SET state = 'new', error = '' WHERE import_rows.state = 'error'", [$id, $line]), 'import row');
-                    if ($db->affectedRows() !== 1) {
-                        return;
-                    }
-                    $out = self::blank();
-                    $name = '';
-                    $real = null;
-                    $state = $this->row($r, $col, $create, $tomorrow, $knownTags, $out, $name, $real);
-                    Writes::check($db->query('UPDATE import_rows SET state = ?, made = ? WHERE import_id = ? AND line = ?',
-                        [$state, (string)json_encode(self::unique($out['made']), JSON_UNESCAPED_UNICODE), $id, $line]), 'import row');
-                });
-            } catch (UserError $e) {
-                $knownTags = $tags;   // the row's tags were rolled back
-                Writes::check($db->query("INSERT INTO import_rows (import_id, line, state, error) VALUES (?, ?, 'error', ?)
-                    ON CONFLICT (import_id, line) DO UPDATE SET error = excluded.error WHERE import_rows.state = 'error'", [$id, $line, $e->getMessage()]), 'import row');
+            if ($this->hosted()) {
+                $this->hostedLine($id, $line, $r, $col, $create, $tomorrow, $knownTags);
+            } else {
+                try {
+                    Writes::transaction($db, function () use ($db, $id, $line, $r, $col, $create, $tomorrow, &$knownTags): void {
+                        // The marker first: 0 rows means another run imported this line (the key guards it).
+                        Writes::check($db->query("INSERT INTO import_rows (import_id, line, state) VALUES (?, ?, 'new')
+                            ON CONFLICT (import_id, line) DO UPDATE SET state = 'new', error = '' WHERE import_rows.state = 'error'", [$id, $line]), 'import row');
+                        if ($db->affectedRows() !== 1) {
+                            return;
+                        }
+                        $out = self::blank();
+                        $name = '';
+                        $real = null;
+                        $state = $this->row($r, $col, $create, $tomorrow, $knownTags, $out, $name, $real);
+                        Writes::check($db->query('UPDATE import_rows SET state = ?, made = ? WHERE import_id = ? AND line = ?',
+                            [$state, (string)json_encode(self::unique($out['made']), JSON_UNESCAPED_UNICODE), $id, $line]), 'import row');
+                    });
+                } catch (UserError $e) {
+                    $knownTags = $tags;   // the row's tags were rolled back
+                    $this->errorLine($id, $line, $e->getMessage());
+                }
             }
-            if (($n + 1) % $chunk === 0 && $n + 1 < $total) {
+            if ($ctx !== null && ($n + 1) % $chunk === 0 && $n + 1 < $total) {
                 $ctx->checkpoint(['done' => $n + 1, 'total' => $total]);
                 if ($ctx->stopRequested()) {
                     throw new JobInterrupted('import ' . $id . ': stopped at row ' . ($n + 1));
                 }
             }
         }
-        $ctx->checkpoint(['done' => $total, 'total' => $total]);
+        $ctx?->checkpoint(['done' => $total, 'total' => $total]);
         $sum = $this->summary($id);
         if ($sum['skipped'] > 0 && empty($imp['options']['skip_errors'])) {
             throw new JobFailed('Some rows have errors. Fix the file, or commit again with skip_errors.');
@@ -511,6 +526,55 @@ final class Imports
         $this->files->delete(self::key($id));
 
         return $sum;
+    }
+
+    /** A line's error marker; a line another run imported keeps its marker. */
+    private function errorLine(int $id, int $line, string $error): void
+    {
+        Writes::check($this->db->query("INSERT INTO import_rows (import_id, line, state, error) VALUES (?, ?, 'error', ?)
+            ON CONFLICT (import_id, line) DO UPDATE SET error = excluded.error WHERE import_rows.state = 'error'", [$id, $line, $error]), 'import row');
+    }
+
+    /**
+     * One line of commitRows() on the hosted database (ADR-002: per-row batches with the marker). A dry run checks
+     * the row first, writing nothing (its error is the line's). Then its locations and categories are created, each
+     * its own idempotent unit that a retry finds again, and one unit, one batch, does the rest: the line's marker,
+     * claimed only when no run has it (expect 1; a line marked by another run fails the batch before anything is
+     * written, and is skipped), the item's save and its loan. A run that stopped resumes at the first unmarked line.
+     *
+     * @param list<string> $r
+     * @param array<string,int> $col
+     * @param array<string,bool> $knownTags
+     */
+    private function hostedLine(int $id, int $line, array $r, array $col, bool $create, string $tomorrow, array &$knownTags): void
+    {
+        if (Writes::rows($this->db, "SELECT 1 FROM import_rows WHERE import_id = ? AND line = ? AND state <> 'error'", [$id, $line]) !== []) {
+            return;
+        }
+        $tags = $knownTags;
+        try {
+            $out = self::blank();
+            $name = '';
+            $sim = ['location' => [], 'category' => [], 'items' => [], 'next' => 0];
+            $this->row($r, $col, $create, $tomorrow, $knownTags, $out, $name, $sim);
+            $knownTags = $tags;
+            $out = self::blank();
+            $real = null;
+            $later = null;
+            $state = $this->row($r, $col, $create, $tomorrow, $knownTags, $out, $name, $real, true, $later);
+            $made = (string)json_encode(self::unique($out['made']), JSON_UNESCAPED_UNICODE);
+            $this->items->inUnit(static function (UnitOfWork $uow) use ($id, $line, $state, $made, $later): void {
+                $uow->write("INSERT INTO import_rows (import_id, line, state, made) VALUES (?, ?, ?, ?)
+                    ON CONFLICT (import_id, line) DO UPDATE SET state = excluded.state, made = excluded.made, error = '' WHERE import_rows.state = 'error'",
+                    [$id, $line, $state, $made], 'import row', 1, static fn (): UserError => new UserError('Another run imported this line.', 409));
+                if ($later !== null) {
+                    $later($uow);
+                }
+            });
+        } catch (UserError $e) {
+            $knownTags = $tags;
+            $this->errorLine($id, $line, $e->getMessage());   // a line another run imported keeps that run's marker
+        }
     }
 
     /**
@@ -539,16 +603,18 @@ final class Imports
      * One CSV row of a run: read it, find or (when allowed) create its location, category and tags, and save the
      * item. $sim null: for real, inside the run's savepoint. An array: a dry run that writes nothing (preview()):
      * what a real run would create gets a stand-in id below 0 in $sim, and the saved item is kept there for a later
-     * row with its id. A UserError is the row's error.
+     * row with its id. A UserError is the row's error. $defer (with $sim null): the save and the loan are not done but
+     * left in $later, for the caller's unit of work (hostedLine()); locations and categories are still created.
      *
      * @param list<string> $r
      * @param array<string,int> $col
      * @param array<string,bool> $knownTags
      * @param Run $out
      * @param Sim|null $sim
+     * @param (Closure(UnitOfWork): void)|null $later
      * @return string new, update or same
      */
-    private function row(array $r, array $col, bool $create, string $tomorrow, array &$knownTags, array &$out, string &$name, ?array &$sim): string
+    private function row(array $r, array $col, bool $create, string $tomorrow, array &$knownTags, array &$out, string &$name, ?array &$sim, bool $defer = false, ?Closure &$later = null): string
     {
         $get = static fn (string $k): string => isset($col[$k]) ? trim($r[$col[$k]] ?? '') : '';
         $id = $get('id');
@@ -618,7 +684,14 @@ final class Imports
             $out['unchanged']++;
         } else {
             /** @var array{name:string,location_id:?int,category_id:?int,quantity:int,notes:string,tags:list<string>,value_cents:?int,purchase_date:?string,expires_on:?string,serial:string,barcode:string,min_qty:?int} $in */
-            if ($sim === null) {
+            if ($sim === null && $defer) {
+                $later = function (UnitOfWork $uow) use ($existing, $in, $lend, $lentTo, $due): void {
+                    $saved = $this->items->saveRef($existing, $in, null, false);   // joins $uow
+                    if ($lend) {
+                        $this->loans->lendIn($uow, $saved, $in['name'], $existing === null ? null : ($existing['lent_to'] ?? null), $lentTo, $due);
+                    }
+                };
+            } elseif ($sim === null) {
                 $savedId = $this->items->save($existing, $in, null, false);
                 if ($lend) {
                     $this->loans->lend($savedId, $lentTo, null, $due);
@@ -831,16 +904,48 @@ final class Imports
         if ($imp['status'] === 'done') {
             throw new UserError('This file was imported already.', 409);
         }
+        if ($this->hosted()) {
+            return $this->commitHosted($imp);
+        }
         $r = $this->run($imp, true);
         if ($r['done_before']) {
             return null;
         }
         if (!$r['committed']) {
-            throw new UserError($r['errors'] . ' ' . ($r['errors'] === 1 ? 'row has' : 'rows have') . ' errors. Fix the file, or tick “Skip rows with errors”.', 422);
+            throw self::rowErrors($r['errors']);
         }
         $this->files->delete(self::key($imp['id']));
 
         return ['created' => $r['created'], 'updated' => $r['updated'], 'unchanged' => $r['unchanged'], 'skipped' => $r['skipped'], 'made' => $r['made']];
+    }
+
+    /**
+     * commit() on the hosted database: the dry run first, so a file with errors (and no "skip") imports nothing, as
+     * the transaction does elsewhere; then commitRows() without a job, one batch per line with its marker. A commit
+     * that stopped half-way, or a second submit, resumes: the lines already imported are skipped.
+     *
+     * @param Import $imp
+     * @return array<string,mixed>|null
+     */
+    private function commitHosted(array $imp): ?array
+    {
+        $pre = $this->preview($imp);
+        if ($pre['done_before']) {
+            return null;
+        }
+        if ($pre['errors'] > 0 && empty($imp['options']['skip_errors'])) {
+            throw self::rowErrors($pre['errors']);
+        }
+        try {
+            return $this->commitRows($imp, null);
+        } catch (JobFailed $e) {   // a row that failed only now (it changed meanwhile): what is in stays, a new commit resumes
+            throw new UserError($e->getMessage(), 422);
+        }
+    }
+
+    private static function rowErrors(int $n): UserError
+    {
+        return new UserError($n . ' ' . ($n === 1 ? 'row has' : 'rows have') . ' errors. Fix the file, or tick “Skip rows with errors”.', 422);
     }
 
     /** @param array<string,mixed> $s */

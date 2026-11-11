@@ -4,57 +4,55 @@ declare(strict_types=1);
 
 namespace Apotheke\Settings;
 
+use Apotheke\Core\Storage\Storage;
 use InvalidArgumentException;
 use RuntimeException;
+use Throwable;
 
-/** BrandStore on local disk, by default DATA_DIR/brand (legacy brand_dir()). */
+/** BrandStore on the selected storage, under the `brand/` prefix (legacy brand_dir()). */
 final class LocalBrandStore implements BrandStore
 {
-    public function __construct(private readonly string $dir)
+    public function __construct(private readonly Storage $files)
     {
     }
 
     public function has(string $name): bool
     {
-        return $this->path($name) !== null;
+        $key = $this->key($name);
+
+        return $key !== null && $this->files->exists($key);
     }
 
     public function read(string $name): ?string
     {
-        $path = $this->path($name);
-        if ($path === null) {
-            return null;
-        }
-        $bytes = @file_get_contents($path);
+        $key = $this->key($name);
 
-        return $bytes === false ? null : $bytes;
+        return $key === null ? null : $this->files->read($key);
     }
 
     public function size(string $name): ?int
     {
-        $path = $this->path($name);
-        $size = $path === null ? false : @filesize($path);
+        $bytes = $this->read($name);
 
-        return $size === false ? null : $size;
+        return $bytes === null ? null : strlen($bytes);
     }
 
     public function modifiedAt(string $name): ?int
     {
-        $path = $this->path($name);
-        $time = $path === null ? false : @filemtime($path);
+        $key = $this->key($name);
 
-        return $time === false ? null : $time;
+        return $key === null ? null : $this->files->modifiedAt($key);
     }
 
     public function put(string $name, string $bytes): void
     {
-        if (!isset(self::FILES[$name])) {
+        $key = $this->key($name);
+        if ($key === null) {
             throw new InvalidArgumentException('Not a brand file name.');
         }
-        if (!is_dir($this->dir) && !@mkdir($this->dir, 0775, true) && !is_dir($this->dir)) {
-            throw new RuntimeException('Server could not save the logo.');
-        }
-        if (@file_put_contents($this->dir . '/' . $name, $bytes) === false) {
+        try {
+            $this->files->write($key, $bytes);
+        } catch (Throwable) {
             throw new RuntimeException('Server could not save the logo.');
         }
     }
@@ -62,19 +60,12 @@ final class LocalBrandStore implements BrandStore
     public function clear(): void
     {
         foreach (array_keys(self::FILES) as $name) {
-            @unlink($this->dir . '/' . $name);
+            $this->files->delete('brand/' . $name);
         }
     }
 
-    /** The file path when the name is allowed and the file exists. */
-    private function path(string $name): ?string
+    private function key(string $name): ?string
     {
-        if (!isset(self::FILES[$name])) {
-            return null;
-        }
-        $path = $this->dir . '/' . $name;
-        clearstatcache(true, $path);
-
-        return is_file($path) ? $path : null;
+        return isset(self::FILES[$name]) ? 'brand/' . $name : null;
     }
 }

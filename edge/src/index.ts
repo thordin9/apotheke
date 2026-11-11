@@ -83,8 +83,9 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 				TRUST_PROXY: "1",
 				// Per-client rate-limit keys: not TRUST_PROXY (self-host may set that behind other proxies).
 				APOTHEKE_EDGE_CLIENT_IP: "1",
-				// Only with the merged fragment; otherwise unset, so PHP keeps its LocalStorage default.
-				...(backend === "r2" ? { STORAGE_BACKEND: "r2" } : {}),
+				// Only with the merged fragment, and never from Worker vars; otherwise unset, so PHP keeps
+				// LocalStorage and its local database. Storage mode is R2 files plus the Installation object.
+				...(backend === "r2" ? { STORAGE_BACKEND: "r2", DB_DRIVER: "d1" } : {}),
 			},
 		});
 		await c.setInactivityTimeout(this.sleepAfter());

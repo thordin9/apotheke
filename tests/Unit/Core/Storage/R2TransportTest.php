@@ -13,6 +13,9 @@ final class R2TransportTest extends TestCase
     private static string $base = '';
     /** @var resource|null */
     private static $node;
+    /** @var resource|null the fixture's stderr: a pipe, never the runner's own output (a shared fd would be rewound) */
+    private static $nodeErr;
+    private static string $nodeLog = '';
     private static string $scratch = '';
     /** @var array<int,mixed> */
     public static array $curlOptions = [];
@@ -41,19 +44,40 @@ const server = http.createServer((request, response) => {
 server.listen(0, "127.0.0.1", () => console.log(server.address().port));
 JS);
         $pipe = [];
-        self::$node = proc_open(['node', self::$scratch . '/server.mjs'], [1 => ['pipe', 'w'], 2 => STDOUT], $pipe);
+        self::$node = proc_open(['node', self::$scratch . '/server.mjs'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipe);
         self::assertIsResource(self::$node);
+        self::$nodeErr = $pipe[2];
+        stream_set_blocking(self::$nodeErr, false);
         $timeout = microtime(true) + 5;
         while (($port = fgets($pipe[1])) === false && microtime(true) < $timeout) {
             usleep(10000);
         }
-        self::assertIsString($port, 'The local fixture must start.');
+        self::$nodeLog .= self::drain(self::$nodeErr);
+        self::assertIsString($port, 'The local fixture must start. Its stderr: ' . self::$nodeLog);
         self::$base = 'http://127.0.0.1:' . (int)$port;
         fclose($pipe[1]);
     }
 
+    /** Read what a fixture wrote to stderr so far without waiting (its pipe is non-blocking). */
+    private static function drain(mixed $pipe): string
+    {
+        $out = '';
+        while (is_resource($pipe) && ($chunk = fread($pipe, 8192)) !== false && $chunk !== '') {
+            $out .= $chunk;
+        }
+
+        return $out;
+    }
+
+    protected function tearDown(): void
+    {
+        self::$nodeLog .= self::drain(self::$nodeErr);   // keep the long-lived fixture's pipe from filling
+        parent::tearDown();
+    }
+
     public static function tearDownAfterClass(): void
     {
+        if (is_resource(self::$nodeErr)) fclose(self::$nodeErr);
         if (is_resource(self::$node)) proc_terminate(self::$node);
         if (is_resource(self::$node)) proc_close(self::$node);
         @unlink(self::$scratch . '/server.mjs');
@@ -90,11 +114,14 @@ server.listen(0, "127.0.0.1", () => console.log(server.address().port));
 JS;
         file_put_contents($prefix . '.mjs', $server);
         $pipes = [];
-        $node = proc_open(['node', $prefix . '.mjs', $prefix], [1 => ['pipe', 'w'], 2 => STDOUT], $pipes);
+        $node = proc_open(['node', $prefix . '.mjs', $prefix], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         self::assertIsResource($node);
+        stream_set_blocking($pipes[2], false);
+        $err = '';
         try {
             $port = fgets($pipes[1]);
-            self::assertIsString($port);
+            $err .= self::drain($pipes[2]);
+            self::assertIsString($port, 'The TLS fixture must start. Its stderr: ' . $err);
             try {
                 $method = new \ReflectionMethod(R2Bridge::class, 'http');
                 $method->invoke(new R2Bridge('https://localhost:' . (int)$port), 'GET', 'https://localhost:' . (int)$port . '/', null);
@@ -109,9 +136,10 @@ JS;
             } catch (\RuntimeException $e) {
                 $this->assertSame('HTTP client failed', $e->getMessage());
             }
-            $this->assertSame($prefix . '.crt', self::$curlOptions[CURLOPT_CAINFO] ?? null);
+            $this->assertSame($prefix . '.crt', self::$curlOptions[CURLOPT_CAINFO] ?? null, 'TLS fixture stderr: ' . ($err .= self::drain($pipes[2])));
         } finally {
             if (is_resource($pipes[1])) fclose($pipes[1]);
+            if (is_resource($pipes[2])) fclose($pipes[2]);
             proc_terminate($node);
             proc_close($node);
             foreach (['.key', '.crt', '.mjs'] as $suffix) @unlink($prefix . $suffix);

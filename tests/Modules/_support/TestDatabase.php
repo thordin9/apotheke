@@ -53,8 +53,11 @@ final class TestDatabase
     /** @return list<string> the drivers this run covers */
     public static function drivers(): array
     {
-        return getenv('APOTHEKE_CI4_TEST_PGSQL') === '1' || (getenv('TEST_PG_HOST') !== false && getenv('TEST_PG_HOST') !== '')
+        $drivers = getenv('APOTHEKE_CI4_TEST_PGSQL') === '1' || (getenv('TEST_PG_HOST') !== false && getenv('TEST_PG_HOST') !== '')
             ? ['sqlite', 'pgsql'] : ['sqlite'];
+
+        // P4-5: the D1 driver on the real Installation handler (edge/tests/do-bridge-server.mjs), opt-in.
+        return getenv('APOTHEKE_CI4_TEST_D1') === '1' ? [...$drivers, 'd1'] : $drivers;
     }
 
     public static function create(string $driver, bool $migrate = true): self
@@ -63,6 +66,9 @@ final class TestDatabase
         mkdir($dir, 0775, true);
         $schema = $driver === 'pgsql' ? 'ci4t_' . bin2hex(random_bytes(5)) : '';
         $env = ['DATA_DIR' => $dir, 'DB_DRIVER' => $driver, 'SEED_DEFAULTS' => '0'];
+        if ($driver === 'd1') {
+            $env += ['STORAGE_BACKEND' => 'r2', 'D1_TEST_URL' => self::startBridge()];
+        }
         if ($driver === 'pgsql') {
             $env += ['DB_HOST' => getenv('TEST_PG_HOST') ?: '127.0.0.1', 'DB_PORT' => getenv('TEST_PG_PORT') ?: '5432',
                 'DB_NAME' => getenv('TEST_PG_DB') ?: 'apotheke', 'DB_USER' => getenv('TEST_PG_USER') ?: 'apotheke',
@@ -85,6 +91,16 @@ final class TestDatabase
         $self = new self($driver, $dir, $schema);
         $self->env = $env;
         $self->config = ApothekeConfig::load(ApothekeConfig::repoRoot(), null, $env);
+        if ($driver === 'd1') {
+            $url = $env['D1_TEST_URL'] ?? throw new \InvalidArgumentException('D1_TEST_URL required');
+            if ($migrate) {
+                (new \Apotheke\Migrations\D1Bootstrap(new \Apotheke\Core\Database\D1HttpExecutor($url),
+                    new \Apotheke\Migrations\D1MigrationRunner(PdoMigrationRunner::repoRoot() . '/migrations')))->migrate();
+            }
+            $self->db = self::d1Connection($url);
+
+            return $self;
+        }
         if ($migrate) {
             $runner = new PdoMigrationRunner(PdoMigrationRunner::repoRoot() . '/migrations');
             $pdo = $runner->connect($self->config->database());
@@ -114,6 +130,9 @@ final class TestDatabase
      */
     public function connectAgain(): BaseConnection
     {
+        if ($this->driver === 'd1') {
+            return self::d1Connection($this->env['D1_TEST_URL']);
+        }
         $factory = new DatabaseFactory($this->config, new DsnTranslator());
         $group = array_merge(config(Database::class)->default, $factory->group(), ['schema' => '', 'DBPrefix' => '']);
         // pg_connect() hands back the open link for an identical connection string: this one differs.
@@ -177,7 +196,7 @@ final class TestDatabase
         $db ??= $this->db;
         $clock = new Clock();
         $history ??= new ActivityLogger($db, $clock, static fn (): ?string => null);
-        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($this->dir . '/brand'), $clock,
+        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($this->dir)), $clock,
             $this->config->values(), static fn (string $m): null => null, new CommandLine());
         $images = new ImageStore($settings, new OriginalStore(new LocalStorage($this->config->originalsDir(), 0640)),
             new ServedImageWriter(new LocalStorage($this->dir)), new ImagickDecoder(), new RequestCleanup(static function (): void {
@@ -200,7 +219,7 @@ final class TestDatabase
         $db ??= $this->db;
         $clock = new Clock();
         $history ??= new ActivityLogger($db, $clock, static fn (): ?string => null);
-        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($this->dir . '/brand'), $clock,
+        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($this->dir)), $clock,
             $this->config->values(), static fn (string $m): null => null, new CommandLine());
         $images = new ImageStore($settings, new OriginalStore(new LocalStorage($this->config->originalsDir(), 0640)),
             new ServedImageWriter(new LocalStorage($this->dir)), new ImagickDecoder(), new RequestCleanup(static function (): void {
@@ -236,9 +255,42 @@ final class TestDatabase
         return $this->env;
     }
 
+    /** @var array<string,resource> D1 bridge servers by URL */
+    private static array $bridges = [];
+
+    private static function startBridge(): string
+    {
+        $root = dirname(__DIR__, 3);
+        $proc = proc_open(['node', '--experimental-strip-types', '--no-warnings', $root . '/edge/tests/do-bridge-server.mjs'], [1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $root);
+        $port = is_resource($proc) ? (int)trim((string)fgets($pipes[1])) : 0;
+        if ($port <= 0) {
+            throw new \RuntimeException('The D1 bridge test server did not start (needs node with node:sqlite and edge/node_modules).');
+        }
+        $url = 'http://127.0.0.1:' . $port;
+        self::$bridges[$url] = $proc;
+
+        return $url;
+    }
+
+    /** @return BaseConnection<object|resource, object|resource> */
+    private static function d1Connection(string $url): BaseConnection
+    {
+        /** @var BaseConnection<object|resource, object|resource> $db */
+        $db = Database::connect(['DBDriver' => 'Apotheke\\Core\\Database\\D1', 'hostname' => $url, 'database' => '',
+            'DBDebug' => getenv('APOTHEKE_D1_DEBUG') === '1', 'DBPrefix' => ''], false);
+
+        return $db;
+    }
+
     public function drop(): void
     {
         $this->db->close();
+        if ($this->driver === 'd1' && isset(self::$bridges[$this->env['D1_TEST_URL'] ?? ''])) {
+            $proc = self::$bridges[$this->env['D1_TEST_URL']];
+            unset(self::$bridges[$this->env['D1_TEST_URL']]);
+            proc_terminate($proc);
+            proc_close($proc);
+        }
         if ($this->driver === 'pgsql') {
             $pdo = $this->pdo();
             $pdo->exec('DROP SCHEMA IF EXISTS "' . $this->schema . '" CASCADE');

@@ -9,6 +9,7 @@ use RuntimeException;
 
 // Loaded before Composer's autoloader (Core/Boot/startup.php, root tests).
 require_once dirname(__DIR__) . '/Http/ProxyList.php';
+require_once __DIR__ . '/config-functions.php';
 
 /**
  * defaults < config.php < environment, the same map and normalisation as 2.x config.php.
@@ -34,6 +35,8 @@ final class ApothekeConfig
         'DB_PASSWORD' => 'db.password',
         'DB_SCHEMA' => 'db.schema',
         'SQLITE_PATH' => 'db.sqlite_path',
+        'STORAGE_BACKEND' => 'storage.backend',
+        'R2_MAX_WRITE_BYTES' => 'storage.max_write_bytes',
         'MAX_UPLOAD_MB' => 'uploads.max_mb',
         'IMAGE_FULL_MAX' => 'uploads.full_max',
         'IMAGE_THUMB_MAX' => 'uploads.thumb_max',
@@ -80,10 +83,8 @@ final class ApothekeConfig
         }
         $cfg['data_dir'] = rtrim((string)$cfg['data_dir'], '/');
         $cfg['originals_dir'] = rtrim((string)($cfg['originals_dir'] ?? ''), '/');
-        $cfg['db']['driver'] = strtolower((string)$cfg['db']['driver']);
-        if (!in_array($cfg['db']['driver'], ['sqlite', 'pgsql'], true)) {
-            throw new RuntimeException('Unsupported db.driver "' . $cfg['db']['driver'] . '" (use sqlite or pgsql).');
-        }
+        $cfg['storage'] = config_storage($cfg['storage'] ?? null);
+        $cfg['db']['driver'] = config_db_driver($cfg['db']['driver'], $cfg['storage']['backend']);
         if ((string)$cfg['db']['sqlite_path'] === '') {
             $cfg['db']['sqlite_path'] = $cfg['data_dir'] . '/catalog.sqlite';
         }
@@ -228,6 +229,11 @@ final class ApothekeConfig
                 'user' => 'apotheke',
                 'password' => '',
                 'schema' => '',
+            ],
+            'storage' => [
+                'backend' => 'local',
+                'max_write_bytes' => 104857600,
+                'r2_base_url' => 'http://r2.internal',
             ],
             'uploads' => [
                 'max_mb' => 20,

@@ -148,9 +148,11 @@ final class PlainHandler implements ExceptionHandlerInterface
             413 => 'upload.too_large',
             422 => 'validation.failed',
             429 => 'rate_limited',
+            501 => 'hosted.unavailable',   // only a UserError has 501 (status()): Writes::unavailable()
             default => $status >= 500 ? 'server_error' : 'request.failed',
         };
         $detail = match (true) {
+            $status === 501 => $body,   // that UserError's text is written for the user, as below 500
             $status >= 500 => 'Something went wrong on the server.',
             $exception instanceof UserError => $body,
             $status === 404 => 'No such API endpoint.',

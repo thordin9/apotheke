@@ -928,7 +928,7 @@ final class AutofillTest extends CIUnitTestCase
         $settings = new SettingsService(
             new SettingsRepository($this->database->db),
             new SettingsSchema(),
-            new LocalBrandStore($this->database->dataDir() . '/brand'),
+            new LocalBrandStore(new LocalStorage($this->database->dataDir())),
             new Clock(),
             $this->database->config->values(),
             static function (string $message) use (&$logged): void {

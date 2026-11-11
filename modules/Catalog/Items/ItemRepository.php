@@ -99,6 +99,20 @@ final class ItemRepository
      */
     public function save(?array $existing, array $in, ?string $newImage, bool $removeImage): int
     {
+        $result = $this->saveRef($existing, $in, $newImage, $removeImage);
+
+        return $result instanceof Ref ? $result->id() : $result;
+    }
+
+    /**
+     * save(), but a new item saved inside a caller's unit of work answers its Ref (the id is known once that unit
+     * ran), so the caller's later steps in the same unit can refer to it (a CSV import's row on the hosted database).
+     *
+     * @param array<string,mixed>|null $existing
+     * @param array{name:string,location_id:?int,category_id:?int,quantity:int,notes:string,tags?:list<string>,value_cents?:?int,purchase_date?:?string,expires_on?:?string,serial?:string,barcode?:string,min_qty?:?int,copied_from?:?string,reason?:?string} $in
+     */
+    public function saveRef(?array $existing, array $in, ?string $newImage, bool $removeImage): int|Ref
+    {
         $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'expires_on' => null, 'serial' => '', 'barcode' => '', 'min_qty' => null, 'copied_from' => null, 'reason' => null];
         $in['barcode'] = ItemInput::barcode((string)$in['barcode']);
         $now = $this->clock->now();
@@ -199,13 +213,14 @@ final class ItemRepository
             }
         }
 
-        return $result instanceof Ref ? $result->id() : $result;
+        return $result;
     }
 
     /**
-     * Run $fn in one checked transaction (Writes::transaction()), so a
+     * Run $fn in one checked transaction (Writes::atomic()), so a
      * caller can make its own writes part of a save. A unit of work opened
-     * inside joins it (ADR-002).
+     * inside joins it (ADR-002). On the hosted database (D1) $fn may run one
+     * unit of work (one save) and nothing else, so it is still one batch.
      *
      * @template T
      * @param callable():T $fn
@@ -215,7 +230,7 @@ final class ItemRepository
     {
         $outer = (int)$this->db->transDepth === 0;
         try {
-            $r = Writes::transaction($this->db, $fn);
+            $r = Writes::atomic($this->db, $fn);
         } finally {
             $drop = $outer ? $this->dropAfterCommit : [];
             if ($outer) {
@@ -227,6 +242,25 @@ final class ItemRepository
         }
 
         return $r;
+    }
+
+    /**
+     * Run $fn in this repository's unit of work on items: a save() inside joins it, so the caller's own steps and
+     * the save are one batch (undo on the hosted database).
+     *
+     * @template T
+     * @param callable(UnitOfWork):T $fn
+     * @return T
+     */
+    public function inUnit(callable $fn): mixed
+    {
+        return $this->units->run('items', $fn);
+    }
+
+    /** Whether this repository writes to the hosted database (the D1 driver). */
+    public function hosted(): bool
+    {
+        return $this->db instanceof \Apotheke\Core\Database\D1\Connection;
     }
 
     /**

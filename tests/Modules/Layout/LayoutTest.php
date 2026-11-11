@@ -17,6 +17,7 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use RuntimeException;
 use Tests\Support\TestDatabase;
@@ -165,7 +166,7 @@ final class LayoutTest extends CIUnitTestCase
     {
         return new Page(
             $settings,
-            new Branding($settings, new LocalBrandStore($this->database?->dataDir() . '/brand'), $this->assets()),
+            new Branding($settings, new LocalBrandStore(new LocalStorage($this->database?->dataDir())), $this->assets()),
             $this->assets(),
             $viewer,
             static function (bool $create) use (&$created): string {
@@ -189,6 +190,6 @@ final class LayoutTest extends CIUnitTestCase
         $database = $this->database;
         $this->assertNotNull($database);
 
-        return new SettingsService(new SettingsRepository($database->db), new SettingsSchema(), new LocalBrandStore($database->dataDir() . '/brand'), new Clock(), $database->config->values(), static fn (string $m): null => null, new CommandLine());
+        return new SettingsService(new SettingsRepository($database->db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($database->dataDir())), new Clock(), $database->config->values(), static fn (string $m): null => null, new CommandLine());
     }
 }

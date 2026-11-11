@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\BulkMerge;
 
 use Apotheke\Catalog\Items\ItemRepository;
+use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\ItemHistory;
@@ -46,12 +47,19 @@ final class BulkService
     ) {
     }
 
+    /** The hosted database (the D1 driver): the selection runs as one unit of work. */
+    public function hosted(): bool
+    {
+        return Writes::onD1($this->db);
+    }
+
     /**
      * @param list<int> $ids
      * @param array{location_id?:?int,category_id?:?int,tags?:list<string>,tag_id?:int,keep_files?:bool} $opt
+     * @param (callable(UnitOfWork, int):void)|null $after hosted: queued in the same unit after the item writes
      * @return int the number of items changed
      */
-    public function run(array $ids, string $action, array $opt = []): int
+    public function run(array $ids, string $action, array $opt = [], ?callable $after = null): int
     {
         if (!in_array($action, self::ACTIONS, true)) {
             throw new UserError('Unknown bulk action.');
@@ -74,7 +82,7 @@ final class BulkService
         }
         $files = [];
         $attFiles = [];
-        $n = Writes::transaction($this->db, function () use ($ids, $action, $opt, &$files, &$attFiles): int {
+        $apply = function (?UnitOfWork $uow) use ($ids, $action, $opt, &$files, &$attFiles): int {
             $n = 0;
             foreach ($ids as $id) {
                 $it = $this->items->get($id);
@@ -98,19 +106,38 @@ final class BulkService
                     default:   // delete
                         $files = array_merge($files, array_column($this->items->photos($id), 'file'), [$it['image']]);
                         $attFiles = array_merge($attFiles, array_column($this->items->attachments($id), 'file'));
-                        $this->history->log($id, (string)$it['name'], 'deleted', array_filter(['location' => (string)$it['location'], 'quantity' => (int)$it['quantity'], 'bulk' => true],
-                            static fn ($v): bool => $v !== ''));
-                        Writes::check($this->db->table('items')->where('id', $id)->delete(), 'delete item');
+                        $details = array_filter(['location' => (string)$it['location'], 'quantity' => (int)$it['quantity'], 'bulk' => true], static fn ($v): bool => $v !== '');
+                        if ($uow !== null) {
+                            $this->history->queue($uow, $id, (string)$it['name'], 'deleted', $details);
+                            $uow->write('DELETE FROM items WHERE id = ?', [$id], 'delete item', 1, self::changed(...));
+                        } else {
+                            $this->history->log($id, (string)$it['name'], 'deleted', $details);
+                            Writes::check($this->db->table('items')->where('id', $id)->delete(), 'delete item');
+                        }
                         $n++;
                         continue 2;
                 }
                 $this->items->save($it, $in, null, false);
                 $n++;
             }
-            Writes::check($this->db->query('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)'), 'drop unused tags');
+            $drop = 'DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)';
+            $uow !== null ? $uow->write($drop, [], 'drop unused tags') : Writes::check($this->db->query($drop), 'drop unused tags');
 
             return $n;
-        });
+        };
+        // On the hosted database the whole selection is one unit of work, one batch on the Installation object
+        // (ADR-002: all or nothing there); each item's save joins it. A failed batch wrote nothing, so the same
+        // request again simply resumes from the current rows. Elsewhere it is one transaction, as before.
+        $n = $this->hosted()
+            ? $this->items->inUnit(static function (UnitOfWork $uow) use ($apply, $after): int {
+                $n = $apply($uow);
+                if ($after !== null) {
+                    $after($uow, $n);
+                }
+
+                return $n;
+            })
+            : Writes::transaction($this->db, static fn (): int => $apply(null));
         if (!empty($opt['keep_files'])) {
             return $n;
         }
@@ -122,5 +149,11 @@ final class BulkService
         }
 
         return $n;
+    }
+
+    /** A selected item changed or went while the batch was built: nothing was written. */
+    private static function changed(): UserError
+    {
+        return new UserError('The selection changed while it was being edited. Try again.', 409);
     }
 }

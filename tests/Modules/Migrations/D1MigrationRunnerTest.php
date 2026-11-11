@@ -327,4 +327,152 @@ final class D1MigrationRunnerTest extends CIUnitTestCase
         }
     }
 
+    // ---------------------------------------------------------------------
+    // M-1846: D1Pdo queues writes in a transaction and refuses mid-queue reads.
+    // ---------------------------------------------------------------------
+
+    public function testTransactionSendsQueuedWritesAsOneBatch(): void
+    {
+        $batches = [];
+        $pdo = new D1Pdo(new D1HttpExecutor('http://d1.internal', static function (string $m, string $url, string $body) use (&$batches): string {
+            $path = parse_url($url, PHP_URL_PATH);
+            $payload = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+            if ($path === '/batch') {
+                $batches[] = array_column($payload, 'sql');
+            }
+            $n = is_array($payload) ? count($payload) : 1;
+
+            return json_encode(['ok' => true, 'results' => array_fill(0, $n, ['rows' => []])], JSON_THROW_ON_ERROR);
+        }));
+        $pdo->beginTransaction();
+        $pdo->exec('CREATE TABLE t (x INTEGER)');
+        $pdo->exec('CREATE TABLE u (x INTEGER)');
+        $this->assertSame([], $batches, 'writes stay queued until commit');
+        $pdo->commit();
+        $this->assertSame([['CREATE TABLE t (x INTEGER)', 'CREATE TABLE u (x INTEGER)']], $batches);
+        $this->assertFalse($pdo->inTransaction());
+    }
+
+    public function testAReadAfterAQueuedWriteIsRefusedAndNothingIsSent(): void
+    {
+        $batches = [];
+        $pdo = new D1Pdo(new D1HttpExecutor('http://d1.internal', static function (string $m, string $url, string $body) use (&$batches): string {
+            $path = parse_url($url, PHP_URL_PATH);
+            $payload = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+            if ($path === '/batch') {
+                $batches[] = array_column($payload, 'sql');
+            }
+            $n = is_array($payload) ? count($payload) : 1;
+
+            return json_encode(['ok' => true, 'results' => array_fill(0, $n, ['rows' => [['x' => 1]]])], JSON_THROW_ON_ERROR);
+        }));
+        $pdo->beginTransaction();
+        $pdo->exec('CREATE TABLE t (x INTEGER)');
+        try {
+            $pdo->query('SELECT x FROM t');
+            $this->fail('a read after a queued write must be refused');
+        } catch (\LogicException $e) {
+            $this->assertSame('D1 cannot read after a queued write in the same transaction; use a unit of work.', $e->getMessage());
+        }
+        $this->assertSame([], $batches, 'the queued write was not sent');
+        $pdo->rollBack();
+    }
+
+    public function testReturningAndLastInsertIdAreRefusedWhileQueued(): void
+    {
+        $pdo = new D1Pdo($this->fakeExecutor());
+        $pdo->beginTransaction();
+        $pdo->exec('CREATE TABLE t (x INTEGER)');
+        try {
+            $pdo->query('UPDATE t SET x = 1 RETURNING x');
+            $this->fail('RETURNING inside a transaction must be refused');
+        } catch (\LogicException $e) {
+            $this->assertSame('D1 cannot return rows from a write inside a transaction; use a unit of work.', $e->getMessage());
+        }
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('D1 does not know the insert id while writes are queued or after a batch; use a unit of work.');
+        $pdo->lastInsertId();
+    }
+
+    public function testPreviewReadsSeeQueuedWritesAndStillCommitAsOneBatch(): void
+    {
+        $standIn = new D1SqliteStandIn();
+        $standIn->run([['sql' => 'CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)', 'params' => []]]);
+        $standIn->run([['sql' => "INSERT INTO t (id, name) VALUES (1, 'a')", 'params' => []]]);
+        $batches = $standIn->batches;
+        $pdo = new D1Pdo($standIn);
+        $pdo->beginTransaction();
+        $pdo->previewReads();
+        $pdo->exec("ALTER TABLE t ADD COLUMN sort_key TEXT NOT NULL DEFAULT ''");
+        $rows = $pdo->query('SELECT id, name FROM t')->fetchAll(\PDO::FETCH_KEY_PAIR);
+        $this->assertSame([1 => 'a'], $rows);
+        $pdo->prepare('UPDATE t SET sort_key = ? WHERE id = ?')->execute(['a', 1]);
+        $this->assertSame($batches, $standIn->batches, 'writes stay queued until commit');
+        $pdo->commit();
+        $this->assertSame(['a'], array_column($standIn->query('SELECT sort_key FROM t', []), 'sort_key'));
+        $last = $standIn->batches[count($standIn->batches) - 1];
+        $this->assertSame("ALTER TABLE t ADD COLUMN sort_key TEXT NOT NULL DEFAULT ''", $last[0]);
+        $this->assertSame('UPDATE t SET sort_key = ? WHERE id = ?', $last[1]);
+        $this->assertCount(2, $last);
+    }
+
+    public function testPreviewSkipsD1InternalTables(): void
+    {
+        $standIn = new D1SqliteStandIn();
+        $this->assertSame([['name' => '_cf_METADATA']],
+            $standIn->query("SELECT name FROM sqlite_master WHERE name LIKE '%METADATA'", []), 'the stand-in lists it like D1');
+        // AUTOINCREMENT adds sqlite_sequence, which SQLite will not let the preview create.
+        $standIn->run([['sql' => 'CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT)', 'params' => []]]);
+        $standIn->run([['sql' => 'INSERT INTO t (id) VALUES (1)', 'params' => []]]);
+        $pdo = new D1Pdo($standIn);
+        $pdo->beginTransaction();
+        $pdo->previewReads();
+        $pdo->exec('INSERT INTO t (id) VALUES (2)');
+        $this->assertSame([['id' => 1], ['id' => 2]], $pdo->query('SELECT id FROM t ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC));
+        $pdo->commit();
+    }
+
+    /** N-1850: like local D1, a _cf_ table is refused in any case or quoting, on every path. */
+    public static function internalNameStatements(): array
+    {
+        return [
+            'bare' => ['query', 'SELECT * FROM _cf_METADATA'],
+            'double quoted' => ['query', 'SELECT * FROM "_cf_METADATA"'],
+            'upper case' => ['query', 'SELECT * FROM "_CF_METADATA"'],
+            'mixed case' => ['query', 'SELECT * FROM _Cf_METADATA'],
+            'backticks' => ['query', 'SELECT * FROM `_cf_METADATA`'],
+            'brackets' => ['query', 'SELECT * FROM [_cf_METADATA]'],
+            'other _cf_ name' => ['query', 'CREATE TABLE _cf_user (a)'],
+            'name after a literal' => ['query', "SELECT '_cf_' AS s FROM _cf_METADATA"],
+            'batch' => ['run', 'SELECT * FROM "_CF_METADATA"'],
+            'exec' => ['exec', 'SELECT 1; SELECT * FROM "_CF_METADATA"'],
+        ];
+    }
+
+    #[DataProvider('internalNameStatements')]
+    public function testStandInRefusesD1InternalNames(string $path, string $sql): void
+    {
+        $standIn = new D1SqliteStandIn();
+        $this->expectException(WriteFailed::class);
+        match ($path) {
+            'query' => $standIn->query($sql, []),
+            'run' => $standIn->run([['sql' => $sql, 'params' => []]]),
+            'exec' => $standIn->exec($sql),
+        };
+    }
+
+    /** N-1850: like local D1, _cf_ in a string literal, a comment or a longer name is not refused. */
+    public function testStandInAcceptsCfTextThatIsNotAName(): void
+    {
+        $standIn = new D1SqliteStandIn();
+        $this->assertSame([['s' => '_cf_METADATA']], $standIn->query("SELECT '_cf_METADATA' AS s", []));
+        $this->assertSame([['name' => '_cf_METADATA']],
+            $standIn->query("SELECT name FROM sqlite_master WHERE name LIKE '_cf_%'", []));
+        $this->assertSame([['1' => 1]], $standIn->query("SELECT 1 AS \"1\" -- _cf_METADATA", []));
+        $this->assertSame([['1' => 1]], $standIn->query('SELECT 1 AS "1" /* _cf_METADATA */', []));
+        $this->assertSame(['count' => 3], $standIn->exec(
+            "CREATE TABLE items_cf_extra (a); CREATE TABLE items\$_cf_extra (a); INSERT INTO items_cf_extra VALUES ('_cf_x')",
+        ));
+    }
+
 }

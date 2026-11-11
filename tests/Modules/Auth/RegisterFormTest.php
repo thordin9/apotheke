@@ -10,6 +10,7 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use CodeIgniter\Test\FeatureTestTrait;
 use Config\Services;
@@ -58,7 +59,7 @@ final class RegisterFormTest extends CIUnitTestCase
         $this->database = $database = TestDatabase::create($driver);
         $db = $database->db;
         $db->table('users')->insert(['username' => 'ada', 'username_key' => 'ada', 'password_hash' => password_hash('long-enough', PASSWORD_BCRYPT, ['cost' => 4]), 'role' => 'admin', 'status' => 'active', 'created_at' => '2026-01-01 00:00:00']);
-        (new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($database->dataDir() . '/brand'), new Clock(), $database->config->values(), static fn (string $m): null => null, new CommandLine()))
+        (new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($database->dataDir())), new Clock(), $database->config->values(), static fn (string $m): null => null, new CommandLine()))
             ->store(['auth_enabled' => true, 'auth_register_disabled' => false]);
         Services::injectMock('apothekeConfig', $database->config);
         Services::injectMock('apothekeDb', $db);
@@ -80,7 +81,9 @@ final class RegisterFormTest extends CIUnitTestCase
     /** A stored session holding $csrf, named by the request's apothekesid cookie (as in AutofillTest). */
     private function liveSession(string $csrf): void
     {
-        $save = (string)getenv('DATA_DIR') . '/sessions';
+        $database = $this->database;
+        $this->assertNotNull($database);
+        $save = $database->dataDir() . '/sessions';
         if (!is_dir($save)) {
             mkdir($save, 0775, true);
         }
