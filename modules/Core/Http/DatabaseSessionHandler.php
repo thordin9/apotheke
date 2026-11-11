@@ -20,6 +20,8 @@ use Throwable;
  * claimed the row writes, extends and releases it only while the row still
  * carries that claim's token; each claim draws a new random token, so once
  * another request has claimed the row the earlier claim matches nothing.
+ * Such a write stores nothing and still returns true, so the other request's
+ * payload is kept and session_write_close() closes the session normally.
  */
 final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUpdateTimestampHandlerInterface
 {
@@ -88,14 +90,12 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
             return false;
         }
         try {
-            $this->store($id, $data);
-            $this->clearLock();
+            if ($this->store($id, $data)) {
+                $this->clearLock();
+            }
 
             return true;
-        } catch (Throwable $e) {
-            if ($e instanceof RuntimeException && $e->getMessage() === 'Could not store the session.') {
-                throw $e;
-            }
+        } catch (Throwable) {
             throw new RuntimeException('Could not store the session.');
         }
     }
@@ -197,7 +197,8 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
         throw new RuntimeException('Could not read the session.');
     }
 
-    private function store(string $id, string $data): void
+    /** False when the row is gone or another request holds or has replaced it: nothing is stored. */
+    private function store(string $id, string $data): bool
     {
         $now = $this->now();
         $expires = $now + $this->lifetime;
@@ -213,9 +214,8 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
             'params' => [$data, $expires, '', 0, $key, $token],
         ]]);
         $rows = $this->exec->query('SELECT data, lock_token FROM sessions WHERE id = ?', [$key]);
-        if ($rows === [] || (string)$rows[0]['data'] !== $data || (string)$rows[0]['lock_token'] !== '') {
-            throw new RuntimeException('Could not store the session.');
-        }
+
+        return $rows !== [] && (string)$rows[0]['data'] === $data && (string)$rows[0]['lock_token'] === '';
     }
 
     private function release(): void

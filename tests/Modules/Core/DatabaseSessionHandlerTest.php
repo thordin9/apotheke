@@ -504,12 +504,7 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
             $this->assertTrue($this->handler($database, self::NOW)->write(self::ID, 'over-stale'));
             $this->assertSame(['over-stale', ''], [(string)$this->row($database, $key)['data'], (string)$this->row($database, $key)['lock_token']]);
             $database->db->query('UPDATE sessions SET lock_token = ?, locked_until = ? WHERE id = ?', ['other-token', self::NOW + 1, $key]);
-            try {
-                $this->handler($database, self::NOW)->write(self::ID, 'over-valid');
-                $this->fail('a valid lock keeps its row');
-            } catch (RuntimeException $e) {
-                $this->assertSame('Could not store the session.', $e->getMessage());
-            }
+            $this->assertTrue($this->handler($database, self::NOW)->write(self::ID, 'over-valid'), 'a valid lock keeps its row; the write is a no-op');
             $this->assertSame(['over-stale', 'other-token'], [(string)$this->row($database, $key)['data'], (string)$this->row($database, $key)['lock_token']]);
         } finally {
             $database->drop();
@@ -547,17 +542,10 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
         return [$a, $b];
     }
 
+    /** L-1894: an expired claim stores nothing, and write() returns true instead of throwing. */
     private function assertStaleWriteRefused(DatabaseSessionHandler $a): void
     {
-        $error = null;
-        try {
-            $a->write(self::ID, 'from-a');
-        } catch (RuntimeException $e) {
-            $error = $e;
-        }
-        $this->assertInstanceOf(RuntimeException::class, $error, 'an expired claim stores nothing');
-        $this->assertSame('Could not store the session.', $error->getMessage());
-        $this->assertNull($error->getPrevious());
+        $this->assertTrue($a->write(self::ID, 'from-a'), 'an expired claim stores nothing and does not fail');
     }
 
     #[DataProvider('drivers')]
