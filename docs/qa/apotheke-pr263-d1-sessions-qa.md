@@ -2,7 +2,7 @@
 
 - PR: https://github.com/thordin9/apotheke/pull/263
 - Reviewed head: `7ac1a4a5cd432e92e60b72c78e60e8eb3cfa3b11` (re-gate of the delta on top of `04972c0d`, which **FAIL**ed on M-1890)
-- Merge-only read: `e73e74c9d6716cd8e552d4d5e2338213981b8da1`. The PR targets `main` @ `8bdb2801` (#262 squash `37afbdd7`, then #275). Plain merges only: `c58fe278` brings #262 into `4fc8cc18` (the earlier merge-only read, on top of the PASS at `7ac1a4a5`), and `e73e74c9` brings #275 (CI and docs only). 0 behind main. The PR's 19 files are unchanged. 18 have the same added and removed lines as at `4fc8cc18`. `docs/HANDOFF.md` had a conflict with #262 in the same two lines, and its resolution keeps #262's text and applies #263's two edits verbatim: the hosted-sessions sentence, and the sessions sentence in Next steps. The `CHANGELOG.md` sessions bullet is under [Unreleased] / ### Added. CI, including D1 (local workerd) and Visual E2E, must be green on this head before merging.
+- Merge-only read: `8a929ab99d1553ce225fef4dd1e78194e8489781`. The PR targets `main` @ `e4e9d5af` (#277 squash `edd51dd1`, then the v3.33.0 release). Plain merges only: `c58fe278` brings #262 into `4fc8cc18` (on top of the PASS at `7ac1a4a5`), `e73e74c9` brings #275, and `8a929ab9` brings #277 and v3.33.0 (CI, docs and release only). 0 behind main. The PR's 19 files are unchanged. All 19 have the same added and removed lines as at `e73e74c9`, and the earlier `docs/HANDOFF.md` resolution (#262's text plus #263's two sessions edits) still holds. `CHANGELOG.md` conflicted with the v3.33.0 release section; the #263 sessions bullet is kept under [Unreleased] / ### Added, and everything from [3.33.0] down matches main. CI on this head is 21/21 green, including D1 (local workerd) and Visual E2E.
 - Gate: full security (delta `04972c0d...7ac1a4a5`, CI, root suite on sqlite and pgsql, mutations)
 - Reviewer: Apotheke QA 2
 
@@ -35,4 +35,4 @@ The PR still targets `feat/p4-5-r2-files` at `cfb203ad` (#259). This re-gate cov
 
 ## Verdict
 
-**PASS** at `7ac1a4a5`, confirmed by the merge-only read at `e73e74c9`. M-1870, M-1890, L-1891 and N-1892 are closed. L-1894 does not block. Squash-merge with the PR title as the subject.
+**PASS** at `7ac1a4a5`, confirmed by the merge-only read at `8a929ab9`. M-1870, M-1890, L-1891 and N-1892 are closed. L-1894 does not block. Squash-merge with the PR title as the subject.
