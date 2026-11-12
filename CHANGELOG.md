@@ -14,6 +14,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **api:** `GET /api/v1/branding` answers absolute icon URLs (`logo_url`, `favicon_url`, `touch_icon_url`) on the public base: `public_url` when set, else the request's allowed host with `trust_proxy`
 - **core:** a path no route serves answers `404` instead of a redirect to `/login`, and a route asked with a method it does not take answers `405` with an `Allow` header instead of `403`, with or without cookie consent; under `/api` both are problem+json (`not_found`, `method_not_allowed`), and `/` still sends a visitor to `/login`
 - **layout:** the cookie notice on the app's pages has a Decline button next to Accept, both of the same weight, and the site notice's title and wording; Decline hides the notice and posts `consent=decline`, which ends any session
+- **storage:** the entrypoint's `auth status` on a new storage-mode install checks for the settings table first, so the first start logs no failed queries on the D1 bridge
 
 ## [3.36.6] - 2026-11-12
 
