@@ -5,15 +5,34 @@ import { DurableObject } from "cloudflare:workers";
 import { d1UnboundResponse, handleD1Request, type D1Like, type D1LikeStatement } from "./d1";
 import { storageSelected, type R2Env } from "./r2";
 
-/** The one installation today: the same name as the container object and the R2 prefix installations/primary/. */
+/** The first installation: the routing fallback, with the container object and R2 prefix installations/primary/. */
 export const INSTALLATION_NAME = "primary";
 
 export type InstallationEnv = { INSTALLATION?: DurableObjectNamespace<Installation> };
 
+/** Storage identity the container object passes to D1Outbound and R2Outbound as props. */
+export type StorageProps = { doName?: unknown; prefix?: unknown };
+
+/** An installation's DO name, as the control plane allows it (edge/migrations/control/0001). */
+export function validDoName(name: unknown): name is string {
+	return typeof name === "string" && name.length <= 63 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name);
+}
+
+/** The R2 key prefix of an installation. */
+export function installationPrefix(doName: string): string {
+	return `installations/${doName}/`;
+}
+
+/** The DO name from props when they are a consistent pair, else undefined (the caller refuses storage). */
+export function propsDoName(props: StorageProps | undefined): string | undefined {
+	const doName = props?.doName;
+	return validDoName(doName) && props?.prefix === installationPrefix(doName) ? doName : undefined;
+}
+
 /** The only place an Installation id is made: from the EU-jurisdiction namespace, fixed when the id is created. */
-export function installationStub(ns: DurableObjectNamespace<Installation>): DurableObjectStub<Installation> {
+export function installationStub(ns: DurableObjectNamespace<Installation>, doName: string): DurableObjectStub<Installation> {
 	const eu = ns.jurisdiction("eu");
-	return eu.get(eu.idFromName(INSTALLATION_NAME));
+	return eu.get(eu.idFromName(doName));
 }
 
 type Prepared = D1LikeStatement & { sql: string; params: unknown[] };

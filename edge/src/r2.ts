@@ -1,12 +1,14 @@
 // Container-facing storage: installation identity and prefix stay in the Worker.
-// No client-supplied prefix or Cloudflare credential crosses r2.internal.
-const PREFIX = "installations/primary/";
+// No client-supplied prefix or Cloudflare credential crosses r2.internal. The prefix (installations/<do_name>/)
+// comes from the Worker's props (index.ts wireStorage) and is passed to every function here.
 const PART = 5 * 1024 * 1024;
 const MARKER = ".mpu/";
 // R2 accepts 1024 UTF-8 key bytes, not 1024 code units. Escapes and
 // multi-byte UTF-8 cannot combine: quote/backslash/control-escapable bytes
 // use at most two of the former and six emitted bytes. Syntax costs 15 bytes.
-export const MARKER_BODY_LIMIT = 6 * (1024 + 1024) + new TextEncoder().encode(PREFIX).length + 15;
+export function markerBodyLimit(prefix: string): number {
+	return 6 * (1024 + 1024) + new TextEncoder().encode(prefix).length + 15;
+}
 const TOKEN = /^(?!.*[\x20\x22\x27\x28\x29\x2a])[\x21-\x7e]{1,1024}$/;
 export type R2Env = { STORAGE?: R2Bucket; DB?: unknown; INSTALLATION?: unknown };
 
@@ -63,16 +65,15 @@ function key(request: Request): string | undefined {
 	return validateRawPath(new URL(request.url).pathname);
 }
 
-async function markerKey(id: string): Promise<string> {
+async function markerKey(prefix: string, id: string): Promise<string> {
 	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id));
-	return PREFIX + MARKER + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+	return prefix + MARKER + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** Plan §1A.4. The marker's uploaded time is when the upload began; parts do not refresh it. */
 export const UNFINISHED_UPLOAD_RETENTION_MS = 24 * 60 * 60 * 1000;
 const SWEEP_LIMIT_DEFAULT = 50;
 const SWEEP_LIMIT_MAX = 100;
-const MARKER_PREFIX = PREFIX + MARKER;
 
 export type MultipartSweep = {
 	examined: number;
@@ -85,8 +86,8 @@ export type MultipartSweep = {
 };
 
 /** The marker object name for an upload id. Tests use this to place fixtures under the install prefix. */
-export function multipartMarkerKey(id: string): Promise<string> {
-	return markerKey(id);
+export function multipartMarkerKey(prefix: string, id: string): Promise<string> {
+	return markerKey(prefix, id);
 }
 
 function uploadGone(error: unknown): boolean {
@@ -111,13 +112,14 @@ function retryCursor(cursor: string | undefined): string | null {
  */
 export async function sweepExpiredMultipartUploads(
 	bucket: R2Bucket,
+	prefix: string,
 	now: number,
 	options: { cursor?: string; limit?: number; retentionMs?: number } = {},
 ): Promise<MultipartSweep> {
 	const requested = options.limit ?? SWEEP_LIMIT_DEFAULT;
 	const limit = Number.isInteger(requested) && requested >= 1 ? Math.min(requested, SWEEP_LIMIT_MAX) : SWEEP_LIMIT_DEFAULT;
 	const retention = options.retentionMs ?? UNFINISHED_UPLOAD_RETENTION_MS;
-	const listOptions: R2ListOptions = { prefix: MARKER_PREFIX, limit };
+	const listOptions: R2ListOptions = { prefix: prefix + MARKER, limit };
 	if (options.cursor) listOptions.cursor = options.cursor;
 	const page = await bucket.list(listOptions);
 	const result: MultipartSweep = {
@@ -130,14 +132,14 @@ export async function sweepExpiredMultipartUploads(
 		interrupted: false,
 	};
 	for (const object of page.objects) {
-		if (!object.key.startsWith(MARKER_PREFIX)) continue;
+		if (!object.key.startsWith(prefix + MARKER)) continue;
 		result.examined += 1;
 		const uploaded = object.uploaded;
 		if (!(uploaded instanceof Date) || !Number.isFinite(uploaded.getTime()) || !Number.isFinite(now) || now - uploaded.getTime() < retention) {
 			result.kept += 1;
 			continue;
 		}
-		const target = await expiredUpload(bucket, object);
+		const target = await expiredUpload(bucket, prefix, object);
 		if (target === null) {
 			try {
 				await bucket.delete(object.key);
@@ -173,10 +175,10 @@ export async function sweepExpiredMultipartUploads(
 }
 
 /** A dated marker whose body still names one upload under this install. Null means do not abort. */
-async function expiredUpload(bucket: R2Bucket, object: R2Object): Promise<{ key: string; id: string } | null> {
-	if (object.size > MARKER_BODY_LIMIT) return null;
+async function expiredUpload(bucket: R2Bucket, prefix: string, object: R2Object): Promise<{ key: string; id: string } | null> {
+	if (object.size > markerBodyLimit(prefix)) return null;
 	const marker = await bucket.get(object.key);
-	if (!marker || marker.size > MARKER_BODY_LIMIT) return null;
+	if (!marker || marker.size > markerBodyLimit(prefix)) return null;
 	let body: unknown;
 	try {
 		body = JSON.parse(await marker.text());
@@ -188,15 +190,15 @@ async function expiredUpload(bucket: R2Bucket, object: R2Object): Promise<{ key:
 	const id = (body as { id: unknown }).id;
 	const key = (body as { key: unknown }).key;
 	if (typeof id !== "string" || typeof key !== "string" || !TOKEN.test(id)) return null;
-	if (!key.startsWith(PREFIX) || object.key !== await markerKey(id)) return null;
-	const relative = key.slice(PREFIX.length);
+	if (!key.startsWith(prefix) || object.key !== await markerKey(prefix, id)) return null;
+	const relative = key.slice(prefix.length);
 	if (!validKey(relative)) return null;
 	return { key, id };
 }
 
-async function boundUploadKey(bucket: R2Bucket, path: string, id: string): Promise<boolean> {
-	const marker = await bucket.get(await markerKey(id));
-	if (!marker || marker.size > MARKER_BODY_LIMIT) return false;
+async function boundUploadKey(bucket: R2Bucket, prefix: string, path: string, id: string): Promise<boolean> {
+	const marker = await bucket.get(await markerKey(prefix, id));
+	if (!marker || marker.size > markerBodyLimit(prefix)) return false;
 	try {
 		const body: unknown = JSON.parse(await marker.text());
 		return typeof body === "object" && body !== null && !Array.isArray(body)
@@ -207,17 +209,17 @@ async function boundUploadKey(bucket: R2Bucket, path: string, id: string): Promi
 	}
 }
 
-async function finalizeUpload(bucket: R2Bucket, path: string, id: string, action: () => Promise<unknown>): Promise<void> {
+async function finalizeUpload(bucket: R2Bucket, prefix: string, path: string, id: string, action: () => Promise<unknown>): Promise<void> {
 	try {
 		await action();
 	} catch (error) {
 		if (typeof error === "object" && error !== null
 			&& ((error as { code?: unknown }).code === 10024 || (error as { message?: unknown }).message?.toString().endsWith(" (10024)"))) {
-			await bucket.delete(await markerKey(id));
+			await bucket.delete(await markerKey(prefix, id));
 		}
 		throw error;
 	}
-	await bucket.delete(await markerKey(id));
+	await bucket.delete(await markerKey(prefix, id));
 }
 
 function json(body: object, status = 200): Response {
@@ -282,10 +284,10 @@ function completedParts(request: Request): R2UploadedPart[] | undefined {
 	}
 }
 
-export async function handleR2Request(request: Request, bucket: R2Bucket): Promise<Response> {
+export async function handleR2Request(request: Request, bucket: R2Bucket, prefix: string): Promise<Response> {
 	const relative = key(request);
 	if (!relative) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
-	const path = PREFIX + relative;
+	const path = prefix + relative;
 	const url = new URL(request.url);
 	const action = url.searchParams.get("action") ?? "";
 	const id = url.searchParams.get("upload_id") ?? "";
@@ -304,15 +306,15 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 			return json({ ok: true, found: Boolean(object), ...(object ? { etag: object.etag, modified: Math.floor((object.uploaded?.getTime() ?? 0) / 1000) } : {}) });
 		}
 		if (request.method === "GET" && action === "list") {
-			const prefix = url.searchParams.get("prefix") ?? "";
+			const within = url.searchParams.get("prefix") ?? "";
 			const limit = Number(url.searchParams.get("limit") ?? "100");
 			const cursor = url.searchParams.get("cursor") ?? "";
-			if ((prefix !== "" && !validKey(prefix)) || !Number.isInteger(limit) || limit < 1 || limit > 1000) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
-			const options: R2ListOptions = { prefix: prefix === "" ? PREFIX : PREFIX + prefix, limit };
+			if ((within !== "" && !validKey(within)) || !Number.isInteger(limit) || limit < 1 || limit > 1000) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
+			const options: R2ListOptions = { prefix: prefix + within, limit };
 			if (cursor !== "") options.cursor = cursor;
 			const result = await bucket.list(options);
-			if (!result.objects.every((item) => item.key.startsWith(PREFIX))) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
-			const objects = result.objects.map((item) => item.key.slice(PREFIX.length));
+			if (!result.objects.every((item) => item.key.startsWith(prefix))) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
+			const objects = result.objects.map((item) => item.key.slice(prefix.length));
 			if (objects.some((item) => item !== "" && !validKey(item) && !item.split("/").some(internalSegment))) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
 			return json({ ok: true, objects: objects.filter((item) => !item.split("/").some(internalSegment)), cursor: result.truncated ? result.cursor : null });
 		}
@@ -324,8 +326,8 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		}
 		if (request.method === "DELETE") {
 			if (action === "abort") {
-				if (!await boundUploadKey(bucket, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
-				await finalizeUpload(bucket, path, id, () => bucket.resumeMultipartUpload(path, id).abort());
+				if (!await boundUploadKey(bucket, prefix, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
+				await finalizeUpload(bucket, prefix, path, id, () => bucket.resumeMultipartUpload(path, id).abort());
 				return json({ ok: true });
 			}
 			if (action !== "") return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
@@ -341,13 +343,13 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 				return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
 			}
 			const body = JSON.stringify({ id: upload.uploadId, key: path });
-			if (new TextEncoder().encode(body).length > MARKER_BODY_LIMIT) {
+			if (new TextEncoder().encode(body).length > markerBodyLimit(prefix)) {
 				try { await upload.abort(); } catch { /* Reject an unrepresentable binding without exposing it. */ }
 				return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
 			}
 			let marker: R2Object | null;
 			try {
-				marker = await bucket.put(await markerKey(upload.uploadId), body, { onlyIf: { etagDoesNotMatch: "*" } });
+				marker = await bucket.put(await markerKey(prefix, upload.uploadId), body, { onlyIf: { etagDoesNotMatch: "*" } });
 				if (!marker) throw new Error("multipart marker collision");
 			} catch (error) {
 				try { await upload.abort(); } catch { /* Best effort cleanup before the generic failure. */ }
@@ -358,7 +360,7 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		if (action === "part") {
 			const part = Number(url.searchParams.get("part"));
 			if (!Number.isSafeInteger(part) || part < 1 || part > 10000) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
-			if (!await boundUploadKey(bucket, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
+			if (!await boundUploadKey(bucket, prefix, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 			const body = await readPart(request);
 			if (!body) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 			const uploaded = await bucket.resumeMultipartUpload(path, id).uploadPart(part, body);
@@ -367,8 +369,8 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		}
 		if (action === "complete") {
 			const parts = completedParts(request);
-			if (!parts || !await boundUploadKey(bucket, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
-			await finalizeUpload(bucket, path, id, () => bucket.resumeMultipartUpload(path, id).complete(parts));
+			if (!parts || !await boundUploadKey(bucket, prefix, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
+			await finalizeUpload(bucket, prefix, path, id, () => bucket.resumeMultipartUpload(path, id).complete(parts));
 			return json({ ok: true });
 		}
 		if (action !== "") return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);

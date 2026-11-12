@@ -61,14 +61,14 @@ test('E2: a failed D1 lookup or no DB binding falls back to primary and is not c
   assert.equal(db.queries.length, 1);
 });
 
-test('E2: a non-active installation never wakes a container; another DO name waits for its own storage', async () => {
+test('E2: a non-active installation never wakes a container; an active one is served by its own DO name', async () => {
   clearRouteCache();
   const db = controlDb();
   db.raw.exec(`INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('b', 'b', 'installations/b/', 'suspended');
     INSERT INTO installation_routes (host, installation_id) VALUES ('b.example.test', 'b');`);
   const w = worker(db);
   assert.equal((await w.go('https://b.example.test/')).status, 402);
-  for (const [status, code] of [['provisioning', 503], ['deleting', 410], ['deleted', 410], ['active', 503]]) {
+  for (const [status, code] of [['provisioning', 503], ['deleting', 410], ['deleted', 410]]) {
     clearRouteCache();
     db.raw.exec(`UPDATE installations SET status = '${status}' WHERE id = 'b'`);
     const res = await w.go('https://b.example.test/');
@@ -76,6 +76,10 @@ test('E2: a non-active installation never wakes a container; another DO name wai
     assert.equal(res.headers.get('cache-control'), 'no-store');
   }
   assert.deepEqual(w.seen, []);
+  clearRouteCache();
+  db.raw.exec(`UPDATE installations SET status = 'active' WHERE id = 'b'`);
+  assert.equal(await (await w.go('https://b.example.test/')).text(), 'app');
+  assert.deepEqual(w.seen, ['b']);
 });
 
 test('E2: primary is never status-gated, whatever its row says', async () => {
