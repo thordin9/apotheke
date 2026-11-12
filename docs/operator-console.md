@@ -29,6 +29,10 @@ job, not of this repository's tests.
 | `usage_counters` | Per installation, month (`YYYY-MM`) and metric |
 | `operator_audit` | Every operator change, control-plane fields only. Append-only: triggers refuse updates and deletes |
 
+Three choices differ from the first design and were accepted for this schema: routes are keyed by host (not by
+installation), `do_name` and `r2_prefix` live on `installations` (not on the route), and `subscriptions` replaces a
+separate `installation_ext` table, since there is no other installations database to extend.
+
 ## `primary`
 
 Migration `0002` registers the existing installation with the names it already has, so the same Durable Objects
