@@ -22,6 +22,12 @@ test('header Sign in stays header ink and underlines on hover', async ({ browser
     await context.close();
 });
 
+test('the FAQ says hosted sign-up is invitation-only', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect(page.locator('#faq')).toContainText('Sign-up is invitation-only.');
+});
+
 test('header and hero CTAs point at the app', async ({ page }) => {
     for (const path of ['/', '/privacy/']) {
         await page.goto(path);
