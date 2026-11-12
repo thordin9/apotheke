@@ -18,11 +18,11 @@ use Config\App;
 use Config\Services;
 
 /**
- * With sign-in off, a non-safe request from another site gets 403 (SEC-M3), on
- * every path, before the CSRF check, as legacy runs it before any route. Safe
- * methods and requests with sign-in on pass without a settings read beyond
- * signInEnabled(). A returned response skips global after filters, so the
- * security headers are set here.
+ * A non-safe page or form request from another site gets 403 (SEC-M3), with
+ * sign-in on or off, on every path but /api, before the CSRF check. A request
+ * with no Origin, Referer or Sec-Fetch-Site goes on to the CSRF token check.
+ * Safe methods pass without a settings read. A returned response skips global
+ * after filters, so the security headers are set here.
  */
 final class SameOriginFilter implements FilterInterface
 {
@@ -34,9 +34,6 @@ final class SameOriginFilter implements FilterInterface
             return null;
         }
         $settings = Services::settings();
-        if ($settings->signInEnabled()) {
-            return null;
-        }
         $server = $request->getServer();
         $server = is_array($server) ? $server : [];
         $https = RequestScheme::fromSetting((bool)$settings->get('trust_proxy'))->isHttps($server);

@@ -16,6 +16,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **layout:** the cookie notice on the app's pages has a Decline button next to Accept, both of the same weight, and the site notice's title and wording; Decline hides the notice and posts `consent=decline`, which ends any session
 - **storage:** the entrypoint's `auth status` on a new storage-mode install checks for the settings table first, so the first start logs no failed queries on the D1 bridge
 - **core:** a small web POST whose body fills no form fields (JSON, text) gets the consent, sign-in or CSRF answer instead of `413`; only a body past `post_max_size` is `413`
+- **core:** a page or form write (any method but GET, HEAD and OPTIONS, outside `/api`) whose `Origin`, or `Referer` when there is no `Origin`, is not this host or the public base answers `403` with sign-in on as well as off; `X-Forwarded-Proto` counts with `trust_proxy`, and a request without either header goes on to the CSRF token check as before
 - **media:** `/media` answers `304` for an `If-None-Match` list, a weak tag or `*`, sends `Accept-Ranges: bytes`, and answers a single byte range with `206` and `Content-Range` (or `416` with `Content-Range: bytes */<size>`), with `If-Range`, on local and R2 storage
 
 ## [3.36.6] - 2026-11-12
