@@ -28,6 +28,10 @@ workers.dev previews; prod `apotheke-api` shows no unexplained early exit.
 - Not reproduced on demand: 8 sequential bench batches (17:28-18:05) and a 3-minute, 6-thread concurrent burst on
   both rerun previews (18:05:50-18:09:00) were followed by no exit within 70 s.
 
+**N-1986: accepted as platform behaviour (PM accepted 2026-11-12).** The #297 worker-mode preview stopped 20.9 s and
+823.5 s after the last request, exit code 0 both times, with cold starts of 5.9 s and 6.3 s and data intact. This matches
+this ticket and does not block turning worker mode on.
+
 ## Prod `apotheke-api` (read-only check, container app a03eab6a, 10:22-18:35 EET)
 15 exits, all code 0. 10 after 881-898 s idle (the 15-minute sleep). 5 shortly after traffic, each after a release
 deploy rolled the container: 12:55:22 (deploy 12:54:27), 14:57:52 (14:57:15), 15:51:54 (15:51:17), 16:59:27
