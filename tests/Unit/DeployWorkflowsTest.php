@@ -106,6 +106,10 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertStringContainsString('CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}', $migrate);
         $this->assertStringContainsString('wrangler d1 migrations apply apotheke-api --remote --config wrangler.jsonc', $migrate);
         $this->assertStringContainsString('migrations_dir!=="migrations/control"', $migrate);
+        $this->assertStringContainsString('Account > D1 > Edit', $migrate);
+        $this->assertStringContainsString('code: 10000', $migrate);
+        $this->assertStringContainsString('title=Cloudflare refused the token', $migrate);
+        $this->assertStringContainsString('exit "$code"', $migrate);
         $this->assertStringNotContainsString('continue-on-error', $migrate);
         $this->assertStringNotContainsString('--preview', $migrate);
         $smoke = $steps[$n - 1];
@@ -230,6 +234,16 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertStringContainsString('id: token', $t);
         $this->assertStringContainsString('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}', $t);
         $this->assertStringContainsString('if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then echo "::add-mask::$CLOUDFLARE_ACCOUNT_ID"; fi', $t);
+        if ($file === 'deploy-edge.yml') {
+            $this->assertStringContainsString('APOTHEKE_D1_DATABASE_ID: ${{ vars.APOTHEKE_D1_DATABASE_ID }}', $t);
+            $this->assertStringContainsString('if [ -n "$APOTHEKE_D1_DATABASE_ID" ]; then echo "::add-mask::$APOTHEKE_D1_DATABASE_ID"; fi', $t);
+            $yml = $this->workflow($file);
+            $this->assertLessThan(
+                strpos($yml, '- name: Storage config'),
+                strpos($yml, '::add-mask::$APOTHEKE_D1_DATABASE_ID'),
+                'the D1 id is masked before the merge or wrangler can print it'
+            );
+        }
         $this->assertMatchesRegularExpression('/if \[ -z "\$CLOUDFLARE_API_TOKEN" \]; then\n\s+echo "set=false" >> "\$GITHUB_OUTPUT"\n.*\n\s+else\n\s+echo "set=true" >> "\$GITHUB_OUTPUT"\n\s+fi/', $t);
         $this->assertStringNotContainsString('if:', $t);
         $this->assertStringNotContainsString('exit 1', $t, 'a missing token skips, green');

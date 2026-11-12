@@ -783,6 +783,16 @@ test("deploy-edge.yml: the deploy job applies control-plane D1 migrations before
 	assert.ok(!/secrets\.[A-Z0-9_]+/.test(step.replace("secrets.CLOUDFLARE_API_TOKEN", "")), "no new token secret");
 	assert.match(step, /migrations_dir!=="migrations\/control"/);
 	assert.match(step, /wrangler d1 migrations apply apotheke-api --remote --config wrangler\.jsonc/);
+	assert.match(step, /Account > D1 > Edit/);
+	assert.match(step, /code: 10000/);
+	assert.match(step, /title=Cloudflare refused the token/);
+	assert.match(step, /exit "\$code"/);
 	assert.ok(!/continue-on-error/.test(step), "a failed apply fails the deploy");
 	assert.ok(!/--preview/.test(step), "the apply targets the named database, not a Worker preview D1");
+	assert.match(deploy, /edge\/migrations\/ \(the default next to wrangler\.jsonc\)/);
+	const mask = deploy.indexOf("- name: Mask the account id");
+	assert.ok(mask > 0 && mask < merge, "the mask step runs before the storage merge");
+	const maskStep = deploy.slice(mask, merge);
+	assert.match(maskStep, /APOTHEKE_D1_DATABASE_ID: \$\{\{ vars\.APOTHEKE_D1_DATABASE_ID \}\}/);
+	assert.match(maskStep, /add-mask::\$APOTHEKE_D1_DATABASE_ID/);
 });
