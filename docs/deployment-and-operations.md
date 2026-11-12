@@ -565,12 +565,13 @@ preview; for `apotheke-api` also a second dry run of the merged P4 storage confi
 
 **Secrets and variables** (set by the repository owner, never in the repository):
 
-* in each environment, the secret `CLOUDFLARE_API_TOKEN` and the variable `CLOUDFLARE_ACCOUNT_ID`;
+* in each environment, the secret `CLOUDFLARE_API_TOKEN`; `deploy-site` keeps the account identifier as an environment secret, and `deploy-edge` keeps the variable `CLOUDFLARE_ACCOUNT_ID`;
 * both environments are limited to `main` and tags `v*`; `deploy-edge` also has a required reviewer;
 * without the secret the deploy job prints a notice, skips its steps and stays green. Fork pull requests never get
   secrets and never reach the deploy job;
-* the account id is masked in the logs (it is a variable, but it appears in container registry paths), and the token
-  is only passed in the environment of the deploy step.
+* the account id is masked in the logs (`deploy-site` reads it from an environment secret; on `deploy-edge` it is a
+  variable, but it appears in container registry paths), and the token is only passed in the environment of the
+  deploy step.
 
 **Token scope.** The tokens are account-wide: `deploy-site` has *Account > Workers Scripts > Edit*; `deploy-edge` has
 *Workers Scripts > Edit* and *Account > Containers > Edit*. Neither has Zone permissions, and CI makes no Zone API

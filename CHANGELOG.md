@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **ci:** the Cloudflare account identifier for the frontend deploy comes from a `deploy-site` environment secret
+
 ## [3.38.0] - 2026-11-12
 
 ### Added
