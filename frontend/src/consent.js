@@ -134,6 +134,7 @@ async function readSessionAfterDecline() {
         const base = await loadApiBase();
         await fetch(sessionUrl(base), {
             credentials: 'include',
+            keepalive: true,
             headers: { Accept: 'application/json' },
         });
     } catch {
@@ -451,12 +452,14 @@ function start() {
             acceptConsent();
             dismissNotice(banner);
             if (already) return;
+            void loadApiBase();
             const form = document.getElementById('sign-in');
             if (form) enableLogin(form);
             trackPageview();
         });
     }
     if (hasConsent()) {
+        void loadApiBase();
         hide(banner);
         if (login) enableLogin(login);
         if (!isAppShell()) trackPageview();

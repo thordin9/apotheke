@@ -148,6 +148,7 @@ test('Decline removes the consent cookie before the session read, and reads once
         sessionReads.push({
             method: init && init.method ? init.method : 'GET',
             credentials: init && init.credentials,
+            keepalive: init && init.keepalive,
             cookie,
         });
         return new Response('', { status: 500 });
@@ -156,7 +157,7 @@ test('Decline removes the consent cookie before the session read, and reads once
         declineConsent();
         assert.equal(cookie, '');
         await new Promise((resolve) => setTimeout(resolve, 30));
-        assert.deepEqual(sessionReads, [{ method: 'GET', credentials: 'include', cookie: '' }]);
+        assert.deepEqual(sessionReads, [{ method: 'GET', credentials: 'include', keepalive: true, cookie: '' }]);
     } finally {
         globalThis.fetch = previousFetch;
         globalThis.document = previousDoc;

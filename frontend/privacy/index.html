@@ -18,7 +18,7 @@
 <!-- apotheke:header -->
 <main id="main" class="doc container" tabindex="-1">
   <h1>Privacy</h1>
-  <p class="answer">This site runs no code from other servers. Only after you accept, it sets one consent cookie and counts page views without cookies. See Sign-in for the API session cookie. Declining removes the consent cookie at once, and sign-out follows. Accepting again needs a fresh sign-in.</p>
+  <p class="answer">This site runs no code from other servers. Only after you accept, it sets one consent cookie and counts page views without cookies. See Sign-in for the API session cookie. Declining removes the consent cookie at once, and sign-out follows when the site can reach the API. Accepting again needs a fresh sign-in.</p>
   <h2>What the server sees</h2>
   <p>Cloudflare serves the pages and keeps standard request logs (address, time, page) for security, as its own policy describes.</p>
   <h2>Page views</h2>
@@ -41,7 +41,7 @@
     <li><strong>Domain</strong>On getapotheke.com it is set for that domain, so the browser sends it to every getapotheke.com subdomain. api.services.getapotheke.com reads it as consent. autofill.services.getapotheke.com stores nothing from it. On any other host the cookie is host-only.</li>
   </ul>
   <h2>Sign-in</h2>
-  <p>Once you have accepted, the API host may set a session cookie named <code>__Host-apothekesid</code> when you visit that host or start signing in, not only after a successful sign-in. It keeps you signed in. The cookie is Secure, HttpOnly, SameSite=Lax and host-only on api.services.getapotheke.com, and it lasts up to 30 days. Keeping it host-only is privacy hardening: the browser sends it only to that host. Signing out removes the session cookie. Declining removes the consent cookie at once, and sign-out follows. Accepting again needs a fresh sign-in. Declining on this site removes the consent cookie, apotheke_consent.</p>
+  <p>Once you have accepted, the API host may set a session cookie named <code>__Host-apothekesid</code> when you visit that host or start signing in, not only after a successful sign-in. It keeps you signed in. The cookie is Secure, HttpOnly, SameSite=Lax and host-only on api.services.getapotheke.com, and it lasts up to 30 days. Keeping it host-only is privacy hardening: the browser sends it only to that host. Signing out removes the session cookie. Declining removes the consent cookie at once, and sign-out follows when the site can reach the API. Accepting again needs a fresh sign-in. Declining on this site removes the consent cookie, apotheke_consent.</p>
   <h2 id="withdraw">Withdrawing consent</h2>
   <p>Choose <strong>Cookie settings</strong> at the bottom of any page, then <strong>Decline</strong>. That removes the consent cookie, apotheke_consent, and stops counting at once, without reloading the page. Deleting the apotheke_consent cookie for getapotheke.com in your browser's settings does the same for consent from the next page you open. Views counted before you withdrew stay in the totals until they expire.</p>
   <h2>Contact</h2>
