@@ -11,6 +11,9 @@ use PHPUnit\Framework\TestCase;
  */
 final class DockerfileTest extends TestCase
 {
+    /** The worker script's path in the FrankenPHP image (docker/frankenphp/php-worker.caddy). */
+    private const WORKER_SCRIPT = '/var/www/app/public/frankenphp-worker.php';
+
     private const FROM = 'FROM php:${PHP_VERSION}-fpm-alpine';
 
     public function testArgDefaultPinsAFullPatchTag(): void
@@ -275,36 +278,58 @@ final class DockerfileTest extends TestCase
         if ($bin === null) {
             $this->markTestSkipped('frankenphp is not on PATH');
         }
-        $caddy = dirname(__DIR__, 2) . '/docker/frankenphp/Caddyfile';
-        foreach ([['1', null], ['0', null], [null, null], ['1', 'worker'], [null, 'classic']] as [$flag, $mode]) {
-            $env = [
-                'PORT' => '9091',
-                'FRANKENPHP_NUM_THREADS' => '2',
-                'PATH' => (string)getenv('PATH'),
-                'HOME' => (string)getenv('HOME'),
-            ];
-            if ($mode !== null) {
-                // as the entrypoint sets them (QA-1854)
-                $env += ['APOTHEKE_PHP_MODE' => $mode, 'FRANKENPHP_REGULAR_THREADS' => $mode === 'worker' ? '1' : '2', 'FRANKENPHP_MAX_THREADS' => $mode === 'worker' ? '3' : '2'];
-            }
-            if ($flag !== null) {
-                $env['APOTHEKE_EDGE_CLIENT_IP'] = $flag;
-            }
-            $proc = proc_open(
-                [$bin, 'validate', '--config', $caddy, '--adapter', 'caddyfile'],
-                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-                $pipes,
-                null,
-                $env,
-            );
-            $this->assertIsResource($proc, 'flag ' . ($flag ?? 'unset'));
-            $stdout = stream_get_contents($pipes[1]);
-            $stderr = stream_get_contents($pipes[2]);
-            fclose($pipes[1]);
-            fclose($pipes[2]);
-            $code = proc_close($proc);
-            $this->assertSame(0, $code, 'validate failed for APOTHEKE_EDGE_CLIENT_IP=' . ($flag ?? '(unset)') . ', mode ' . ($mode ?? '(unset)') . "\n" . $stdout . $stderr);
+        foreach ([['1', null], ['0', null], [null, null], [null, 'classic']] as [$flag, $mode]) {
+            $this->assertCaddyfileValidates($bin, $flag, $mode);
         }
+    }
+
+    /**
+     * Worker mode names the worker script by its path in the image (php-worker.caddy), and frankenphp validate
+     * requires that file, so outside the image (frankenphp on PATH, no /var/www/app) this is skipped (N-1981).
+     * The image build validates both modes in place (Dockerfile.frankenphp).
+     */
+    public function testFrankenphpValidatesTheCaddyfileInWorkerMode(): void
+    {
+        $bin = $this->frankenphpBinary();
+        if ($bin === null) {
+            $this->markTestSkipped('frankenphp is not on PATH');
+        }
+        if (!is_file(self::WORKER_SCRIPT)) {
+            $this->markTestSkipped(self::WORKER_SCRIPT . ' is missing (runs inside the image only)');
+        }
+        $this->assertCaddyfileValidates($bin, '1', 'worker');
+    }
+
+    private function assertCaddyfileValidates(string $bin, ?string $flag, ?string $mode): void
+    {
+        $caddy = dirname(__DIR__, 2) . '/docker/frankenphp/Caddyfile';
+        $env = [
+            'PORT' => '9091',
+            'FRANKENPHP_NUM_THREADS' => '2',
+            'PATH' => (string)getenv('PATH'),
+            'HOME' => (string)getenv('HOME'),
+        ];
+        if ($mode !== null) {
+            // as the entrypoint sets them (QA-1854)
+            $env += ['APOTHEKE_PHP_MODE' => $mode, 'FRANKENPHP_REGULAR_THREADS' => $mode === 'worker' ? '1' : '2', 'FRANKENPHP_MAX_THREADS' => $mode === 'worker' ? '3' : '2'];
+        }
+        if ($flag !== null) {
+            $env['APOTHEKE_EDGE_CLIENT_IP'] = $flag;
+        }
+        $proc = proc_open(
+            [$bin, 'validate', '--config', $caddy, '--adapter', 'caddyfile'],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            $env,
+        );
+        $this->assertIsResource($proc, 'flag ' . ($flag ?? 'unset'));
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $code = proc_close($proc);
+        $this->assertSame(0, $code, 'validate failed for APOTHEKE_EDGE_CLIENT_IP=' . ($flag ?? '(unset)') . ', mode ' . ($mode ?? '(unset)') . "\n" . $stdout . $stderr);
     }
 
     /** A missing asset is a 404 that is never cached; only a served file has the year-long immutable cache. */

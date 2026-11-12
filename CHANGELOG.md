@@ -12,6 +12,23 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** the Worker routes each request by host through the control plane's `installation_routes`; a missing row, an unbound `DB` or a failed lookup falls back to `primary` as before, and paused or removed installations get a status page without starting a container ([#302](https://github.com/thordin9/apotheke/pull/302))
 
+## [3.38.2] - 2026-11-12
+
+### Fixed
+
+- **edge:** recycle FrankenPHP workers and test worker mode in CI ([#298](https://github.com/thordin9/apotheke/pull/298))
+
+### Added
+
+- **edge:** each FrankenPHP worker recycles itself after `APOTHEKE_WORKER_MAX_REQUESTS` requests (default 1000, `0` for no cap), because FrankenPHP 1.13.4 rejects `max_requests`, and logs `apotheke: PHP worker started` on every boot; a rejected value (not a whole number, or 10 or more digits) logs a warning and uses 1000. The hosted container always uses 1000 (L-1979, N-2044) ([#298](https://github.com/thordin9/apotheke/pull/298))
+- **ci:** the FrankenPHP image job runs `scripts/docker-worker-checks.sh` in worker mode, so an answered error that restarts the worker, or a recycle that exits instead of returning, fails CI (L-1980, L-2039) ([#298](https://github.com/thordin9/apotheke/pull/298))
+
+### Changed
+
+- **tests:** the Caddyfile validate test skips worker mode when `/var/www/app/public/frankenphp-worker.php` is missing, so a host `frankenphp` on `PATH` no longer fails it (N-1981); stale worker-mode comments fixed (N-1985) ([#298](https://github.com/thordin9/apotheke/pull/298))
+
+## [3.38.1] - 2026-11-12
+
 ### Fixed
 
 - **core:** a small web POST whose body fills no form fields (JSON, text) gets the consent, sign-in or CSRF answer instead of `413`; only a body past `post_max_size` is `413` ([#294](https://github.com/thordin9/apotheke/pull/294))
@@ -1652,7 +1669,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.38.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.38.2...HEAD
+[3.38.2]: https://github.com/thordin9/apotheke/compare/v3.38.1...v3.38.2
+[3.38.1]: https://github.com/thordin9/apotheke/compare/v3.38.0...v3.38.1
 [3.38.0]: https://github.com/thordin9/apotheke/compare/v3.37.2...v3.38.0
 [3.37.2]: https://github.com/thordin9/apotheke/compare/v3.37.1...v3.37.2
 [3.37.1]: https://github.com/thordin9/apotheke/compare/v3.37.0...v3.37.1
