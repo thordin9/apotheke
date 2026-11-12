@@ -13,6 +13,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **edge:** control-plane schema for the hosted operator console in `edge/migrations/control/` (installations, routes, plans and limits, manual subscriptions, usage counters, an append-only audit log), with `primary` seeded under its existing names on plan `internal`; see [docs/operator-console.md](docs/operator-console.md). Not applied by any deploy yet ([#299](https://github.com/thordin9/apotheke/pull/299))
 - **edge:** the Worker routes each request by host through the control plane's `installation_routes`; a missing row, an unbound `DB` or a failed lookup falls back to `primary` as before, and paused or removed installations get a status page without starting a container ([#302](https://github.com/thordin9/apotheke/pull/302))
 - **edge:** each installation's database object and R2 key prefix come from its own container object's name, passed as props to `d1.internal` and `r2.internal`; multipart markers and the unfinished-upload sweep are per installation. `primary` keeps its names, prefix and keys ([#303](https://github.com/thordin9/apotheke/pull/303))
+- **edge:** installations other than `primary` get their own `APP_KEY` (HKDF from the Worker secret, the installation name as info) and their own `ALLOWED_HOSTS` from `installation_routes`, and do not start without them; `primary` keeps the Worker's `APP_KEY` and `ALLOWED_HOSTS` unchanged ([#304](https://github.com/thordin9/apotheke/pull/304))
 
 ### Performance
 
