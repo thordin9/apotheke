@@ -99,7 +99,7 @@ final class BackupController extends CatalogController
             return $this->fail($e->getMessage());
         }
 
-        return $this->html($this->pages()->page($backups->counts(), null, ['token' => $token] + $b));
+        return $this->html($this->pages()->page($backups->counts(), null, ['token' => $token] + $b, null, $this->restorer()->hosted(), [], true, $this->may('settings')));
     }
 
     /** POST /backup/restore/confirm */
@@ -117,7 +117,7 @@ final class BackupController extends CatalogController
             $b = $restorer->open($file);
             $b['zip']->close();
 
-            return $this->sessionPage($this->pages()->page($backups->counts(), 'Tick the box to confirm that the catalog will be replaced.', ['token' => $token] + $b), 422);
+            return $this->sessionPage($this->pages()->page($backups->counts(), 'Tick the box to confirm that the whole catalog will be replaced for everyone.', ['token' => $token] + $b, null, $this->restorer()->hosted(), [], true, $this->may('settings')), 422);
         }
         @set_time_limit(300);
         try {

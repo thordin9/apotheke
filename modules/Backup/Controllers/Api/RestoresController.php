@@ -106,7 +106,7 @@ final class RestoresController extends Controller
                 }
             }
             if (($body['confirm'] ?? null) !== true) {
-                throw new UserError('Set "confirm": true to replace the catalog with this backup.', 422);
+                throw new UserError('Set "confirm": true to replace the whole catalog, for everyone, with this backup.', 422);
             }
             // N-1588: a restore may outlast a proxy's timeout. It runs to the end without the client, and the outcome
             // stays readable with GET (status restored or failed) or a second confirm, which never restores twice.

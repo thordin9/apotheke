@@ -209,6 +209,65 @@ final class StoredBackupsTest extends CIUnitTestCase
         $this->assertSame(['Before'], array_column($this->database->db->query('SELECT name FROM items')->getResultArray(), 'name'));
     }
 
+    /**
+     * A restore by someone who is not an admin (restore, no settings): the page says the whole catalog is replaced
+     * for everyone, the catalog before it is kept, the activity names who restored, the backup's settings stay out.
+     */
+    public function testARestoreByARoleWithoutSettings(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $db = $this->database->db;
+        $db->table('roles')->insert(['role_key' => 'keeper', 'name' => 'Keeper', 'builtin' => 0, 'perms' => '["view","backup"]', 'created_at' => '2026-01-01 00:00:00']);
+        $db->table('roles')->insert(['role_key' => 'reader', 'name' => 'Reader', 'builtin' => 0, 'perms' => '["view","backup-only"]', 'created_at' => '2026-01-01 00:00:00']);
+        $this->wire();
+        $this->account('ada', 'admin');
+        $kim = $this->account('kim', 'keeper');
+        $rex = $this->account('rex', 'reader');
+        $this->settings()->store(['auth_enabled' => true, 'auth_guest_disabled' => false, 'expiry_soon_days' => 9]);
+        $this->seed('Incoming');
+        $zip = $this->files[] = sys_get_temp_dir() . '/apotheke-in-' . bin2hex(random_bytes(4)) . '.zip';
+        $this->backups()->create($zip);
+        $this->settings()->store(['expiry_soon_days' => 21]);
+        $db->query("UPDATE items SET name = 'Before'");
+
+        // Who may: restore for kim, download only for rex, sign in first for the guest.
+        $this->signInAs($rex);
+        $this->assertSame(403, $this->filter('backup/restore', 'POST')?->getStatusCode(), 'download only');
+        $this->assertSame(403, $this->filter('api/v1/restores', 'POST')?->getStatusCode(), 'download only');
+        $this->assertNull($this->filter('api/v1/backups'), 'download only lists the kept backups');
+        $this->requestSession = [];
+        $this->assertContains($this->filter('backup/restore', 'POST')?->getStatusCode(), [303, 401], 'the guest');
+        $this->signInAs($kim);
+        $this->assertNull($this->filter('backup/restore', 'POST'));
+        $roles = new RoleRepository($db);
+        $this->assertFalse($roles->has('keeper', 'settings'));
+
+        // The confirm step, as kim sees it.
+        /** @var \Apotheke\Backup\Views\BackupView $view */
+        $view = service('backupView');
+        $preview = ['token' => 'tok', 'created_at' => '2026-01-01 00:00:00', 'driver' => 'sqlite', 'tables' => ['items' => 1], 'photos' => 0, 'warnings' => []];
+        $html = $view->page(['items' => 1], null, $preview, null, false, [], true, $roles->has('keeper', 'settings'));
+        $this->assertStringContainsString('This replaces the whole catalog, for everyone who uses this installation.', $html);
+        $this->assertStringContainsString('Yes, replace the whole catalog for everyone with this backup', $html);
+        $this->assertStringContainsString('id="restore-no-settings"', $html);
+        $this->assertStringNotContainsString('id="restore-no-settings"', $view->page(['items' => 1], null, $preview));
+        $download = $view->page(['items' => 1], null, null, null, false, [], false);
+        $this->assertStringContainsString("the whole installation's catalog", $download);
+        $this->assertStringNotContainsString('id="rs-title"', $download, 'no restore section without restore');
+
+        $stored = $this->stored(new LocalStorage($this->database->dataDir()), 5);
+        $restorer = $this->restorer($stored);
+        $restorer->restore($zip, $roles->has('keeper', 'settings'), null, null, 'kim');
+        $this->assertSame(['Incoming'], array_column($db->query('SELECT name FROM items')->getResultArray(), 'name'));
+        $this->assertSame(21, (int)$this->settings()->get('expiry_soon_days'), 'the backup\'s settings need the settings permission');
+        $this->assertSame(['kim'], array_column($db->query('SELECT actor FROM activity WHERE action = ?', [Restorer::RESTORED_ACTION])->getResultArray(), 'actor'));
+        $kept = $stored->all();
+        $this->assertCount(1, $kept);
+        $this->assertSame('kim', $kept[0]['by']);
+        $this->assertSame(1, $db->table('users')->where('username_key', 'kim')->countAllResults(), 'accounts are not restored');
+        $this->assertSame('["view","backup"]', (string)$db->table('roles')->select('perms')->where('role_key', 'keeper')->get()->getRowArray()['perms'], 'roles are not restored');
+    }
+
     /** The list and the download: the backup permission. Everyone else gets 403; the guest and nobody are refused. */
     public function testTheListAndDownloadNeedTheBackupPermission(): void
     {
@@ -258,10 +317,10 @@ final class StoredBackupsTest extends CIUnitTestCase
         return $c;
     }
 
-    private function filter(string $route): ?\CodeIgniter\HTTP\ResponseInterface
+    private function filter(string $route, string $method = 'GET'): ?\CodeIgniter\HTTP\ResponseInterface
     {
         $config = clone config(\Config\App::class);
-        $request = (new \CodeIgniter\HTTP\IncomingRequest($config, new \CodeIgniter\HTTP\SiteURI($config, $route), null, new \CodeIgniter\HTTP\UserAgent()))->withMethod('GET');
+        $request = (new \CodeIgniter\HTTP\IncomingRequest($config, new \CodeIgniter\HTTP\SiteURI($config, $route), null, new \CodeIgniter\HTTP\UserAgent()))->withMethod($method);
 
         return (new \Apotheke\Auth\Filters\PermissionFilter())->before($request);
     }

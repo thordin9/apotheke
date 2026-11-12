@@ -67,8 +67,9 @@ final class BackupView
      * @param bool $hosted the hosted database: no command-line restore hint
      * @param list<array{id:string,created_at:string,kind:string,size:int,by:?string}> $kept the kept backups, newest first
      * @param bool $restore whether the user may restore (the restore permission): else no restore section
+     * @param bool $settings whether a restore puts back the backup's settings too (the settings permission)
      */
-    public function page(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null, bool $hosted = false, array $kept = [], bool $restore = true): string
+    public function page(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null, bool $hosted = false, array $kept = [], bool $restore = true, bool $settings = true): string
     {
         $head = $this->page->start('Backup & restore', 'page-backup');
         $tok = self::h($this->page->csrf());
@@ -89,11 +90,12 @@ final class BackupView
     <p>Backup from <b><?= self::h($preview['created_at'] !== '' ? $this->activity->time($preview['created_at']) : 'an unknown date') ?></b> (<?= self::h(self::driverLabel($preview['driver'])) ?>), with <b><?= self::h(Backups::summaryText($preview['tables'], $preview['photos'])) ?></b>.</p>
     <?= self::tableRows($current, $preview['tables']) ?>
     <?php foreach ($preview['warnings'] as $w): ?><p class="hint warn">⚠ <?= self::h($w) ?></p><?php endforeach; ?>
-    <p class="hint"><b>Everything currently in the catalog will be replaced.</b> Download a backup first if you might want it back.</p>
+    <p class="hint"><b>This replaces the whole catalog, for everyone who uses this installation.</b> The catalog as it is now is backed up first and kept on this page, so it can be downloaded again.</p>
+    <?php if (!$settings): ?><p class="hint" id="restore-no-settings">The backup's settings are not restored: that needs the Settings permission.</p><?php endif; ?>
     <form method="post" action="/backup/restore/confirm" class="restore-confirm">
       <input type="hidden" name="csrf" value="<?= $tok ?>">
       <input type="hidden" name="token" value="<?= self::h($preview['token']) ?>">
-      <label class="check check-ok"><input type="checkbox" name="confirm" value="1" required id="restore-ok"> Yes, replace my catalog with this backup</label>
+      <label class="check check-ok"><input type="checkbox" name="confirm" value="1" required id="restore-ok"> Yes, replace the whole catalog for everyone with this backup</label>
       <div class="row-btns">
         <a class="btn" href="/backup">Cancel</a>
         <button class="btn btn-danger-solid" id="restore-go">Restore</button>
@@ -103,7 +105,7 @@ final class BackupView
   <?php endif; ?>
   <section class="panel" aria-labelledby="bk-title">
     <h2 id="bk-title"><?= Icons::svg('download') ?> Download a backup</h2>
-    <p class="hint">One zip file with all items, locations, categories, tags<?= isset($current['activity']) ? ', history' : '' ?> and photos. It works with both SQLite and PostgreSQL installs.</p>
+    <p class="hint">One zip file with the whole installation's catalog, not only yours: all items, locations, categories, tags<?= isset($current['activity']) ? ', history' : '' ?> and photos. It works with both SQLite and PostgreSQL installs.</p>
     <?= self::tableRows($current) ?>
     <a class="btn btn-primary btn-block" href="/backup.zip" id="backup-dl" download><?= Icons::svg('archive') ?> Download backup (.zip)</a>
   </section>
