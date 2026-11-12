@@ -11,6 +11,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Fixed
 
 - **edge:** the Worker overwrites `X-Apotheke-Client-IP` from `cf-connecting-ip` and sets `APOTHEKE_EDGE_CLIENT_IP=1`, so hosted sign-in and registration rate-limit keys are per client. The header is used only when that flag is set and the value is an address; `TRUST_PROXY` alone does not enable it, and Caddy drops a client-supplied copy when the flag is not `1` ([#268](https://github.com/thordin9/apotheke/pull/268))
+- **edge:** after a container start times out, the next request checks readiness again instead of failing, a request the container cannot take answers 503 with `Retry-After`, every start path sets the inactivity timeout, and the readiness wait is 90 s so a first start with migrations fits ([#280](https://github.com/thordin9/apotheke/pull/280))
 
 ## [3.36.1] - 2026-11-11
 
