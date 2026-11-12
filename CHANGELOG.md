@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Changed
 
-- **frontend:** URL resolution in check-dist was tightened
+- **frontend:** URL resolution in check-dist was tightened ([#295](https://github.com/thordin9/apotheke/pull/295))
 
 ### Fixed
 
