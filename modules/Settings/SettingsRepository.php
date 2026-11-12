@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Apotheke\Settings;
 
+use Apotheke\Core\Database\ReadCache;
+use Apotheke\Core\Database\RequestReads;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
@@ -16,20 +18,25 @@ use Throwable;
 
 /**
  * The `settings` table (name → JSON value) through the Query Builder.
- * Works on SQLite and PostgreSQL. Holds no state of its own. Rewrites run
- * as one unit of work (ADR-002).
+ * Works on SQLite and PostgreSQL. Holds no state of its own: the rows, the
+ * roles and the account count are remembered in the request's ReadCache only
+ * (Services::readCache(); none when it is not given). Rewrites run as one unit
+ * of work (ADR-002) and read the rows fresh.
  */
 final class SettingsRepository
 {
     private readonly UnitsOfWork $units;
 
+    private readonly ReadCache $cache;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
      */
-    public function __construct(private readonly BaseConnection $db, ?UnitsOfWork $units = null)
+    public function __construct(private readonly BaseConnection $db, ?UnitsOfWork $units = null, ?ReadCache $cache = null)
     {
         $this->units = UnitsOfWork::forSite($db, $units);
+        $this->cache = $cache ?? ReadCache::off();
     }
 
     /**
@@ -38,15 +45,23 @@ final class SettingsRepository
      *
      * @return array<string,string> name => JSON value
      */
-    public function rows(): array
+    public function rows(bool $fresh = false): array
     {
-        $result = $this->select(fn () => $this->db->table('settings')->select('name, value')->get());
-        $out = [];
-        foreach ($result as $row) {
-            $out[(string)$row['name']] = (string)$row['value'];
-        }
+        // Null: the read failed (no table yet, no connection), never remembered, so a later call reads again.
+        $read = function (): ?array {
+            $rows = $this->select(fn () => $this->db->table('settings')->select('name, value')->get(), true);
+            if ($rows === null) {
+                return null;
+            }
+            $out = [];
+            foreach ($rows as $row) {
+                $out[(string)$row['name']] = (string)$row['value'];
+            }
 
-        return $out;
+            return $out;
+        };
+
+        return ($fresh ? $read() : $this->cache->remember($this->db, RequestReads::SETTINGS, ['settings'], $read, self::read(...))) ?? [];
     }
 
     /** Whether a transaction is open on the connection. */
@@ -86,7 +101,7 @@ final class SettingsRepository
                 if ($guard !== null) {
                     $guard();
                 }
-                foreach ($plan($this->rows()) as $name => $value) {
+                foreach ($plan($this->rows(true)) as $name => $value) {
                     $uow->write('DELETE FROM settings WHERE name = ?', [$name], 'settings delete');
                     $uow->write('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)', [$name, $value, $now], 'settings insert');
                 }
@@ -106,8 +121,9 @@ final class SettingsRepository
      */
     public function accountRoles(): ?array
     {
-        $rows = $this->select(fn () => $this->db->table('roles')->select('role_key, name')
-            ->orderBy('builtin', 'DESC')->orderBy('id', 'ASC')->get(), true);
+        // The same rows RoleRepository::all() reads (one read for both in a request).
+        $rows = $this->cache->remember($this->db, RequestReads::ROLES, ['roles'], fn (): ?array => $this->select(fn () => $this->db->table('roles')
+            ->select('role_key, name, perms')->orderBy('builtin', 'DESC')->orderBy('id', 'ASC')->get(), true), self::read(...));
         if ($rows === null) {
             return null;
         }
@@ -127,9 +143,19 @@ final class SettingsRepository
      */
     public function userCount(): int
     {
-        $rows = $this->select(fn () => $this->db->table('users')->select('COUNT(*) AS n')->get());
+        $n = $this->cache->remember($this->db, RequestReads::USER_COUNT, ['users'], function (): ?int {
+            $rows = $this->select(fn () => $this->db->table('users')->select('COUNT(*) AS n')->get(), true);
 
-        return (int)($rows[0]['n'] ?? 0);
+            return $rows === null ? null : (int)($rows[0]['n'] ?? 0);
+        }, self::read(...));
+
+        return $n ?? 0;
+    }
+
+    /** Whether a read succeeded (ReadCache keeps only those). */
+    private static function read(mixed $value): bool
+    {
+        return $value !== null;
     }
 
     /**

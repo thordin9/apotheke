@@ -44,6 +44,9 @@ final class SettingsService
     /** @var array<string,mixed>|null every key, typed, secrets included */
     private ?array $values = null;
 
+    /** @var array<string,string>|null the stored rows values() and stored() read (one read for both), as $values */
+    private ?array $rows = null;
+
     private ?SettingsSchema $resolved = null;
 
     private bool $tokenCleared = false;
@@ -152,7 +155,7 @@ final class SettingsService
         if ($this->schema->isSecret($key)) {
             throw new LogicException("Setting $key is write-only");
         }
-        $rows = $this->repository->rows();
+        $rows = $this->rows ??= $this->repository->rows();
 
         return array_key_exists($key, $rows) ? json_decode($rows[$key], true) : null;
     }
@@ -229,7 +232,7 @@ final class SettingsService
 
             return $plan;
         }, $this->clock->now());
-        $this->values = null;
+        $this->values = $this->rows = null;
 
         return $counts;
     }
@@ -252,7 +255,8 @@ final class SettingsService
             return false;
         }
 
-        return $this->repository->userCount() > 0 || (string)($this->config['app_password'] ?? '') !== '';
+        // APP_PASSWORD first: then the account count is not read at all.
+        return (string)($this->config['app_password'] ?? '') !== '' || $this->repository->userCount() > 0;
     }
 
     /** Number of accounts (legacy users_count()), for the CLI `list` line. */
@@ -411,7 +415,7 @@ final class SettingsService
             $encoded['autofill_token'] = (string)json_encode('', self::JSON);
         }
         $this->repository->replace($encoded, $this->clock->now(), $guard);
-        $this->values = null;
+        $this->values = $this->rows = null;
         if ($clearToken) {
             $this->tokenCleared = true;
             ($this->log)('apotheke autofill: token cleared: the service address changed');
@@ -430,7 +434,7 @@ final class SettingsService
         if ($this->values !== null) {
             return $this->values;
         }
-        $rows = $this->repository->rows();
+        $rows = $this->rows ??= $this->repository->rows();
         $out = [];
         $upgrade = [];
         foreach ($this->schema->keys() as $key) {
@@ -455,6 +459,7 @@ final class SettingsService
         $this->values = $out;
         if ($upgrade !== []) {
             $this->sealPlaintextRows($upgrade);
+            $this->rows = null;   // the sealed rows changed
         }
 
         return $out;

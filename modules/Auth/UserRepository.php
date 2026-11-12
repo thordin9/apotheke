@@ -6,6 +6,8 @@ namespace Apotheke\Auth;
 
 use Apotheke\Core\Database\Ref;
 use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\ReadCache;
+use Apotheke\Core\Database\RequestReads;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
@@ -24,13 +26,16 @@ final class UserRepository
 {
     private readonly UnitsOfWork $units;
 
+    private readonly ReadCache $cache;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
      */
-    public function __construct(private readonly BaseConnection $db, private readonly SessionEpoch $epoch = new SessionEpoch(), ?UnitsOfWork $units = null)
+    public function __construct(private readonly BaseConnection $db, private readonly SessionEpoch $epoch = new SessionEpoch(), ?UnitsOfWork $units = null, ?ReadCache $cache = null)
     {
         $this->units = UnitsOfWork::forSite($db, $units);
+        $this->cache = $cache ?? ReadCache::off();
     }
 
     /**
@@ -45,17 +50,22 @@ final class UserRepository
      */
     public function find(int $id): ?array
     {
-        try {
-            $result = $this->db->table('users')->select('*')->where('id', $id)->get();
-        } catch (DatabaseException|PDOException) {
-            return null;
-        }
-        if (!$result instanceof BaseResult) {
-            return null;
-        }
-        $row = $result->getRowArray();
+        // Remembered for the request until the next write to users (a password, role or epoch change reads again).
+        $read = $this->cache->remember($this->db, RequestReads::user($id), ['users'], function () use ($id): array {
+            try {
+                $result = $this->db->table('users')->select('*')->where('id', $id)->get();
+            } catch (DatabaseException|PDOException) {
+                return ['ok' => false, 'row' => null];
+            }
+            if (!$result instanceof BaseResult) {
+                return ['ok' => false, 'row' => null];
+            }
+            $row = $result->getRowArray();
 
-        return is_array($row) ? self::row($row) : null;
+            return ['ok' => true, 'row' => is_array($row) ? self::row($row) : null];
+        }, static fn (array $r): bool => $r['ok']);
+
+        return $read['row'];
     }
 
     /**
@@ -100,7 +110,8 @@ final class UserRepository
     /** Number of accounts (legacy users_count()). A failed read throws. */
     public function count(): int
     {
-        return (int)(Writes::rows($this->db, 'SELECT COUNT(*) AS n FROM users')[0]['n'] ?? 0);
+        return $this->cache->remember($this->db, RequestReads::USER_COUNT, ['users'],
+            fn (): int => (int)(Writes::rows($this->db, RequestReads::USER_COUNT_SQL)[0]['n'] ?? 0));
     }
 
     /**
