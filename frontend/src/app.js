@@ -66,7 +66,7 @@ function renderHome(root) {
 
 async function showSignedIn(actions, signInLink) {
     const session = await fetchSession(await loadApiBase());
-    if (!session.signed_in || !actions.isConnected) return;
+    if (!hasConsent() || !session.signed_in || !actions.isConnected) return;
     signInLink.remove();
     const line = document.createElement('p');
     line.id = 'signed-in';
@@ -190,4 +190,8 @@ if (accept) {
     });
 }
 window.addEventListener('popstate', render);
+document.addEventListener('apotheke-signed-out', () => {
+    const name = routeOf(location.pathname);
+    if (name === 'home' || name === 'sign-in' || name === 'missing') render();
+});
 render();

@@ -32,11 +32,85 @@ test('the privacy page describes the sign-in session cookie', async ({ page }) =
     await expect(main).toContainText('host-only on api.services.getapotheke.com');
     await expect(main).toContainText('up to 30 days');
     await expect(main).toContainText('See Sign-in for the API session cookie.');
-    await expect(main).toContainText('Accepting again keeps you signed in.');
+    await expect(main).toContainText('Declining signs you out on this site.');
+    await expect(main).toContainText('Accepting again needs a fresh sign-in.');
     await expect(main).toContainText('Signing out removes the session cookie.');
-    await expect(main).toContainText('Sign out first to end the session at once.');
-    await expect(main).toContainText('The session ends only when the browser reaches the API without consent.');
     await expect(main).toContainText('removes the consent cookie, apotheke_consent');
+});
+
+test('Decline with a session sends one sign-out and clears the signed-in line', async ({ page }) => {
+    await allowApiCookie(page);
+    const deletes: string[] = [];
+    await page.route(API_SESSION, (route) => {
+        const req = route.request();
+        if (req.method() === 'DELETE') {
+            deletes.push(req.headers()['x-csrf-token'] || '');
+            expect(req.url()).toBe(API_SESSION);
+            expect(req.headers().cookie || '').toContain('probe=sent');
+            return route.fulfill({ status: 204, body: '' });
+        }
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
+        });
+    });
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#signed-in')).toHaveText('Signed in as ada.');
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect(page.locator('#consent')).toBeHidden();
+    await expect(page.locator('#signed-in')).toHaveCount(0);
+    await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await expect.poll(() => deletes).toEqual(['kept-token']);
+});
+
+test('Decline without a session sends no sign-out', async ({ page }) => {
+    let deletes = 0;
+    await page.route(API_SESSION, (route) => {
+        if (route.request().method() === 'DELETE') deletes += 1;
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(sessionOk('fresh-token', false)),
+        });
+    });
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect(page.locator('#consent')).toBeHidden();
+    await page.waitForTimeout(200);
+    expect(deletes).toBe(0);
+});
+
+test('a failed sign-out still clears the signed-in line', async ({ page }) => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    await page.route(API_SESSION, async (route) => {
+        if (route.request().method() === 'DELETE') {
+            await held;
+            return route.fulfill({ status: 500, body: '' });
+        }
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
+        });
+    });
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#signed-in')).toHaveText('Signed in as ada.');
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect(page.locator('#consent')).toBeHidden();
+    await expect(page.locator('#signed-in')).toHaveCount(0);
+    await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toBeVisible();
+    release();
 });
 
 test('header and hero CTAs point at the app', async ({ page }) => {
