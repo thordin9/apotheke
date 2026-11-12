@@ -849,9 +849,8 @@ With parts 1 to 3 done and the PM's go:
 - CORS: `curl -si https://api.services.getapotheke.com/api/v1/session -H 'Origin: https://getapotheke.com'` answers
   `Access-Control-Allow-Origin: https://getapotheke.com` with credentials allowed; another origin gets no
   `Access-Control-Allow-Origin`. No `Set-Cookie` carries a `Domain=` attribute (host-only cookies).
-- Sign in from `https://api.services.getapotheke.com/login` (the working sign-in for now; the site's sign-in is being
-  fixed), save an item with a photo, wait past `SLEEP_AFTER_MS` (15 minutes) or deploy again, and check that the item
-  and the photo are still there.
+- Sign in from `https://getapotheke.com/app/sign-in` against the API, save an item with a photo, wait past
+  `SLEEP_AFTER_MS` (15 minutes) or deploy again, and check that the item and the photo are still there.
 - The photo is in R2 under `installations/primary/` in `apotheke-api-storage` (dashboard, *R2 > apotheke-api-storage*,
   EU jurisdiction).
 - `npx --no-install wrangler deployments list --name apotheke-api`: the new version is at 100%.
