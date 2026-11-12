@@ -111,7 +111,15 @@ class Services extends BaseService
         if ($translator->credentialsDiffer($dbConfig)) {
             \Apotheke\Migrations\PdoMigrationRunner::warnCredentialsDiffer();
         }
-        \Apotheke\Migrations\BootMigration::ensure($config, $db);
+        // Hosted (the D1 driver): the settings, the roles, the account count and, once per process, the applied
+        // migrations in one batch, remembered for this request (RequestReads). Null: each is read on its own.
+        $applied = null;
+        if (\Apotheke\Core\Database\Writes::batches($db)) {
+            $versions = !\Apotheke\Migrations\BootMigration::done($config);
+            $applied = \Apotheke\Core\Database\RequestReads::prefetch($db, static::readCache(), $versions);
+            $applied = $versions ? $applied : null;
+        }
+        \Apotheke\Migrations\BootMigration::ensure($config, $db, null, null, $applied);
 
         return $db;
     }
@@ -132,7 +140,7 @@ class Services extends BaseService
         $config = static::apothekeConfig()->values();
 
         return new \Apotheke\Settings\SettingsService(
-            new \Apotheke\Settings\SettingsRepository($db, static::unitsOfWork()),
+            new \Apotheke\Settings\SettingsRepository($db, static::unitsOfWork(), static::readCache()),
             new \Apotheke\Settings\SettingsSchema(),
             static::brandStore(),
             new \Apotheke\Core\Libraries\Clock(),
@@ -175,7 +183,7 @@ class Services extends BaseService
 
         return new \Apotheke\Auth\CurrentUser(
             static fn (): \Apotheke\Settings\SettingsService => static::settings(),
-            new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork()),
+            new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache()),
             static fn (): array => $_SESSION ?? [],
         );
     }
@@ -189,7 +197,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Auth\RoleRepository($db, static::unitsOfWork());
+        return new \Apotheke\Auth\RoleRepository($db, static::unitsOfWork(), static::readCache());
     }
 
     /**
@@ -304,6 +312,19 @@ class Services extends BaseService
         }
 
         return new \Apotheke\Core\Database\ConnectionExecutor($db);
+    }
+
+    /**
+     * Reads remembered for this request until a write to their tables (Core\Database\ReadCache). Per request, never
+     * persistent in worker mode (WorkerMode::$persistentServices), so nothing is kept from one request to the next.
+     */
+    public static function readCache(bool $getShared = true): \Apotheke\Core\Database\ReadCache
+    {
+        if ($getShared) {
+            return static::getSharedInstance('readCache');
+        }
+
+        return new \Apotheke\Core\Database\ReadCache();
     }
 
     /** Units of work on this request's executor, and the registry of the open one. Per request, never persistent. */
@@ -521,7 +542,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Taxonomy\TaxonomyRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::unitsOfWork());
+        return new \Apotheke\Taxonomy\TaxonomyRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::unitsOfWork(), static::readCache());
     }
 
     /** Accounts for the sign-in pages (Auth), with the failed sign-in deadline from SIGN_IN_FAIL_MS (sign_in_fail_ms). Stateless. */
@@ -534,7 +555,7 @@ class Services extends BaseService
         $db = static::apothekeDb();
 
         return new \Apotheke\Auth\Accounts(
-            new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork()),
+            new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache()),
             static::roles(),
             new \Apotheke\Core\Libraries\Clock(),
             new \Apotheke\Auth\SignInPace((int)static::apothekeConfig()->values()['sign_in_fail_ms']),
@@ -574,7 +595,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Auth\SignOutEverywhere(new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork()));
+        return new \Apotheke\Auth\SignOutEverywhere(new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache()));
     }
 
     /** The search index over items (Search): SQLite FTS5 or Postgres pg_trgm, rebuilt when the data changes. */
@@ -609,7 +630,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Catalog\ItemList($db, static::searchIndex(), static::calendar());
+        return new \Apotheke\Catalog\ItemList($db, static::searchIndex(), static::calendar(), static::readCache());
     }
 
     /** The overview's statistics (Catalog). */
@@ -621,7 +642,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Catalog\Stats($db, static::taxonomy(), static::calendar());
+        return new \Apotheke\Catalog\Stats($db, static::taxonomy(), static::calendar(), static::readCache());
     }
 
     /** Saved filters (Catalog). */
@@ -633,7 +654,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Catalog\SavedFilters($db, new \Apotheke\Core\Libraries\Clock(), (int)static::settings()->get('saved_filters_max'), static::unitsOfWork());
+        return new \Apotheke\Catalog\SavedFilters($db, new \Apotheke\Core\Libraries\Clock(), (int)static::settings()->get('saved_filters_max'), static::unitsOfWork(), static::readCache());
     }
 
     /** Tags in use (Taxonomy). */
@@ -645,7 +666,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Taxonomy\TagRepository($db, new \Apotheke\Core\Libraries\Clock(), static::unitsOfWork());
+        return new \Apotheke\Taxonomy\TagRepository($db, new \Apotheke\Core\Libraries\Clock(), static::unitsOfWork(), static::readCache());
     }
 
     /** Favourites and recently viewed (Favourites), for this request's device cookie. */
@@ -677,7 +698,7 @@ class Services extends BaseService
         $db = static::apothekeDb();
 
         return new \Apotheke\Catalog\Items\ItemRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::taxonomy(), static::tags(),
-            static::imageStore(), \Apotheke\Core\Storage\StorageFactory::create(static::apothekeConfig()->values()), static::photoRepository(), static::unitsOfWork());
+            static::imageStore(), \Apotheke\Core\Storage\StorageFactory::create(static::apothekeConfig()->values()), static::photoRepository(), static::unitsOfWork(), static::readCache());
     }
 
     /** An item's photos: add, order, cover, delete, crop and rotate (Catalog, PLAN 11a part 2). */
@@ -822,7 +843,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Auth\UserAdmin(new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork()), static::roles(), static::accounts(),
+        return new \Apotheke\Auth\UserAdmin(new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache()), static::roles(), static::accounts(),
             new \Apotheke\Auth\AdminGuard(static::currentUser()), new \Apotheke\Core\Libraries\Clock());
     }
 
@@ -835,7 +856,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Auth\RoleAdmin(static::roles(), new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork()), static::settings(), new \Apotheke\Core\Libraries\Clock());
+        return new \Apotheke\Auth\RoleAdmin(static::roles(), new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache()), static::settings(), new \Apotheke\Core\Libraries\Clock());
     }
 
     /** Sign-in on or off (Auth): on needs an active admin, off needs an admin. */
@@ -847,7 +868,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Auth\SignInSwitch(static::settings(), new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork()), new \Apotheke\Auth\AdminGuard(static::currentUser()));
+        return new \Apotheke\Auth\SignInSwitch(static::settings(), new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache()), new \Apotheke\Auth\AdminGuard(static::currentUser()));
     }
 
     /**
@@ -912,7 +933,7 @@ class Services extends BaseService
     {
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
-        $accounts = new \Apotheke\Auth\Accounts(new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork()), new \Apotheke\Auth\RoleRepository($db, static::unitsOfWork()), new \Apotheke\Core\Libraries\Clock());
+        $accounts = new \Apotheke\Auth\Accounts(new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache()), new \Apotheke\Auth\RoleRepository($db, static::unitsOfWork(), static::readCache()), new \Apotheke\Core\Libraries\Clock());
         $password = static::apothekeConfig()->values()['app_password'] ?? '';
         $accounts->ensureFirstAdmin((bool)$settings->get('auth_enabled'), is_string($password) ? $password : '');
     }
@@ -931,8 +952,8 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
         $settings = static::settings(false, new \Apotheke\Core\Security\CommandLine());
-        $users = new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork());
-        $roles = new \Apotheke\Auth\RoleRepository($db, static::unitsOfWork());
+        $users = new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache());
+        $roles = new \Apotheke\Auth\RoleRepository($db, static::unitsOfWork(), static::readCache());
         $clock = new \Apotheke\Core\Libraries\Clock();
         $accounts = new \Apotheke\Auth\Accounts($users, $roles, $clock);
         $password = static::apothekeConfig()->values()['app_password'] ?? '';
@@ -1263,7 +1284,7 @@ class Services extends BaseService
                 /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
                 $db = static::apothekeDb();
 
-                return (new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork()))->createdAt($id);
+                return (new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache()))->createdAt($id);
             });
         }, (int)$uploads['restore_max_uploads'], null, null, static function (): ?\Apotheke\Backup\RestoreStage {
             $staged = static::stagedExecutor();

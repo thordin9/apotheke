@@ -8,6 +8,7 @@ use Apotheke\Catalog\ItemList;
 use Apotheke\Catalog\ListFilters;
 use Apotheke\Catalog\RecentItems;
 use Apotheke\Catalog\Views\ListView;
+use Apotheke\Core\Database\ReadCache;
 use Apotheke\Core\Libraries\Text;
 use CodeIgniter\HTTP\ResponseInterface;
 
@@ -29,6 +30,16 @@ final class ListController extends CatalogController
         $sort = ListFilters::sort($get['sort'] ?? null, $default);
         $page = ItemList::clampPage(self::int($get['page'] ?? 1));
         $items = $this->items();
+        // The page's lists and counts in one round trip on D1, remembered for the calls below.
+        $reads = [$this->taxonomy()->allRead('location'), $this->taxonomy()->allRead('category'), $this->tags()->inUseRead()];
+        if (!$this->wantsJson()) {
+            array_push($reads, $items->statsRead(), $items->favouriteCountRead(), $this->saved()->allRead());
+        }
+        /** @var ReadCache $cache */
+        $cache = service('readCache');
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = service('apothekeDb');
+        $cache->prefetch($db, $reads);
         $res = $items->search($q, $f, $sort, $default, $page, (int)$this->settings()->get('page_size'));
         $view = $this->view();
         $select = ($get['select'] ?? '') === '1';

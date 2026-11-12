@@ -7,6 +7,7 @@ namespace Apotheke\Migrations;
 use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Config\DsnTranslator;
 use Apotheke\Core\Database\D1HttpExecutor;
+use Apotheke\Core\Database\D1\Connection as D1Connection;
 use Closure;
 
 /**
@@ -41,9 +42,11 @@ final class BootMigration
      * @param object $connection the request's CI4 connection (BaseConnection), already set up by DatabaseFactory
      * @param ?Closure():PdoMigrationRunner $runner builds the runner, only when a migration is missing
      * @param ?Closure():D1Bootstrap $d1 builds the D1 bootstrap (db.driver d1), only when a migration is missing
+     * @param ?list<string> $applied the versions schema_migrations holds, already read with the request's first batch
+     *        (RequestReads::prefetch()); null reads them here
      * @return bool whether this call ran the migrations (false: already current, or checked before)
      */
-    public static function ensure(ApothekeConfig $config, object $connection, ?Closure $runner = null, ?Closure $d1 = null): bool
+    public static function ensure(ApothekeConfig $config, object $connection, ?Closure $runner = null, ?Closure $d1 = null, ?array $applied = null): bool
     {
         $db = $config->database();
         $key = self::key($db);
@@ -51,7 +54,7 @@ final class BootMigration
             return false;
         }
         $driver = (string)($db['driver'] ?? '');
-        if (self::current($connection, $driver)) {
+        if ($applied !== null ? self::covers($applied) : self::current($connection, $driver)) {
             self::$done[$key] = true;
 
             return false;
@@ -60,6 +63,9 @@ final class BootMigration
             // Hosted storage mode: migrate the Installation object over the bridge, under its lease.
             $d1 = $d1 !== null ? $d1() : new D1Bootstrap(new D1HttpExecutor(), new D1MigrationRunner(PdoMigrationRunner::repoRoot() . '/migrations'));
             $d1->migrate();
+            if ($connection instanceof D1Connection) {
+                $connection->writeClock()->wroteEverything();   // sent on the bootstrap's own bridge client
+            }
             self::$done[$key] = true;
 
             return true;
@@ -113,7 +119,17 @@ final class BootMigration
         if ($rows === null) {
             return false;
         }
-        $applied = array_flip(array_map(static fn (array $row): string => (string)$row['version'], $rows));
+        return self::covers(array_map(static fn (array $row): string => (string)$row['version'], $rows));
+    }
+
+    /**
+     * Every migration file has its version in $applied.
+     *
+     * @param list<string> $applied
+     */
+    private static function covers(array $applied): bool
+    {
+        $applied = array_flip($applied);
         foreach (glob(PdoMigrationRunner::repoRoot() . '/migrations/[0-9][0-9][0-9][0-9]_*.php') ?: [] as $file) {
             if (!isset($applied[substr(basename($file), 0, 4)])) {
                 return false;

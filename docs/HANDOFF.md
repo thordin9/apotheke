@@ -24,6 +24,11 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   On `d1` the restore refusals are 501 before anything is stored (on `/api` the problem code `hosted.unavailable` with the message; any other 5xx stays generic), and the restore section shows "Not available on hosted yet." instead of its actions. Self-hosting shows them as before.
   Bulk editing runs on `d1`: the whole selection (at most 500 items) is one unit of work, one batch, so a failed batch writes nothing and the same request resumes; a delete of an item that changed or went meanwhile fails the batch with 409. The undo token is stored in that same batch; a selection whose snapshot would exceed the statement size limit is refused with 422 and nothing is written. Restore is the next conversion.
   CSV import runs on `d1`: the preview validates without writing; the page commit and the `import.commit` job import one batch per line, the line's `import_rows` marker claimed in that batch (expect 1), so a commit that failed half-way resumes and racing commits import each line once. A line is checked by a dry run first; its new locations and categories are their own idempotent steps before the line's batch.
+- Branch `perf/d1-round-trips` cuts D1 round trips per request: a request-scoped `ReadCache` (D1 only, never inside a
+  transaction, reset per request in worker mode) holds settings, roles, the account count and other read-mostly reads
+  until a write to their tables, counted by the connection's `WriteClock`; `Writes::rowsMany` sends independent reads
+  as one `/batch` on D1 and reads them in turn on SQLite and PostgreSQL. `RoundTripBudgetTest` pins the call budgets.
+  The session handler's own reads are not changed here.
 - PDO/self-hosting and default `LocalStorage` stay the filesystem restore. Explicit R2 keeps chunk payloads, the
   restore manifest and the lease on that same storage. A new object is created with the condition on that PUT, so a
   write still inside the bridge does not replace an object another restore has stored. The catalog transaction and

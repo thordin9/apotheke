@@ -22,6 +22,13 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **catalog:** deleting an item's last photo by fetch answers `index` `0`, the photo the redirect shows, instead of `-1` ([#294](https://github.com/thordin9/apotheke/pull/294))
 - **api:** `POST /api/v1/session` with an empty body answers `422` `validation.failed` with both fields `Required.`, like `{}`, instead of `400`; a field sent as a number or a list is `Must be text.` instead of `Required.` ([#294](https://github.com/thordin9/apotheke/pull/294))
 
+## [3.37.2] - 2026-11-12
+
+### Performance
+
+- cut database round trips per request on d1 ([#293](https://github.com/thordin9/apotheke/pull/293))
+- **d1:** fewer database round trips per request on the D1 driver: the request's settings, roles and account count are read in one batch and remembered until a write to their tables, independent list, item, stats and undo reads are batched (`Writes::rowsMany`), and the rate limiter, recent-views sweep and sign-in checks use fewer calls; SQLite and PostgreSQL read as before (signed-in list 45 to 12 calls, `/api/v1/me` 15 to 8, healthz 2 to 1) ([#293](https://github.com/thordin9/apotheke/pull/293))
+
 ## [3.37.1] - 2026-11-12
 
 ### Fixed
@@ -1627,7 +1634,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.37.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.37.2...HEAD
+[3.37.2]: https://github.com/thordin9/apotheke/compare/v3.37.1...v3.37.2
 [3.37.1]: https://github.com/thordin9/apotheke/compare/v3.37.0...v3.37.1
 [3.37.0]: https://github.com/thordin9/apotheke/compare/v3.36.10...v3.37.0
 [3.36.10]: https://github.com/thordin9/apotheke/compare/v3.36.9...v3.36.10

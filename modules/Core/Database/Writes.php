@@ -46,6 +46,53 @@ final class Writes
     }
 
     /**
+     * Rows of several independent SELECTs, in order: one batch on the D1 driver (one round trip to the bridge), one
+     * query after another on SQLite and PostgreSQL. A failed batch, or one the driver would not send, is read again
+     * one statement at a time, so a failure throws exactly as rows() (or typedRows()) does.
+     *
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param list<array{0:string,1?:list<int|string|bool|null>}> $queries SQL and its ? binds
+     * @return list<list<array<string,mixed>>>
+     */
+    public static function rowsMany(BaseConnection $db, array $queries, bool $typed = false): array
+    {
+        if ($queries === []) {
+            return [];
+        }
+        if (count($queries) > 1) {
+            $rows = self::readMany($db, array_map(static fn (array $q): array => [$q[0], $q[1] ?? []], $queries));
+            if ($rows !== null) {
+                return $rows;
+            }
+        }
+
+        return array_map(static fn (array $q): array => $typed ? self::typedRows($db, $q[0], $q[1] ?? []) : self::rows($db, $q[0], $q[1] ?? []), $queries);
+    }
+
+    /**
+     * Whether $db sends several reads in one round trip (the D1 driver): Writes::rowsMany() saves round trips there.
+     *
+     * @param BaseConnection<object|resource, object|resource> $db
+     */
+    public static function batches(BaseConnection $db): bool
+    {
+        return $db instanceof D1\Connection;
+    }
+
+    /**
+     * D1\Connection::readMany() on the D1 driver: the rows of each SELECT from one batch, or null (another driver,
+     * or a batch the driver would not send or that failed).
+     *
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param list<array{0:string,1:list<mixed>}> $queries
+     * @return list<list<array<string,mixed>>>|null
+     */
+    public static function readMany(BaseConnection $db, array $queries): ?array
+    {
+        return $db instanceof D1\Connection ? $db->readMany($queries) : null;
+    }
+
+    /**
      * Rows of a SELECT typed as legacy's PDO returns them, for rows that are
      * stored as JSON (undo snapshots). The Postgre driver returns every
      * column as a string; pdo_pgsql returns integer columns as int, float4

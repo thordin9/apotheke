@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Catalog;
 
+use Apotheke\Core\Database\ReadCache;
 use Apotheke\Core\Database\Ref;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
@@ -12,6 +13,7 @@ use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\Text;
 use CodeIgniter\Database\BaseConnection;
+use Closure;
 
 /**
  * Saved filters (legacy saved_filter_*()): a named list query. Writes are
@@ -24,19 +26,34 @@ final class SavedFilters
 {
     private readonly UnitsOfWork $units;
 
+    private readonly ReadCache $cache;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
      */
-    public function __construct(private readonly BaseConnection $db, private readonly Clock $clock, private readonly int $max, ?UnitsOfWork $units = null)
+    public function __construct(private readonly BaseConnection $db, private readonly Clock $clock, private readonly int $max, ?UnitsOfWork $units = null, ?ReadCache $cache = null)
     {
         $this->units = UnitsOfWork::forSite($db, $units);
+        $this->cache = $cache ?? ReadCache::off();
     }
 
     /** @return list<Saved> */
     public function all(): array
     {
-        return array_map(self::row(...), Writes::rows($this->db, 'SELECT id, name, query FROM saved_filters ORDER BY sort_key, id'));
+        /** @var list<Saved> */
+        return $this->cache->through($this->db, $this->allRead());
+    }
+
+    /**
+     * all()'s read, remembered for the request until the next write to saved_filters, for ReadCache::prefetch().
+     *
+     * @return array{key:string,tables:list<string>,sql:string,shape:Closure(list<array<string,mixed>>):list<Saved>}
+     */
+    public function allRead(): array
+    {
+        return ['key' => 'saved_filters.all', 'tables' => ['saved_filters'], 'sql' => 'SELECT id, name, query FROM saved_filters ORDER BY sort_key, id',
+            'shape' => static fn (array $rows): array => array_map(self::row(...), $rows)];
     }
 
     /** @return Saved|null */
