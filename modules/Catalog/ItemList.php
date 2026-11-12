@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Apotheke\Catalog;
 
 use Apotheke\Core\Database\Dialect;
+use Apotheke\Core\Database\ReadCache;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Search\SearchIndex;
 use CodeIgniter\Database\BaseConnection;
+use Closure;
 
 /**
  * The list's queries (legacy items_search(), stats(), fav_count(),
@@ -20,12 +22,16 @@ final class ItemList
 
     private const FROM = 'FROM items i LEFT JOIN locations l ON l.id = i.location_id LEFT JOIN categories c ON c.id = i.category_id';
 
+    private readonly ReadCache $cache;
+
     /** @param BaseConnection<object|resource, object|resource> $db */
     public function __construct(
         private readonly BaseConnection $db,
         private readonly SearchIndex $search,
         private readonly Calendar $calendar,
+        ?ReadCache $cache = null,
     ) {
+        $this->cache = $cache ?? ReadCache::off();
     }
 
     public static function clampPage(int $page): int
@@ -105,11 +111,15 @@ final class ItemList
             $rank = array_slice($match['ids'], 0, 1000);
             $order = 'CASE i.id ' . implode(' ', array_map(static fn (int $id, int $n): string => 'WHEN ' . $id . ' THEN ' . $n, $rank, array_keys($rank))) . ' ELSE ' . count($rank) . ' END, ' . $order;
         }
-        $total = (int)($this->rows('SELECT COUNT(*) AS n ' . self::FROM . " $w", $args)[0]['n'] ?? 0);
         $page = self::clampPage($page);
         $offset = ($page - 1) * $pageSize;
-        $items = $this->rows("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due, i.expires_on, i.favourite "
-            . self::FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset", $args);
+        // The count and the page in one round trip on D1 (Writes::rowsMany()).
+        [$counted, $items] = Writes::rowsMany($this->db, [
+            ['SELECT COUNT(*) AS n ' . self::FROM . " $w", $args],
+            ["SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due, i.expires_on, i.favourite "
+                . self::FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset", $args],
+        ]);
+        $total = (int)($counted[0]['n'] ?? 0);
         if ($match !== null) {
             foreach ($items as &$it) {
                 $it['hl'] = SearchIndex::highlight((string)$it['name'], $match['terms']);
@@ -124,16 +134,44 @@ final class ItemList
     /** @return array{items:int,qty:int,unassigned:int,uncategorized:int} */
     public function stats(): array
     {
-        $r = $this->rows('SELECT COUNT(*) AS items, COALESCE(SUM(quantity),0) AS qty,
-            COALESCE(SUM(CASE WHEN location_id IS NULL THEN 1 ELSE 0 END),0) AS unassigned,
-            COALESCE(SUM(CASE WHEN category_id IS NULL THEN 1 ELSE 0 END),0) AS uncategorized FROM items')[0];
+        /** @var array{items:int,qty:int,unassigned:int,uncategorized:int} */
+        return $this->cache->through($this->db, $this->statsRead());
+    }
 
-        return ['items' => (int)$r['items'], 'qty' => (int)$r['qty'], 'unassigned' => (int)$r['unassigned'], 'uncategorized' => (int)$r['uncategorized']];
+    /**
+     * stats()'s read, remembered for the request until the next write to items, locations or categories (whose
+     * delete clears the items' column), for ReadCache::prefetch().
+     *
+     * @return array{key:string,tables:list<string>,sql:string,shape:Closure(list<array<string,mixed>>):array{items:int,qty:int,unassigned:int,uncategorized:int}}
+     */
+    public function statsRead(): array
+    {
+        return ['key' => 'items.stats', 'tables' => ['items', 'locations', 'categories'],
+            'sql' => 'SELECT COUNT(*) AS items, COALESCE(SUM(quantity),0) AS qty,
+            COALESCE(SUM(CASE WHEN location_id IS NULL THEN 1 ELSE 0 END),0) AS unassigned,
+            COALESCE(SUM(CASE WHEN category_id IS NULL THEN 1 ELSE 0 END),0) AS uncategorized FROM items',
+            'shape' => static function (array $rows): array {
+                $r = $rows[0];
+
+                return ['items' => (int)$r['items'], 'qty' => (int)$r['qty'], 'unassigned' => (int)$r['unassigned'], 'uncategorized' => (int)$r['uncategorized']];
+            }];
     }
 
     public function favouriteCount(): int
     {
-        return (int)($this->rows('SELECT COUNT(*) AS n FROM items WHERE favourite = 1')[0]['n'] ?? 0);
+        /** @var int */
+        return $this->cache->through($this->db, $this->favouriteCountRead());
+    }
+
+    /**
+     * favouriteCount()'s read, remembered for the request until the next write to items, for ReadCache::prefetch().
+     *
+     * @return array{key:string,tables:list<string>,sql:string,shape:Closure(list<array<string,mixed>>):int}
+     */
+    public function favouriteCountRead(): array
+    {
+        return ['key' => 'items.favourites', 'tables' => ['items'], 'sql' => 'SELECT COUNT(*) AS n FROM items WHERE favourite = 1',
+            'shape' => static fn (array $rows): int => (int)($rows[0]['n'] ?? 0)];
     }
 
     /** @return array{name:string,favourite:bool}|null the item's name and star, null when it does not exist */
