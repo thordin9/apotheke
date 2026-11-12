@@ -61,6 +61,25 @@ final class SameOriginTest extends TestCase
         $this->assertTrue($this->rule()->check([], false));
     }
 
+    public function testWithoutOriginARefererMustBeOurs(): void
+    {
+        $host = ['HTTP_HOST' => 'shop.example:9091'];
+        $this->assertTrue($this->rule()->check($host + ['HTTP_REFERER' => 'http://shop.example:9091/item/4?x=1'], false));
+        $this->assertTrue($this->rule()->check($host + ['HTTP_REFERER' => 'HTTP://SHOP.example:9091/'], false));
+        $this->assertFalse($this->rule()->check($host + ['HTTP_REFERER' => 'http://other.example/form'], false));
+        $this->assertFalse($this->rule()->check($host + ['HTTP_REFERER' => 'https://shop.example:9091/'], false), 'another scheme');
+        $this->assertFalse($this->rule()->check($host + ['HTTP_REFERER' => 'http://shop.example/'], false), 'another port');
+        $this->assertTrue($this->rule()->check(['HTTP_HOST' => 'internal:8080', 'HTTP_REFERER' => 'https://shop.example/x'], false, 'https://shop.example'), 'PUBLIC_URL');
+        $this->assertTrue($this->rule()->check($host + ['HTTP_REFERER' => 'https://shop.example:9091/'], true), 'https behind a trusted proxy');
+        $this->assertFalse($this->rule()->check($host + ['HTTP_ORIGIN' => 'http://other.example', 'HTTP_REFERER' => 'http://shop.example:9091/'], false), 'Origin decides when sent');
+        $this->assertTrue($this->rule()->check($host + ['HTTP_ORIGIN' => 'http://shop.example:9091', 'HTTP_REFERER' => 'http://other.example/'], false));
+        foreach (['', 'about:blank', '/relative', 'not a url'] as $referer) {
+            $this->assertTrue($this->rule()->check($host + ['HTTP_REFERER' => $referer], false), 'no usable Referer: ' . $referer);
+            $this->assertSame('', SameOrigin::refererOrigin($referer), $referer);
+        }
+        $this->assertSame('http://[::1]:8080', SameOrigin::refererOrigin('http://[::1]:8080/p'));
+    }
+
     private function rule(): SameOrigin
     {
         return new SameOrigin();

@@ -1,8 +1,8 @@
 # Operator console: control-plane data
 
 Design note for the hosted service's operator console (managing installations, plans and limits, subscriptions,
-usage and an audit log). This first step adds only the schema; nothing reads it yet, and routing still goes to the
-one installation, `primary`.
+usage and an audit log). The Worker routes each request by host through this schema (see [Routing](#routing)); the
+console itself is not built yet.
 
 ## Source of truth
 
@@ -50,8 +50,11 @@ values against the Worker source.
 
 ## Routing
 
-`edge/src/route.ts` looks up the request host (lower case, no port) in `installation_routes` and forwards to the
-container named by the installation's `do_name`. A hit or a miss is cached in the Worker isolate for 30 seconds.
+`edge/src/route.ts` looks up the request host (lower case, no port, trailing dots removed) in
+`installation_routes` and forwards to the container named by the installation's `do_name`. Only the request URL's
+host is used; `X-Forwarded-Host` is ignored. A hit or a miss is cached in the Worker isolate for 30 seconds (at most
+1,000 hosts: expired entries are dropped first, then the oldest), so a status or route change can take up to 30
+seconds to show.
 
 - No row, no `DB` binding, or a failed lookup: the request goes to `primary`, as before routing existed. The app's
   own `ALLOWED_HOSTS` check still applies.

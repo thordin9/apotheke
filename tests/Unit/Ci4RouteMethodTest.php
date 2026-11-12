@@ -111,6 +111,29 @@ final class Ci4RouteMethodTest extends TestCase
         }
     }
 
+    /**
+     * Paths only the doubled-slash check answers: the router reads //api and //api/ as the site root (its
+     * redirect, its 405) and refuses //api/v1/a%3Bb (a plain 400). Each is still the /api JSON 404 with the
+     * API headers, for any method.
+     */
+    #[DataProvider('consent')]
+    public function testADoubledSlashIsTheJson404WhereTheRouterWouldAnswerOtherwise(?string $consent): void
+    {
+        $c = $this->client($consent);
+        foreach (['//api', '//api/', '//api/v1/a%3Bb', '//api//v1/a%3Bb'] as $path) {
+            foreach (['GET', 'POST', 'DELETE'] as $method) {
+                $r = $c->req($method, $path, [], [], ['Accept: application/json', 'X-Requested-With: fetch']);
+                $label = $method . ' ' . $path . ': ' . substr($r['body'], 0, 120);
+                $this->assertSame([404, 'not_found'], [$r['status'], $r['json']['code'] ?? null], $label);
+                $this->assertSame('application/problem+json', $r['headers']['content-type'] ?? null, $label);
+                $this->assertSame("default-src 'none'; frame-ancestors 'none'; sandbox", $r['headers']['content-security-policy'] ?? null, $label);
+                $this->assertSame('no-referrer', $r['headers']['referrer-policy'] ?? null, $label);
+                $this->assertArrayNotHasKey('allow', $r['headers'], $label);
+                $this->assertSame([], self::setCookies($r), $label);
+            }
+        }
+    }
+
     /** Real routes still answer as before: / redirects a visitor, protected reads are 401 under /api. */
     public function testRealRoutesKeepTheirAnswers(): void
     {
