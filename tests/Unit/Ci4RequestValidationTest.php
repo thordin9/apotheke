@@ -13,7 +13,8 @@ require_once dirname(__DIR__) . '/lib.php';
  * After those checks, a form field sent as a list it does not take is a 422, and an item's name, notes, tags or
  * serial number past its limit is a 422 instead of being cut short. /upload/check (the FrankenPHP image's check
  * before a body over 64 KiB) refuses a signed-out /api request with the API's problem+json: 413 for a declared
- * length over 64 KiB, else 401. An empty 204, 304 or error answer carries no Content-Type.
+ * length over 64 KiB, else 401. An empty 204, 304 or error answer carries no Content-Type, and deleting the last
+ * photo answers the index the redirect uses.
  */
 final class Ci4RequestValidationTest extends TestCase
 {
@@ -259,6 +260,25 @@ final class Ci4RequestValidationTest extends TestCase
         $this->assertStringStartsWith('text/html', $c->get('/robots.txt')['headers']['content-type'] ?? '');
         $this->assertStringStartsWith('text/html', $c->get('/')['headers']['content-type'] ?? '');
         $this->assertSame('application/problem+json', self::$server->client()->get('/api/v1/me')['headers']['content-type'] ?? null);
+    }
+
+    public function testDeletingTheLastPhotoAnswersTheIndexTheRedirectUses(): void
+    {
+        [$c, $token, $id] = $this->signedIn();
+        $this->assertSame(303, $c->post('/item/' . $id . '/photos', ['csrf' => $token], ['photo' => jpg_file(img_jpeg(40, 30))])['status']);
+        [$pid, $file] = testdb(self::$dir)->query('SELECT id, file FROM item_photos WHERE item_id = ' . $id)->fetch(PDO::FETCH_NUM);
+        $this->assertGreaterThan(0, (int)$pid);
+        // Over real HTTP: /media's 304 (no Content-Type) and a byte range.
+        $full = $c->get('/media/full/' . $file);
+        $this->assertSame([200, 'bytes'], [$full['status'], $full['headers']['accept-ranges'] ?? null]);
+        $cached = $c->get('/media/full/' . $file, ['If-None-Match: W/' . $full['headers']['etag'] . ', "x"']);
+        $this->assertSame([304, ''], [$cached['status'], $cached['body']]);
+        $this->assertArrayNotHasKey('content-type', $cached['headers']);
+        $part = $c->get('/media/full/' . $file, ['Range: bytes=2-5']);
+        $this->assertSame([206, 'bytes 2-5/' . strlen($full['body']), substr($full['body'], 2, 4)], [$part['status'], $part['headers']['content-range'] ?? null, $part['body']]);
+        $this->assertSame(416, $c->get('/media/full/' . $file, ['Range: bytes=' . strlen($full['body']) . '-'])['status']);
+        $r = $c->post('/item/' . $id . '/photos/' . $pid . '/delete', ['csrf' => $token], [], ['Accept: application/json', 'X-Requested-With: fetch']);
+        $this->assertSame(['ok' => true, 'index' => 0, 'count' => 0], $r['json']);
     }
 
     /** @return array{0:Client,1:string,2:int} a signed-in client, its CSRF token and a new item's id */
