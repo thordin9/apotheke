@@ -90,4 +90,5 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 - [Database](database.md), [Testing](testing.md), [Releasing](releasing.md), [API](api.md),
   [Deployment and operations](deployment-and-operations.md).
 - Open: [L-2041](qa/apotheke-l2041-hosted-container-early-exit.md), preview containers stopping with code 0 before the sleep timer. N-1986 accepted as platform behaviour (PM, 2026-11-12).
+- Open: [N-2058](qa/apotheke-n2058-pgsql-staged-restore-flake.md), `StagedRestoreTest` preflight case flaking once on pgsql in CI.
 - CI4 Playwright: the `CI4_UNPORTED` skip list (`tests/visual/fixtures.ts`) is empty.
