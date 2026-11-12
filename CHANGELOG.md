@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Fixed
 
-- **site:** drop `bluetooth=()` from `Permissions-Policy` on the landing Worker and `_headers`; it is not a recognised feature and logged a console warning on every page (L-1923)
+- **site:** drop `bluetooth=()` from `Permissions-Policy` on the landing Worker and `_headers`; it is not a recognised feature and logged a console warning on every page (L-1923) ([#285](https://github.com/thordin9/apotheke/pull/285))
 
 ## [3.36.6] - 2026-11-12
 
