@@ -13,6 +13,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **edge:** control-plane schema for the hosted operator console in `edge/migrations/control/` (installations, routes, plans and limits, manual subscriptions, usage counters, an append-only audit log), with `primary` seeded under its existing names on plan `internal`; see [docs/operator-console.md](docs/operator-console.md). Not applied by any deploy yet ([#299](https://github.com/thordin9/apotheke/pull/299))
 - **edge:** the Worker routes each request by host through the control plane's `installation_routes`; a missing row, an unbound `DB` or a failed lookup falls back to `primary` as before, and paused or removed installations get a status page without starting a container ([#302](https://github.com/thordin9/apotheke/pull/302))
 
+### Fixed
+
+- **frontend:** the landing FAQ says a hosted Apotheke is available and that sign-up is invitation-only ([#288](https://github.com/thordin9/apotheke/pull/288))
+
 ## [3.37.0] - 2026-11-12
 
 ### Added

@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
 const dir = new URL('../migrations/control/', import.meta.url);
@@ -22,7 +23,7 @@ test('control migrations are numbered wrangler-style and additive only', () => {
   files.forEach((f, i) => assert.match(f, new RegExp(`^${String(i + 1).padStart(4, '0')}_[a-z0-9_]+\\.sql$`)));
   for (const f of files) {
     const sql = readFileSync(new URL(f, dir), 'utf8').replace(/--.*$/gm, '');
-    assert.doesNotMatch(sql, /\b(DROP|RENAME|DELETE\s+FROM|UPDATE\s+\w+\s+SET|BEGIN\s+TRANSACTION|COMMIT)\b/i, f);
+    assert.doesNotMatch(sql, /\b(DROP|RENAME|DELETE\s+FROM|UPDATE\s+\w+\s+SET|REPLACE|BEGIN\s+TRANSACTION|COMMIT)\b/i, f);
   }
 });
 
@@ -39,15 +40,72 @@ test('primary is seeded with its existing DO name and R2 prefix, plan internal, 
   assert.equal(db.prepare('SELECT count(*) AS n FROM plan_limits').get().n, 0);
 });
 
-test('constraints: prefix follows do_name, hosts are lower case, statuses are fixed, audit is append-only', () => {
+// A migration that has been applied must never change: a fix is a new, later file.
+const PINNED = {
+  '0001_control_plane.sql': '56e7c0c8d85c162e66c4628523200bd7d603ddc7262f07f4dd0a79c372e53e8a',
+  '0002_seed_primary.sql': '7c0ecfebc8603b75300154ac1ba66adabebc550ddb0fdbb445df5994a9db8dcc',
+};
+
+test('applied migrations are pinned by sha256', () => {
+  for (const [f, sum] of Object.entries(PINNED)) {
+    assert.equal(createHash('sha256').update(readFileSync(new URL(f, dir))).digest('hex'), sum, f);
+  }
+});
+
+const refused = (db, sql, re) => assert.throws(() => db.exec(sql), re, sql);
+const install = (id, doName, prefix = `installations/${doName}/`) =>
+  `INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('${id}', '${doName}', '${prefix}', 'active')`;
+
+test('installations: do_name charset, prefix follows do_name, both unique and fixed, statuses are fixed', () => {
   const db = migrated();
-  assert.throws(() => db.exec(`INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('b', 'b', 'installations/c/', 'active')`), /CHECK/);
-  assert.throws(() => db.exec(`INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('b', 'b', 'installations/b/', 'paused')`), /CHECK/);
-  assert.throws(() => db.exec(`INSERT INTO installation_routes (host, installation_id) VALUES ('Api.example.test', 'primary')`), /CHECK/);
-  assert.throws(() => db.exec(`INSERT INTO installation_routes (host, installation_id) VALUES ('x.example.test', 'nope')`), /FOREIGN KEY/);
-  assert.throws(() => db.exec(`UPDATE subscriptions SET status = 'paid'`), /CHECK/);
-  assert.throws(() => db.exec(`INSERT INTO usage_counters (installation_id, period, metric) VALUES ('primary', '2026-1', 'requests')`), /CHECK/);
-  db.exec(`INSERT INTO operator_audit (id, operator, action, installation_id) VALUES ('01TEST', 'op@example.test', 'set_status', 'primary')`);
-  assert.throws(() => db.exec(`UPDATE operator_audit SET action = 'x'`), /append-only/);
-  assert.throws(() => db.exec(`DELETE FROM operator_audit`), /append-only/);
+  for (const name of ['', 'B', 'a.b', 'a/b', '..', 'a b', 'a_b']) refused(db, install('x', name), /CHECK/);
+  refused(db, install('x', 'b', 'installations/c/'), /CHECK/);
+  refused(db, `INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('x', 'b', 'installations/b/', 'paused')`, /CHECK/);
+  refused(db, install('x', 'primary'), /UNIQUE/);
+  refused(db, `INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('x', 'b', 'installations/primary/', 'active')`, /CHECK|UNIQUE/);
+  db.exec(install('b2', 'tenant-2'));
+  refused(db, `UPDATE installations SET do_name = 'tenant-3', r2_prefix = 'installations/tenant-3/' WHERE id = 'b2'`, /never change/);
+  refused(db, `UPDATE installations SET r2_prefix = 'installations/other/' WHERE id = 'primary'`, /never change/);
+  db.exec(`UPDATE installations SET status = 'suspended', do_name = do_name WHERE id = 'b2'`);
+  const cols = Object.fromEntries(db.prepare(`PRAGMA index_list('installations')`).all().filter((i) => i.unique)
+    .map((i) => [db.prepare(`PRAGMA index_info('${i.name}')`).all().map((c) => c.name).join(), true]));
+  assert.ok(cols.do_name && cols.r2_prefix);
+});
+
+test('routes: hosts are lower case without port, slash, space, empty or trailing dot; the installation must exist', () => {
+  const db = migrated();
+  for (const host of ['', 'Api.example.test', 'a.example.test:443', 'a.example.test.', 'a b.test', 'a.test/x', '.a.test']) {
+    refused(db, `INSERT INTO installation_routes (host, installation_id) VALUES ('${host}', 'primary')`, /CHECK/);
+  }
+  refused(db, `INSERT INTO installation_routes (host, installation_id) VALUES ('x.example.test', 'nope')`, /FOREIGN KEY/);
+  db.exec(`INSERT INTO installation_routes (host, installation_id) VALUES ('x-1.example.test', 'primary')`);
+});
+
+test('subscriptions, limits and usage: plan required and real, statuses fixed, limits sane, months 01-12', () => {
+  const db = migrated();
+  const plan = db.prepare(`PRAGMA table_info('subscriptions')`).all().find((c) => c.name === 'plan_id');
+  assert.equal(plan.notnull, 1);
+  assert.ok(db.prepare(`PRAGMA foreign_key_list('subscriptions')`).all().some((k) => k.from === 'plan_id' && k.table === 'plans' && k.to === 'id'));
+  db.exec(install('b', 'b'));
+  refused(db, `INSERT INTO subscriptions (installation_id, status) VALUES ('b', 'active')`, /NOT NULL/);
+  refused(db, `INSERT INTO subscriptions (installation_id, plan_id, status) VALUES ('b', 'nope', 'active')`, /FOREIGN KEY/);
+  refused(db, `UPDATE subscriptions SET status = 'paid'`, /CHECK/);
+  for (const [soft, hard] of [[-1, 'NULL'], ['NULL', -1], [5, 4]]) {
+    refused(db, `INSERT INTO plan_limits (plan_id, limit_key, soft_value, hard_value) VALUES ('internal', 'items', ${soft}, ${hard})`, /CHECK/);
+  }
+  db.exec(`INSERT INTO plan_limits (plan_id, limit_key, soft_value, hard_value) VALUES ('internal', 'items', 4, 4), ('internal', 'users', NULL, 0)`);
+  for (const period of ['2026-1', '2026-00', '2026-13']) {
+    refused(db, `INSERT INTO usage_counters (installation_id, period, metric) VALUES ('primary', '${period}', 'requests')`, /CHECK/);
+  }
+  db.exec(`INSERT INTO usage_counters (installation_id, period, metric) VALUES ('primary', '2026-12', 'requests')`);
+});
+
+test('operator_audit is append-only: no update, delete, or insert over an existing id', () => {
+  const db = migrated();
+  const row = `INTO operator_audit (id, operator, action, installation_id) VALUES ('01TEST', 'op@example.test', 'set_status', 'primary')`;
+  db.exec(`INSERT ${row}`);
+  for (const sql of [`UPDATE operator_audit SET action = 'x'`, `DELETE FROM operator_audit`, `INSERT ${row}`, `INSERT OR REPLACE ${row}`, `REPLACE ${row}`]) {
+    refused(db, sql, /append-only/);
+  }
+  assert.deepEqual({ ...db.prepare('SELECT count(*) AS n, max(action) AS a FROM operator_audit').get() }, { n: 1, a: 'set_status' });
 });

@@ -22,12 +22,12 @@ job, not of this repository's tests.
 
 | Table | Purpose |
 |---|---|
-| `installations` | One row per installation: `id`, `do_name`, `r2_prefix` (always `installations/<do_name>/`), lifecycle `status` (`provisioning`, `active`, `suspended`, `deleting`, `deleted`), owner contact, notes |
-| `installation_routes` | Host (lower case, no port) → installation; several hosts may point at one installation |
+| `installations` | One row per installation: `id`, `do_name` (lower-case letters, digits and `-`), `r2_prefix` (always `installations/<do_name>/`; neither ever changes, a trigger refuses it), lifecycle `status` (`provisioning`, `active`, `suspended`, `deleting`, `deleted`), owner contact, notes |
+| `installation_routes` | Host (lower case, no port, no trailing dot) → installation; several hosts may point at one installation |
 | `plans`, `plan_limits` | Plans and their soft and hard limits per key (`items`, `storage_bytes`, `photos`, `users`, `autofill_calls_month`, `requests_month`, `container_hours_month`, `sleep_after_ms`, `import_file_bytes`). No row for a key means no limit |
 | `subscriptions` | One row per installation: plan, manual status, `trial_end`, `period_end`, notes |
 | `usage_counters` | Per installation, month (`YYYY-MM`) and metric |
-| `operator_audit` | Every operator change, control-plane fields only. Append-only: triggers refuse updates and deletes |
+| `operator_audit` | Every operator change, control-plane fields only. Append-only: triggers refuse updates, deletes and inserts over an existing id (`INSERT OR REPLACE`) |
 
 Three choices differ from the first design and were accepted for this schema: routes are keyed by host (not by
 installation), `do_name` and `r2_prefix` live on `installations` (not on the route), and `subscriptions` replaces a
