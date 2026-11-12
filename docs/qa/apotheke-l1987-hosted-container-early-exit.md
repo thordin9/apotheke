@@ -17,9 +17,13 @@ workers.dev previews; prod `apotheke-api` shows no unexplained early exit.
 | 16:57:20 | same, #292 at e7993127 | worker | 20 s (a concurrent isolation run ended 16:57:00) |
 | 18:20:51.601 | apotheke-rerun-c-20261112 (a0375fd7), #292 at 7ea981ff | classic | 11 min 51 s |
 | 18:20:51.415 | apotheke-rerun-w-20261112 (a030192e), #292 at 7ea981ff | worker | 11 min 51 s |
+| 19:25:13.588 | apotheke-pra-20261112 (a03094e6), #297 at f0eefef6 | worker | 20.9 s (last request 19:24:52.683, an isolation run) |
+| 19:48:04.532 | same | worker | 13 min 43.5 s (823.5 s; last request 19:34:21.029) |
 
 - The two 18:20:51 exits are two separate container applications, one per PHP mode, stopping 0.2 s apart. In the two
   minutes before, neither container logged anything but the stop lines, and neither Worker logged a request.
+- On the #297 preview (N-1986 recheck) both stops came early: one 20.9 s after an isolation run, one 76.5 s before
+  the 900 s timer. Each was followed by a clean cold start (container-start 5.9 s and 6.3 s) with data intact.
 - Normal sleeps on the same previews come after about 14.5-15 min idle (for example a039f9c9 at 17:15:17).
 - Not reproduced on demand: 8 sequential bench batches (17:28-18:05) and a 3-minute, 6-thread concurrent burst on
   both rerun previews (18:05:50-18:09:00) were followed by no exit within 70 s.
