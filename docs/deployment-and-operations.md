@@ -470,7 +470,8 @@ boots once per PHP thread (`public/frankenphp-worker.php`) and serves requests i
 reset between requests (`app/Config/WorkerMode.php`). Then there are `FRANKENPHP_NUM_THREADS` worker threads plus one
 regular thread (for a literal `/index.php`). Empty, `0`, `false` or `no` keeps classic mode, where every request
 starts with fresh PHP state; any other value exits with code 64. Each worker recycles itself after
-`APOTHEKE_WORKER_MAX_REQUESTS` requests (default 1000, `0` = no cap; L-1979) and logs `apotheke: PHP worker started` on
+`APOTHEKE_WORKER_MAX_REQUESTS` requests (default 1000, `0` = no cap; a rejected value logs a warning and uses 1000;
+L-1979). The hosted container always uses 1000, since `edge/src/index.ts` doesn't pass the variable. Each worker logs `apotheke: PHP worker started` on
 every boot, so a restart shows in the container log (CI's `scripts/docker-worker-checks.sh` counts them). The hosted `apotheke-api` container ships it off (`0`, QA-1854);
 turning it on is a later step, after an interleaved classic/worker preview of the merged head. Self-hosted images keep classic mode unless you set it. The nginx image has no worker mode.
 
