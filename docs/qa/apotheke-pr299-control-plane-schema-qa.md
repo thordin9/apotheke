@@ -1,7 +1,14 @@
 # QA: apotheke #299, operator console control-plane schema and primary seed
 
 - PR: https://github.com/thordin9/apotheke/pull/299 (Coder), base `main`. Operator console E0+E1: the control-plane schema and `primary`'s seed as migrations in `edge/migrations/control/`, plus the design note `docs/operator-console.md`.
-- Reviewed head: `8b966d935988f91d456b4f7cf0122fbcdc0ff63c`, 0 behind main `5fe1f141` (v3.37.2), 9 ahead, mergeable (clean). Earlier gates: the full gate at `96bdf248` and a delta at `dfd04329`. This is a delta gate.
+- Gated head: `880dd685fce3b5704c9f11253db878ada6f9f5f4`, 0 behind main `91a0c4ae` (#301), mergeable. It is a plain merge (parents `7947fefa` and `91a0c4ae`) of main into `7947fefa`. `7947fefa` is the previous version of this doc committed on `8b966d93`; it is byte-identical to that issue (6014 B, sha256 `c3b4aa5b…`) and is replaced by this reissue.
+- Content reviewed at `8b966d935988f91d456b4f7cf0122fbcdc0ff63c` (0 behind `5fe1f141`, 9 ahead, clean). Earlier gates: the full gate at `96bdf248` and deltas at `dfd04329` and `8b966d93`.
+- Merge-only read, `7947fefa` to `880dd685`:
+  - For each of the 9 files, the +/- lines of `main...880dd685` equal those of `5fe1f141...7947fefa`. That includes `docs/adr/002-edge-storage.md` and `docs/index.md`, which #301 also touches: both auto-merged with only #299's lines on top of #301's text.
+  - For each of the 13 files #301 changed, the +/- lines of `7947fefa...880dd685` equal those of `5fe1f141...91a0c4ae`, so main's content is intact. #301 adds no control-plane text that conflicts with this PR.
+  - `docs/operator-console.md`, the two migrations (pins unchanged), both test files and the committed QA doc are byte-identical to `7947fefa`.
+  - The CHANGELOG differs from main only by the #299 `### Added` bullet (full URL) under [Unreleased]. From `## [3.37.2]` down it is byte-identical to main.
+  - CI on `880dd685` at read time: Deploy edge 43296692164 and PR #299 43296683968 succeeded; CI 43296692126 was queued.
 - Commits since `dfd04329`:
   - `359583c6` fix(edge): refuse installation REPLACE and NULL keys in control plane (68 chars).
   - Plain merges `3ae2ce7d` (main `99b76094`, #293) and `8b966d93` (main `5fe1f141`, v3.37.2). Their subjects are git-generated and exempt.
@@ -10,12 +17,12 @@
   - For each of the 8 files, the +/- lines of `main...8b966d93` equal those of `3be6990d...359583c6`.
   - The 7 non-CHANGELOG files are byte-identical at `359583c6` and `8b966d93` (sha256).
   - The CHANGELOG differs from main only by the #299 bullet (full URL) under [Unreleased] `### Added`.
-- Gate: a full read of `359583c6`; the edge suite; applies to empty SQLite (node:sqlite) and to a local D1 (wrangler 4.157.0, `--local` only); edge-case probes; and 30 mutants, each run with the pin and again with it recomputed.
+- Gate (at `8b966d93`): a full read of `359583c6`; the edge suite; applies to empty SQLite (node:sqlite) and to a local D1 (wrangler 4.157.0, `--local` only); edge-case probes; and 30 mutants, each run with the pin and again with it recomputed.
 - Reviewer: Apotheke QA 2
 
 ## Checklist
 
-- [x] CI on `8b966d93`, all succeeded: CI 43290996965, Deploy edge 43290995185 (Check and dry run; the deploy job was skipped, as intended on PRs), PR #299 / CodeQL 43290981155.
+- [x] CI on `8b966d93` (content head), all succeeded: CI 43290996965, Deploy edge 43290995185 (Check and dry run; the deploy job was skipped, as intended on PRs), PR #299 / CodeQL 43290981155.
 - [x] `node --test --experimental-strip-types scripts/deploy-scripts.test.mjs edge/tests/r2.test.mjs`: 119/119 pass.
 - [x] Pins match the files: 0001 is `a066b939…`, and 0002 is unchanged (`7c0ecfeb…`). Nothing has applied 0001 in prod yet (#300 is open), so editing it in place is still fine now.
 - [x] Local D1 apply and re-apply work. On local D1:
@@ -52,6 +59,6 @@
 
 ## Verdict
 
-**PASS** at `8b966d93`, 0 behind main `5fe1f141`. No High, Medium or Low open. After this squash-merges and #300 applies 0001 and 0002, any change is a new numbered file; the pin enforces that.
+**PASS** at `880dd685` (content as at `8b966d93`; the merge-only read of `91a0c4ae` is clean), 0 behind main `91a0c4ae`, provided CI 43296692126 goes green. No High, Medium or Low open. After this squash-merges and #300 applies 0001 and 0002, any change is a new numbered file; the pin enforces that.
 
-If main moves (for example #301 or #300), the PR needs a plain catch-up, a merge-only read and a reissued doc. Squash-merge with the PR title as the subject.
+If main moves (for example #300), the PR needs a plain catch-up, a merge-only read and a reissued doc. Squash-merge with the PR title as the subject.
