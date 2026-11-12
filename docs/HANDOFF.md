@@ -46,6 +46,13 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   (they are not yet streaming reads). The Worker forwards to the container over HTTP with `redirect: manual`, overwrites `X-Forwarded-Proto`, `X-Forwarded-Host` and `X-Apotheke-Client-IP` (from `cf-connecting-ip`), and the readiness probe uses the first `ALLOWED_HOSTS` entry (or `127.0.0.1` if that list is empty). The entrypoint recreates Caddy's `/run` directories before FrankenPHP starts. Caddy compares the `APOTHEKE_EDGE_CLIENT_IP` flag as a quoted string so `frankenphp validate` accepts the Caddyfile with the flag set or unset. After a start, the Worker sets the container inactivity timeout from `SLEEP_AFTER_MS` and does not hold `monitor()` or `waitUntil`, so that timeout can begin once the Durable Object goes idle. In storage mode the boot builds the D1 settings without the autoloader, `auth status` reads sign-in over `d1.internal` (same answers and exit codes, so the entrypoint check still applies), and R2 metadata is `GET ?action=head` (the R2 protocol has no HEAD). `EDGE_STORAGE_READY` stays off.
   When a start or the forward fails, the Worker answers 503 with `Retry-After: 5` and a fixed body, and the next request probes `/healthz` again before it forwards. The readiness wait is 90 s; requests that arrive during a start share one wait, and a running container whose wait times out twice in a row is destroyed so the next request starts a fresh one.
 
+- Session hardening: sign-out, and a request that carries a session cookie without cookie consent, remove the
+  session (file or `sessions` row) and expire its cookie with the attributes it was set with, without a new id.
+  The pages' cookie notice has Decline (`POST /consent` with `consent=decline`) next to Accept, with the site
+  notice's title and wording. `RouteMethodFilter` answers 404 for a path no route serves and 405 with `Allow` for
+  another method, before the consent and permission filters; under `/api`, doubled-slash paths included, both are
+  problem+json. `GET /api/v1/branding` answers absolute icon URLs on the public base, and `auth status` on a new
+  `d1` install checks for the settings table before reading it.
 
 ## Open pull requests
 
