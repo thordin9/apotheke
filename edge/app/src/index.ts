@@ -21,7 +21,7 @@ const COMMON: Record<string, string> = {
 	"X-Frame-Options": "DENY",
 	"Permissions-Policy":
 		"camera=(), microphone=(), geolocation=(), interest-cohort=(), accelerometer=(), gyroscope=(), magnetometer=(), " +
-		"payment=(), usb=(), bluetooth=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()",
+		"payment=(), usb=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()",
 };
 
 // _headers `/app/*` (which detaches the landing CSP with `! Content-Security-Policy`).
