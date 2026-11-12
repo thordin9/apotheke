@@ -39,7 +39,7 @@ final class Ci4CookieConsentTest extends TestCase
     public static function routes(): iterable
     {
         yield 'list (redirect to sign-in)' => ['GET', '/', 303];
-        yield 'unknown page (redirect to sign-in)' => ['GET', '/no-such-page', 303];
+        yield 'unknown page' => ['GET', '/no-such-page', 404];
         yield 'sign-in page' => ['GET', '/login', 200];
         yield 'sign-in page (HEAD)' => ['HEAD', '/login', 200];
         yield 'branding: theme.css (HEAD)' => ['HEAD', '/theme.css', 200];

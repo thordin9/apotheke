@@ -37,7 +37,8 @@ A job that the worker stops cleanly (SIGTERM, with pcntl) is released and resume
 (SIGKILL, an out-of-memory kill, a crash) cannot release it: the job stays `running` until its 300-second lease runs
 out, and only then does the next `jobs:work` pick it up and resume from its last checkpoint.
 
-Any other path under `/api` answers `404`.
+Any other path under `/api` answers `404`, with or without cookie consent or a session. A path above asked with a
+method it does not take answers `405 method_not_allowed` with an `Allow` header.
 
 An import is shown only to the user who uploaded it, or an admin; anyone else gets the same `404` as for an id that
 is not there. Cell values in an import's `sample` and the preview's `name` are raw, as they are imported. A cell that
@@ -132,7 +133,7 @@ JSON is `application/json; charset=utf-8`. Errors are [RFC 9457](https://www.rfc
 ```
 
 `code` is stable: `auth.required` (401), `auth.invalid_credentials` (401), `auth.pending_approval` (403),
-`auth.sign_in_off` (409), `bad_request` (400), `csrf.invalid` (403), `import.done` (409), `restore.conflict` (409), `restore.busy` (503, with `Retry-After`), `storage.insufficient` (507), `import.gone` (410), `not_found` (404), `permission.denied` (403),
+`auth.sign_in_off` (409), `bad_request` (400), `csrf.invalid` (403), `import.done` (409), `restore.conflict` (409), `restore.busy` (503, with `Retry-After`), `storage.insufficient` (507), `import.gone` (410), `method_not_allowed` (405, with `Allow`), `not_found` (404), `permission.denied` (403),
 `rate_limited` (429, with `Retry-After`), `server_error` (500), `unsupported_media_type` (415), `upload.too_large`
 (413) and `validation.failed` (422, with an `errors` map of field to message). An unexpected error under `/api` is
 problem+json too: `500 server_error` with the fixed detail `Something went wrong on the server.`, never the error's

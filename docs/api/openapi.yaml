@@ -411,7 +411,7 @@
           "title": {"type": "string"},
           "status": {"type": "integer"},
           "detail": {"type": "string"},
-          "code": {"type": "string", "description": "A stable machine code: auth.required, auth.invalid_credentials, auth.pending_approval, auth.sign_in_off, bad_request, csrf.invalid, not_found, permission.denied, rate_limited, unsupported_media_type, upload.too_large, validation.failed, import.done, import.gone, restore.conflict, restore.busy, storage.insufficient, consent_required"},
+          "code": {"type": "string", "description": "A stable machine code: auth.required, auth.invalid_credentials, auth.pending_approval, auth.sign_in_off, bad_request, csrf.invalid, not_found, permission.denied, rate_limited, unsupported_media_type, upload.too_large, validation.failed, import.done, import.gone, method_not_allowed, restore.conflict, restore.busy, storage.insufficient, consent_required"},
           "error": {"type": "string", "enum": ["consent_required"], "description": "Only on 403 consent_required: the same code"},
           "errors": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Field => message, for 422"}
         }
