@@ -4,6 +4,7 @@
 #  - with no arguments (or "apotheke") execs FrankenPHP (Caddy + PHP in one process) as www-data; tini stays PID 1
 #    and forwards SIGTERM, on which FrankenPHP drains its requests and exits
 #  - FRANKENPHP_NUM_THREADS (1-64, default 2) sets the PHP threads, i.e. the requests served at once
+#  - APOTHEKE_PHP_WORKER=1 runs PHP in FrankenPHP worker mode (the hosted container); default classic mode
 #  - next to FrankenPHP it runs the background jobs worker (apotheke-jobs-worker: `php spark jobs:work`, restarted with
 #    a backoff) as www-data; APOTHEKE_JOBS_WORKER=0 turns it off, and then FrankenPHP is exec'd as before. SIGTERM
 #    stops both; the worker never stops FrankenPHP, and if FrankenPHP exits on its own the container stops
@@ -85,6 +86,15 @@ case "$FRANKENPHP_NUM_THREADS" in
 esac
 if [ "$FRANKENPHP_NUM_THREADS" -gt 64 ]; then echo "FRANKENPHP_NUM_THREADS must be a number from 1 to 64" >&2; exit 64; fi
 export FRANKENPHP_NUM_THREADS
+# PHP mode (docker/frankenphp/php-*.caddy): classic unless APOTHEKE_PHP_WORKER is 1, true or yes. Worker mode
+# (public/frankenphp-worker.php) boots the app once per PHP thread: FRANKENPHP_NUM_THREADS worker threads serve the
+# app, plus the one regular thread FrankenPHP needs (a request for /index.php itself, which the worker never gets).
+case "${APOTHEKE_PHP_WORKER:-0}" in
+  1|true|yes) APOTHEKE_PHP_MODE=worker FRANKENPHP_REGULAR_THREADS=1 FRANKENPHP_MAX_THREADS=$((FRANKENPHP_NUM_THREADS + 1)) ;;
+  0|false|no) APOTHEKE_PHP_MODE=classic FRANKENPHP_REGULAR_THREADS=$FRANKENPHP_NUM_THREADS FRANKENPHP_MAX_THREADS=$FRANKENPHP_NUM_THREADS ;;
+  *) echo "APOTHEKE_PHP_WORKER must be 1, true, yes, 0, false, no or empty" >&2; exit 64 ;;
+esac
+export APOTHEKE_PHP_MODE FRANKENPHP_REGULAR_THREADS FRANKENPHP_MAX_THREADS
 # Caddy's own state (no certificates, admin off) lives under /run, never in DATA_DIR or /tmp (L-430).
 # The image creates these directories for www-data, but /run is often a fresh mount at runtime
 # (Cloudflare Containers), so recreate them before FrankenPHP binds its socket. The entrypoint
@@ -116,7 +126,7 @@ end() { # pid: sends TERM every 0.2 s until the process has exited
   while kill -0 "$1" 2>/dev/null; do kill -TERM "$1" 2>/dev/null || true; sleep 0.2; done
 }
 trap stop TERM INT QUIT
-echo "apotheke: frankenphp on :$PORT ($ROOT), $FRANKENPHP_NUM_THREADS PHP threads"
+echo "apotheke: frankenphp on :$PORT ($ROOT), $FRANKENPHP_NUM_THREADS PHP threads, $APOTHEKE_PHP_MODE mode"
 as_www() { if [ "$(id -u)" = 0 ]; then exec su-exec www-data "$@"; else exec "$@"; fi; }
 if [ "$jobs_worker" = 0 ]; then
   echo "apotheke: APOTHEKE_JOBS_WORKER is off, background jobs do not run"
