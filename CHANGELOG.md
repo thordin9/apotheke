@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **edge:** requests that arrive while the container starts share one readiness wait, and a running container whose readiness wait times out twice in a row is replaced by a fresh start ([#283](https://github.com/thordin9/apotheke/pull/283))
+
 ## [3.36.4] - 2026-11-12
 
 ### Fixed
