@@ -111,8 +111,7 @@ final class SecurityController extends AuthPages
                         }
                         throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
                     }
-                    $this->limiter()->clear('login', $name);
-                    $this->limiter()->forget($mine);
+                    $this->limiter()->succeeded('login', $name, $mine);
                     $uid = $user['id'];
                 } else {
                     /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */

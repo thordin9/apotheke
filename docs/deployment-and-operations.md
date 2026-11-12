@@ -465,6 +465,13 @@ once. Two fit Cloudflare's `basic` instance (1/4 vCPU, 1 GiB) with two large HEI
 about 300 MB while it is decoded). On a bigger server, raise it, for example to 8. A value outside 1–64 exits with
 code 64. The nginx image ignores it (php-fpm's own settings apply).
 
+**Worker mode.** `APOTHEKE_PHP_WORKER` (`1`, `true` or `yes`; default off) runs PHP in FrankenPHP worker mode: the app
+boots once per PHP thread (`public/frankenphp-worker.php`) and serves requests in a loop, with CodeIgniter's worker
+reset between requests (`app/Config/WorkerMode.php`). Then there are `FRANKENPHP_NUM_THREADS` worker threads plus one
+regular thread (for a literal `/index.php`). Empty, `0`, `false` or `no` keeps classic mode, where every request
+starts with fresh PHP state; any other value exits with code 64. The hosted `apotheke-api` container ships it off (`0`, QA-1854);
+turning it on is a later step, after an interleaved classic/worker preview of the merged head. Self-hosted images keep classic mode unless you set it. The nginx image has no worker mode.
+
 **Request body limits.** Sizes are binary: 1 MiB = 1,048,576 bytes (nginx's `22m` is the same 22 MiB). The same
 limits as the nginx image, enforced by Caddy per route:
 
@@ -531,7 +538,8 @@ this repository, and only these two:
 **`apotheke-api` settings** are vars in `edge/wrangler.jsonc` (not secrets; changed by a reviewed pull request) that
 the Worker passes to the container: `SLEEP_AFTER_MS`, `ALLOWED_HOSTS` (`api.services.getapotheke.com`),
 `APOTHEKE_JOBS_WORKER` (`0`: no `jobs:work` in the container; jobs will run through a Cron Trigger or Queues, see
-[Background jobs](#background-jobs)), `CORS_ALLOWED_ORIGINS` (`https://getapotheke.com`: the front end calls the API
+[Background jobs](#background-jobs)), `APOTHEKE_PHP_WORKER` (`0`: classic mode as shipped; `1`, a later step, turns on FrankenPHP worker mode, see
+[The FrankenPHP image](#the-frankenphp-image)), `CORS_ALLOWED_ORIGINS` (`https://getapotheke.com`: the front end calls the API
 from another host) and `COOKIE_DOMAIN` (`getapotheke.com`). `COOKIE_DOMAIN` is the hosted value from
 the 3.6.1 upgrade note: the consent cookie gets `Domain=getapotheke.com` (empty means host-only, the self-hosting
 default), and it never applies to the `__Host-apothekesid` session cookie, which may not carry a `Domain` attribute

@@ -96,6 +96,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 				COOKIE_DOMAIN: this.env.COOKIE_DOMAIN ?? "",
 				CORS_ALLOWED_ORIGINS: this.env.CORS_ALLOWED_ORIGINS ?? "",
 				APOTHEKE_JOBS_WORKER: this.env.APOTHEKE_JOBS_WORKER ?? "0",
+				APOTHEKE_PHP_WORKER: this.env.APOTHEKE_PHP_WORKER ?? "0",
 				PORT: String(PORT),
 				TZ: "Europe/Athens",
 				// The Worker terminates TLS. The app then honours X-Forwarded-Proto/Host (overwritten below).

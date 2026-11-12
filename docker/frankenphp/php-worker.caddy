@@ -1,0 +1,9 @@
+# Worker mode (APOTHEKE_PHP_WORKER=1, the hosted container; imported into php_server by the Caddyfile): existing files
+# are served, everything else goes to public/frankenphp-worker.php, which boots the app once per thread and serves
+# requests in a loop with CodeIgniter's worker reset in between (Config\WorkerMode).
+try_files {path} frankenphp-worker.php
+worker {
+	file /var/www/app/public/frankenphp-worker.php
+	num {$FRANKENPHP_NUM_THREADS:2}
+	name apotheke
+}
