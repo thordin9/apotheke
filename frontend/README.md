@@ -83,7 +83,7 @@ runs it on every frontend pull request and on pushes to `main`. It checks:
 * the shared header and identical footers: marketing pages offer Open the app and Sign in, no header links to
   Privacy, the app nav offers Home only, and the footer has Privacy and `© 2026 Stathis Papandreou`;
 * the app shell's canonical URL uses the SPA base;
-* the Content-Security-Policy on the landing paths and on `/app/` matches the policies in `public/_headers`: the landing policy does not include the API host; the `/app/*` policy detaches that header and adds the API host to `img-src` and `connect-src` (and `check-dist` expects the app policy and the Worker to match);
+* the Content-Security-Policy on the landing paths and on `/app/` matches the policies in `public/_headers`: the landing policy does not include the API host; the `/app/*` policy detaches that header and adds the API host to `img-src` and `connect-src`. `frontend/scripts/check-dist.mjs` checks those policies in `dist/_headers`. `scripts/app-worker-check.mjs` checks the running Worker's headers, including the `/app/*` policy, against that file;
 * every page sets `Strict-Transport-Security: max-age=31536000`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and the Permissions-Policy from
   `public/_headers`;
