@@ -12,6 +12,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **docs:** update the hand-off and deploy runbook for the current release, sign-in, and hosted storage-mode flip ([#284](https://github.com/thordin9/apotheke/pull/284))
 
+### Fixed
+
+- **backup:** on the hosted database a backup reads each table in pages, records `"driver":"d1"`, and stops with a clear message, leaving no partial zip, when the temp disk has no room for the stored photos and files ([#287](https://github.com/thordin9/apotheke/pull/287))
+
 ## [3.36.6] - 2026-11-12
 
 ### Fixed
