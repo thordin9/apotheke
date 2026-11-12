@@ -360,9 +360,10 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	assert.equal((await obj.fetch(new Request("https://api.example.test/healthz"))).status, 200);
 	const { SLEEP_AFTER_MS, ...forwarded } = vars;
 	for (const [k, v] of Object.entries(forwarded)) assert.equal(started.env[k], v, k);
-	// Wrangler vars (except SLEEP_AFTER_MS) plus TRUST_PROXY, which the Worker sets in code.
+	// Wrangler vars (except SLEEP_AFTER_MS) plus TRUST_PROXY and APOTHEKE_EDGE_CLIENT_IP, set in code.
 	assert.deepEqual(Object.keys(started.env).sort(), [
 		"ALLOWED_HOSTS",
+		"APOTHEKE_EDGE_CLIENT_IP",
 		"APOTHEKE_JOBS_WORKER",
 		"APP_KEY",
 		"APP_PASSWORD",
@@ -373,6 +374,7 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 		"TZ",
 	]);
 	assert.equal(started.env.TRUST_PROXY, "1");
+	assert.equal(started.env.APOTHEKE_EDGE_CLIENT_IP, "1");
 	assert.equal(started.enableInternet, false);
 	assert.deepEqual(
 		intercepted.map(([h]) => h),

@@ -504,12 +504,7 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
             $this->assertTrue($this->handler($database, self::NOW)->write(self::ID, 'over-stale'));
             $this->assertSame(['over-stale', ''], [(string)$this->row($database, $key)['data'], (string)$this->row($database, $key)['lock_token']]);
             $database->db->query('UPDATE sessions SET lock_token = ?, locked_until = ? WHERE id = ?', ['other-token', self::NOW + 1, $key]);
-            try {
-                $this->handler($database, self::NOW)->write(self::ID, 'over-valid');
-                $this->fail('a valid lock keeps its row');
-            } catch (RuntimeException $e) {
-                $this->assertSame('Could not store the session.', $e->getMessage());
-            }
+            $this->assertTrue($this->handler($database, self::NOW)->write(self::ID, 'over-valid'), 'a valid lock keeps its row; the write is a no-op');
             $this->assertSame(['over-stale', 'other-token'], [(string)$this->row($database, $key)['data'], (string)$this->row($database, $key)['lock_token']]);
         } finally {
             $database->drop();
@@ -547,17 +542,10 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
         return [$a, $b];
     }
 
+    /** L-1894: an expired claim stores nothing, and write() returns true instead of throwing. */
     private function assertStaleWriteRefused(DatabaseSessionHandler $a): void
     {
-        $error = null;
-        try {
-            $a->write(self::ID, 'from-a');
-        } catch (RuntimeException $e) {
-            $error = $e;
-        }
-        $this->assertInstanceOf(RuntimeException::class, $error, 'an expired claim stores nothing');
-        $this->assertSame('Could not store the session.', $error->getMessage());
-        $this->assertNull($error->getPrevious());
+        $this->assertTrue($a->write(self::ID, 'from-a'), 'an expired claim stores nothing and does not fail');
     }
 
     #[DataProvider('drivers')]
@@ -659,6 +647,125 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
         } finally {
             $database->drop();
         }
+    }
+
+    // --- writes that do not apply ----------------------------------------------------------------------------------
+
+    /** M-1906: the claimed UPDATE applies nothing without an error; the write fails and the row is unchanged. */
+    #[DataProvider('drivers')]
+    public function testAClaimedWriteThatDoesNotApplyFails(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $key = hash('sha256', self::ID);
+            $this->seed($database, $key, 'old', self::NOW + 3600);
+            $handler = new DatabaseSessionHandler($this->dropping($database, 'UPDATE sessions SET data'), 3600, static fn (): int => self::NOW, static function (int $us): void {});
+            $this->assertSame('old', $handler->read(self::ID));
+            $held = $this->row($database, $key);
+            try {
+                $handler->write(self::ID, 'new');
+                $this->fail('a write that did not apply must fail');
+            } catch (RuntimeException $e) {
+                $this->assertSame('Could not store the session.', $e->getMessage());
+            }
+            $this->assertSame($held, $this->row($database, $key));
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** L-1907: the unclaimed INSERT applies nothing without an error; the write fails and no row appears. */
+    #[DataProvider('drivers')]
+    public function testAnUnclaimedWriteThatDoesNotApplyFails(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $handler = new DatabaseSessionHandler($this->dropping($database, 'INSERT INTO sessions'), 3600, static fn (): int => self::NOW, static function (int $us): void {});
+            try {
+                $handler->write(self::ID, 'new');
+                $this->fail('a write that did not apply must fail');
+            } catch (RuntimeException $e) {
+                $this->assertSame('Could not store the session.', $e->getMessage());
+            }
+            $this->assertSame([], $database->db->query('SELECT id FROM sessions')->getResultArray());
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** L-1908: after a stored write the claim is spent, so a second write on the same handler is stored too. */
+    #[DataProvider('drivers')]
+    public function testRepeatedWritesOnOneHandlerAreStored(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $key = hash('sha256', self::ID);
+            $this->seed($database, $key, 'old', self::NOW + 3600);
+            $handler = $this->handler($database, self::NOW);
+            $this->assertSame('old', $handler->read(self::ID));
+            $this->assertTrue($handler->write(self::ID, 'one'));
+            $this->assertTrue($handler->write(self::ID, 'two'));
+            $this->assertSame(['two', ''], [(string)$this->row($database, $key)['data'], (string)$this->row($database, $key)['lock_token']]);
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** L-1908: a superseded request keeps its spent claim, so writing again does not replace the later payload. */
+    #[DataProvider('drivers')]
+    public function testASupersededRequestCannotWriteAgainOverTheLaterPayload(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $clock = self::NOW;
+            [$a, $b] = $this->staleClaim($database, $clock);
+            $this->assertTrue($b->write(self::ID, 'from-b'));
+            $this->assertTrue($b->close());
+
+            $this->assertStaleWriteRefused($a);
+            $this->assertTrue($a->write(self::ID, 'from-a-again'));
+            $this->assertSame(['from-b', ''], [(string)$this->row($database, hash('sha256', self::ID))['data'], (string)$this->row($database, hash('sha256', self::ID))['lock_token']]);
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** L-1908: a lapsed claim writing the data the row already holds still leaves the later holder's row alone. */
+    #[DataProvider('drivers')]
+    public function testALapsedClaimWithIdenticalDataLeavesTheLaterHolderAlone(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $clock = self::NOW;
+            [$a] = $this->staleClaim($database, $clock);
+            $held = $this->row($database, hash('sha256', self::ID));
+
+            $this->assertTrue($a->write(self::ID, 'old'));
+            $this->assertTrue($a->updateTimestamp(self::ID, 'old'));
+            $this->assertSame($held, $this->row($database, hash('sha256', self::ID)));
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** A local executor that silently skips statements starting with $prefix. */
+    private function dropping(TestDatabase $database, string $prefix): BatchExecutor
+    {
+        return new class (new LocalBatchExecutor($database->db), $prefix) implements BatchExecutor {
+            public function __construct(private readonly BatchExecutor $inner, private readonly string $prefix)
+            {
+            }
+
+            public function run(array $statements): array
+            {
+                return $this->inner->run(array_values(array_filter($statements, fn (array $s): bool => !str_starts_with((string)$s['sql'], $this->prefix))));
+            }
+
+            public function query(string $sql, array $params = []): array
+            {
+                return $this->inner->query($sql, $params);
+            }
+        };
     }
 
     /**

@@ -12,6 +12,22 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** after a start, the Worker sets the container inactivity timeout from `SLEEP_AFTER_MS` and does not hold `monitor()` or `waitUntil`, so that timeout can begin once the Durable Object goes idle ([#271](https://github.com/thordin9/apotheke/pull/271))
 
+## [3.36.2] - 2026-11-12
+
+### Fixed
+
+- **edge:** the Worker overwrites `X-Apotheke-Client-IP` from `cf-connecting-ip` and sets `APOTHEKE_EDGE_CLIENT_IP=1`, so hosted sign-in and registration rate-limit keys are per client. The header is used only when that flag is set and the value is an address; `TRUST_PROXY` alone does not enable it, and Caddy drops a client-supplied copy when the flag is not `1` ([#268](https://github.com/thordin9/apotheke/pull/268))
+
+## [3.36.1] - 2026-11-11
+
+### Fixed
+
+- **core:** on the hosted database, a session write from a request whose claim another request has since taken stores nothing and returns normally, so that request finishes and the next request on the same worker starts as usual; the other request's session data is kept (L-1894) ([#279](https://github.com/thordin9/apotheke/pull/279))
+
+### Maintenance
+
+- **migrations:** test: mask quoted identifiers in the D1 stand-in ([#276](https://github.com/thordin9/apotheke/pull/276))
+
 ## [3.36.0] - 2026-11-11
 
 - CSV import now works on the hosted database: the preview checks every row without writing anything, and the import goes in line by line, so an import that stopped half-way picks up where it left off and two submits of the same file never import a line twice; the "Not available on hosted yet" notice is gone from the import page. ([#270](https://github.com/thordin9/apotheke/pull/270))
@@ -1524,7 +1540,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.2...HEAD
+[3.36.2]: https://github.com/thordin9/apotheke/compare/v3.36.1...v3.36.2
+[3.36.1]: https://github.com/thordin9/apotheke/compare/v3.36.0...v3.36.1
 [3.36.0]: https://github.com/thordin9/apotheke/compare/v3.35.0...v3.36.0
 [3.35.0]: https://github.com/thordin9/apotheke/compare/v3.34.0...v3.35.0
 [3.34.0]: https://github.com/thordin9/apotheke/compare/v3.33.0...v3.34.0
