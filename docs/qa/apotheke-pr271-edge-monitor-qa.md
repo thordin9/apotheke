@@ -1,22 +1,33 @@
-# PR 271 container inactivity — QA
+# PR 271 container sleep after start — QA
 
-**Verdict: PASS** at `0aa3f783b71c89782688267c121e324bcf88ba6b`. Plain merge of `335319e0` and main `e1024952`. Behind main: 0. No new finding.
+**Verdict: PASS** at `be8345de190ef6cc4dafd94c047d74b623970b49`. Behind main `0840308c` (v3.36.2): 0. H-1849 stays closed. N-1850 stays open. N-1851 stays open, non-blocking. No new finding.
 
-Branch `fix/container-sleep`. No suites were re-run.
+Branch `fix/container-sleep`, based on `main`. The previous pass head `79a26def` is an ancestor. Since then: the merge of main `0840308c`, which brings #268, #276 and #279.
 
 ## Checklist
 
 | Check | Result |
 |---|---|
-| Parents | `335319e04b4e0ccee3b23ebcfe20530844ca66f1` and `e10249527bc302d06b235a98730187a8a1582d90`. `git merge-tree` exits 0. The tip tree matches that automatic merge. |
-| Main range | `9bccc634..e1024952` is the #267 docs commit only. |
-| Own diff | 6 files against main. All 6 stable patch-ids match the previous head's diff against `9bccc634`. |
-| Kept | `setInactivityTimeout(this.sleepAfter())` is still called. There is no `monitor()` or `waitUntil` call. The #271 bullet appears once under Unreleased. `## [3.30.0]` matches main. |
-| CI | Run `42944447642` on this head completed success. Every job succeeded, including `D1 (local workerd)`. |
+| Merge | Parents `79a26def` and `0840308c`. The changelog and the handoff conflicted; both sides are kept. `edge/src/index.ts` merged automatically. |
+| Own diff | Outside the changelog, the handoff and the QA docs, the diff against main equals the previous pass's diff against `fc7e3aa2` except for shifted hunk line numbers. |
+| Index | No `monitor()` or `waitUntil` call. `setInactivityTimeout(SLEEP_AFTER_MS)` follows `start()`, and the constructor sets it again when the container is already running. #268's `APOTHEKE_EDGE_CLIENT_IP: "1"` and main's `STORAGE_BACKEND: "r2", DB_DRIVER: "d1"` are intact. |
+| Handoff | Main's #268 sentence is kept, and #271's sleep sentence is added before `EDGE_STORAGE_READY stays off.` |
+| Changelog | The diff against main is `### Fixed` plus the #271 bullet under Unreleased. `#271` occurs once. `## [3.36.2]` and every older section match main. |
+| CI | Run `43125639967`: `D1 (local workerd)` job `130876887823` succeeded. SQLite job `130876887493` and PostgreSQL job `130876887925` were still running. No failure. |
 
 ## Findings
 
-No new finding. N-1786 stays deferred. N-1794, N-1795, L-1811, and N-1812 stay tracked. N-1850 stays on #258. Next free id is 1851.
+No new finding. Note for the follow-up PR, not for #271: the timeout is set only after a start from this object and in the constructor when the container is already running. A request that finds the container already running in a live object returns early without setting it, so a container started some other way keeps no timeout until the object restarts.
+
+H-1849 stays closed. N-1850 and N-1851 stay open. Next free id is 1852.
+
+## Security
+
+No security-relevant change. Client-IP handling and the storage-mode env from main are unchanged, and the container still starts without internet access.
+
+## Tests
+
+None run here. Merge-only read; the PR's own tests are unchanged from the previous pass.
 
 ## Verdict
 

@@ -1,21 +1,13 @@
-# PR 271 container inactivity — evidence
+# PR 271 container sleep after start — evidence
 
-Read-only. Head `0aa3f783b71c89782688267c121e324bcf88ba6b` matches `origin/fix/container-sleep`. Subject: `Merge remote-tracking branch 'origin/main' into fix/container-sleep`. Parents: `335319e04b4e0ccee3b23ebcfe20530844ca66f1` and `e10249527bc302d06b235a98730187a8a1582d90`. `git rev-list --count HEAD..origin/main` is 0.
+Read-only. Head `be8345de190ef6cc4dafd94c047d74b623970b49` matches `refs/pull/271/head`. Parents: `79a26defdd24e296f649ee0c5c357cb3e7c89ca2` and `0840308c90b31730d553b0e31cee2f94b73f5915` (main, v3.36.2). Behind main: 0. Rechecked live head: unchanged.
 
-## Main
+`git diff fc7e3aa2 79a26def` and `git diff 0840308c be8345de`, excluding `CHANGELOG.md`, `docs/HANDOFF.md` and `docs/qa`, with `index` lines dropped, differ only in five `@@` hunk headers (line offsets). The diff against main touches 7 files (+128/-18): `edge/src/index.ts`, `edge/tests/container-forward.test.mjs`, `scripts/deploy-scripts.test.mjs`, the changelog, the handoff and the two existing QA docs.
 
-`e1024952` changes only `docs/deployment-and-operations.md` and `docs/qa/apotheke-pr267-preview-plan-docs-qa.md`.
+`edge/src/index.ts` at the head: no `monitor` or `waitUntil` call (one comment explains why). `setInactivityTimeout` is called in the constructor inside `blockConcurrencyWhile` when `c.running`, and after `c.start(...)` in `ensureReady`. `ensureReady` returns early when `c.running`. The start env has `APOTHEKE_EDGE_CLIENT_IP: "1"` and the `STORAGE_BACKEND`/`DB_DRIVER` spread.
 
-## Patch-ids
+`git diff 0840308c be8345de -- docs/HANDOFF.md` is one line: main's text plus the #271 sentence. `git diff 0840308c be8345de -- CHANGELOG.md` is one hunk before `## [3.36.2]`.
 
-`git diff 9bccc634 335319e0` and `git diff e1024952 0aa3f783` are the same 6 paths. `git patch-id --stable` matches on all 6. `git merge-tree --write-tree` exits 0 with tree `e57657fc1e781d0f0bd25a2ab45cdcc519032dd4`. `git diff` of that tree against the tip is empty.
+CI run `43125639967`. D1 job `130876887823` pass. SQLite job `130876887493` and PostgreSQL job `130876887925` pending. No failed check.
 
-`#271` occurs once, under `## [Unreleased]`. `## [3.30.0]` through `## [3.29.1]` equals main. `edge/src/index.ts` still calls `setInactivityTimeout(this.sleepAfter())` at both start sites. `git grep` for `c.monitor` and `waitUntil(` finds only the comment that says not to call them.
-
-## CI
-
-Run `42944447642`, head `0aa3f783`, conclusion success. `D1 (local workerd)`, both PHPUnit database jobs, and the other listed jobs are success.
-
-## Finding index
-
-No new id. Next free id: 1851.
+H-1849 closed. N-1850 and N-1851 open. Next free id: 1852.
