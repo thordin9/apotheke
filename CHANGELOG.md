@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **frontend:** sign-in uses the API base from `/config.json`, and a failed sign-in shows the API's detail, field errors, one CSRF retry and the rate-limit wait ([#286](https://github.com/thordin9/apotheke/pull/286))
+
 ## [3.36.9] - 2026-11-12
 
 ### Fixed
