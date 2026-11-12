@@ -31,8 +31,9 @@ test('the privacy page describes the sign-in session cookie', async ({ page }) =
     await expect(main).toContainText('SameSite=Lax');
     await expect(main).toContainText('host-only on api.services.getapotheke.com');
     await expect(main).toContainText('up to 30 days');
+    await expect(main).toContainText('Signing out removes the session cookie.');
+    await expect(main).toContainText('Declining or withdrawing cookie consent ends your session.');
     await expect(main).toContainText('removes the consent cookie, apotheke_consent');
-    await expect(main).not.toContainText('Signing out ends');
 });
 
 test('header and hero CTAs point at the app', async ({ page }) => {
