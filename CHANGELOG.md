@@ -8,13 +8,23 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-### Changed
-
-- **docs:** update the hand-off and deploy runbook for the current release, sign-in, and hosted storage-mode flip ([#284](https://github.com/thordin9/apotheke/pull/284))
-
 ### Fixed
 
 - **frontend:** sign-in uses the API base from `/config.json`, and a failed sign-in shows the API's detail, field errors, one CSRF retry and the rate-limit wait ([#286](https://github.com/thordin9/apotheke/pull/286))
+
+## [3.36.7] - 2026-11-12
+
+### Fixed
+
+- **backup:** on the hosted database a backup reads each table in pages, records `"driver":"d1"`, and stops with a clear message, leaving no partial zip, when the temp disk has no room for the stored photos and files ([#287](https://github.com/thordin9/apotheke/pull/287))
+
+### Maintenance
+
+- docs: update stale release, sign-in, and hosted storage status ([#284](https://github.com/thordin9/apotheke/pull/284))
+
+### Changed
+
+- **docs:** update the hand-off and deploy runbook for the current release, sign-in, and hosted storage-mode flip ([#284](https://github.com/thordin9/apotheke/pull/284))
 
 ## [3.36.6] - 2026-11-12
 
@@ -1568,7 +1578,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.6...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.7...HEAD
+[3.36.7]: https://github.com/thordin9/apotheke/compare/v3.36.6...v3.36.7
 [3.36.6]: https://github.com/thordin9/apotheke/compare/v3.36.5...v3.36.6
 [3.36.5]: https://github.com/thordin9/apotheke/compare/v3.36.4...v3.36.5
 [3.36.4]: https://github.com/thordin9/apotheke/compare/v3.36.3...v3.36.4
