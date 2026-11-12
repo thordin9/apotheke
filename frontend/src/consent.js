@@ -103,22 +103,37 @@ function disableLogin() {
     if (home) home.hidden = true;
 }
 
+/** A signed-in line is shown only while consent still stands. */
+export function signedInLineAllowed(session) {
+    return hasConsent() && !!(session && session.signed_in === true);
+}
+
 /**
- * Decline stores nothing. If consent was given earlier (the notice reopened from
- * Cookie settings), Decline withdraws it. A known sign-in is ended with one
- * best-effort request; failures are ignored and the notice is not held open.
+ * Decline stores nothing. If consent was given earlier, it is withdrawn and one
+ * session read is sent so the API can end the sign-in. Failures are ignored.
  * Hiding the notice is the caller's job.
  */
 export function declineConsent() {
-    const hadSession = signedIn;
-    const token = csrfToken;
+    const hadConsent = hasConsent();
     sessionEpoch += 1;
     signedIn = false;
     csrfToken = '';
-    if (hasConsent()) withdrawConsent();
-    if (!hadSession) return;
+    if (hadConsent) withdrawConsent();
+    if (!hadConsent) return;
     document.dispatchEvent(new Event('apotheke-signed-out'));
-    void signOutRequest(token);
+    void endSessionOnDecline();
+}
+
+async function endSessionOnDecline() {
+    try {
+        const base = await loadApiBase();
+        await fetch(sessionUrl(base), {
+            credentials: 'include',
+            headers: { Accept: 'application/json' },
+        });
+    } catch {
+        // The notice is already gone. A failed read still leaves no local session.
+    }
 }
 
 let apiBasePromise = null;
@@ -275,48 +290,6 @@ function rateLimitMessage(res, detail) {
     const minutes = Math.ceil(seconds / 60);
     const wait = minutes < 1 ? 1 : minutes;
     return 'Too many sign-in attempts. Try again in ' + wait + (wait === 1 ? ' minute.' : ' minutes.');
-}
-
-async function deleteSession(url, token) {
-    return fetch(url, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: {
-            Accept: 'application/json',
-            'X-CSRF-Token': token,
-        },
-    });
-}
-
-async function signOutRequest(token) {
-    if (!token) return;
-    try {
-        const base = await loadApiBase();
-        const url = sessionUrl(base);
-        let res;
-        try {
-            res = await deleteSession(url, token);
-        } catch {
-            return;
-        }
-        if (res.status !== 403) return;
-        const problem = await readProblem(res);
-        if (problem.code !== 'csrf.invalid') return;
-        const session = await fetchSession(base);
-        const next = session && typeof session.csrf_token === 'string' ? session.csrf_token : '';
-        signedIn = false;
-        csrfToken = '';
-        if (!next) return;
-        try {
-            await deleteSession(url, next);
-        } catch {
-            // The notice is already gone. A failed sign-out still leaves no local session.
-        }
-    } catch {
-        // Same as a network failure: local sign-in state is already cleared.
-    }
-    signedIn = false;
-    csrfToken = '';
 }
 
 async function postSession(url, body, token) {
