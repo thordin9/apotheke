@@ -229,7 +229,7 @@ final class DockerfileTest extends TestCase
     }
 
     /**
-     * QA-1854: FrankenPHP worker mode only when APOTHEKE_PHP_WORKER is on (the hosted Worker ships it off); classic mode
+     * QA-1854: FrankenPHP worker mode only when APOTHEKE_PHP_WORKER is on (the hosted Worker sets it); classic mode
      * stays the default of both images, and the nginx image has no worker mode.
      */
     public function testFrankenphpWorkerModeIsOptIn(): void
@@ -262,8 +262,8 @@ final class DockerfileTest extends TestCase
         $this->assertStringContainsString('->matches($path)', $script, 'camera originals stay a 404, as in index.php');
         $this->assertStringContainsString("\$_SERVER['SCRIPT_NAME'] = '';", $script);
         $this->assertStringContainsString('Services::resetForWorkerMode($workerConfig);', $script);
-        // hosted: shipped off ("0"; "1" turns it on), and the container default (no var) is classic
-        $this->assertStringContainsString('"APOTHEKE_PHP_WORKER": "0"', (string)file_get_contents("$root/edge/wrangler.jsonc"));
+        // hosted: on ("1"; "0" goes back to classic), and the container default (no var) is classic
+        $this->assertStringContainsString('"APOTHEKE_PHP_WORKER": "1"', (string)file_get_contents("$root/edge/wrangler.jsonc"));
         $this->assertStringContainsString('APOTHEKE_PHP_WORKER: this.env.APOTHEKE_PHP_WORKER ?? "0",', (string)file_get_contents("$root/edge/src/index.ts"));
         $this->assertStringNotContainsString('APOTHEKE_PHP_WORKER', (string)file_get_contents("$root/docker-compose.yml"));
     }

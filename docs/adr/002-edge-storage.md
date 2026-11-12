@@ -244,10 +244,9 @@ fail on every backend.
 
 ## Request state (FrankenPHP)
 
-The hosted container can run FrankenPHP in **worker mode** (QA-1854, #292). It ships off (`APOTHEKE_PHP_WORKER=0` in
-`edge/wrangler.jsonc`); turning it on (`1`) is a later step, after an interleaved classic/worker preview of the merged
-head. With `1`, the entrypoint picks
-`docker/frankenphp/php-worker.caddy`, and `public/frankenphp-worker.php` boots the app once per PHP thread and serves requests in a loop, with CodeIgniter's worker reset in between
+The hosted container runs FrankenPHP in **worker mode** (QA-1854, #292): `edge/wrangler.jsonc` sets
+`APOTHEKE_PHP_WORKER=1` (turned on after the interleaved classic/worker preview; `0` goes back to classic). The
+entrypoint then picks `docker/frankenphp/php-worker.caddy`, and `public/frankenphp-worker.php` boots the app once per PHP thread and serves requests in a loop, with CodeIgniter's worker reset in between
 (`Config\WorkerMode::$persistentServices`, factories, session close, transaction cleanup). An answered error returns
 to the loop (`PlainHandler`) instead of exiting, so a 404 does not restart the worker. Self-hosted images stay in
 **classic mode** by default (`php-classic.caddy`: each request starts with fresh PHP state, as under php-fpm).
