@@ -149,18 +149,32 @@ test('a link to another host must name https', () => {
         '//cdn.example/x',
         '\\\\cdn.example/x',
         '/\\cdn.example/x',
+        '/\t/getapotheke.com/privacy/',
+        '/\r/getapotheke.com/privacy/',
+        '/\n/getapotheke.com/privacy/',
+        'https://getapotheke%2Ecom/',
+        'https://getapotheke%2ecom/privacy/',
     ]) {
         assert.equal(resolves(url, from).ok, false, url);
     }
     assert.equal(resolves('https://cdn.example/x', from).ok, true);
     assert.equal(resolves('/privacy/', from).ok, true);
     assert.equal(resolves('https://getapotheke.com/privacy/', from).ok, true);
+    assert.equal(resolves('https://GETAPOTHEKE.com/', from).ok, true);
+    assert.equal(resolves('https://getapotheke.com:8443/', from).ok, true);
+    assert.equal(resolves('https://getapotheke.com:8443/missing-page', from).ok, true);
     assert.equal(resolves('https://getapotheke.com/missing-page', from).ok, false);
+    const query = resolves('https://getapotheke.com/missing-page?q=\\', from);
+    assert.equal(query.ok, false);
+    assert.equal(query.why, 'missing in dist');
+    assert.equal(resolves('https://getapotheke.com/privacy/?q=\\', from).ok, true);
+    assert.equal(resolves('https://getapotheke.com/privacy/#a\\b', from).ok, true);
 });
 
 test('a stylesheet may use a data URL', () => {
     assert.equal(resolves('data:image/svg+xml,x', pageUrl('assets/x.css')).ok, true);
     assert.equal(resolves('data:image/svg+xml,x', pageUrl('index.html')).ok, false);
+    assert.equal(resolves('data:image/svg+xml,x', 'https://getapotheke.com/privacy/?file=.css').ok, false);
 });
 
 test('relative links resolve from the page that contains them', () => {

@@ -175,6 +175,11 @@ function explicitHttps(url) {
     return /^https:\/\//i.test(url);
 }
 
+/** Tab, CR and LF are removed before a URL is parsed. */
+function urlText(url) {
+    return String(url || '').replace(/[\t\n\r]/g, '').trim();
+}
+
 function rawAuthority(url) {
     const lower = url.toLowerCase();
     let rest = '';
@@ -186,9 +191,25 @@ function rawAuthority(url) {
     return end < 0 ? rest : rest.slice(0, end);
 }
 
+function authorityAndPath(url) {
+    const hash = url.indexOf('#');
+    const noHash = hash < 0 ? url : url.slice(0, hash);
+    const query = noHash.indexOf('?');
+    return query < 0 ? noHash : noHash.slice(0, query);
+}
+
 function disguisedOnSite(url) {
-    if (url.includes('\\') || url.startsWith('//')) return true;
+    const head = authorityAndPath(url);
+    if (head.includes('\\') || url.startsWith('//')) return true;
     return /%[0-9a-f]{2}/i.test(rawAuthority(url));
+}
+
+function sourceIsCss(from) {
+    try {
+        return new URL(String(from), PAGE_BASE).pathname.toLowerCase().endsWith('.css');
+    } catch {
+        return false;
+    }
 }
 
 export function pageUrl(rel) {
@@ -583,8 +604,8 @@ function htmlUrls(html) {
 let spaMount = '/app';
 
 export function resolves(url, from = PAGE_BASE) {
-    const trimmed = String(url || '').trim();
-    if (String(from).includes('.css') && trimmed.toLowerCase().startsWith('data:')) return { ok: true };
+    const trimmed = urlText(url);
+    if (sourceIsCss(from) && trimmed.toLowerCase().startsWith('data:')) return { ok: true };
     const parsed = parsedUrl(trimmed, from);
     if (!parsed) return { ok: false, why: 'not a root-absolute path' };
     if (parsed.protocol === 'mailto:') return { ok: true };
