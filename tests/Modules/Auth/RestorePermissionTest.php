@@ -59,6 +59,47 @@ final class RestorePermissionTest extends CIUnitTestCase
         $this->assertSame(in_array('backup', $perms, true) && in_array('restore', $perms, true), in_array('backup', $stored, true));
     }
 
+    /**
+     * 2.6.x reads a role's stored list against its own permission names and drops the rest; its "backup" is
+     * download and restore. The names here are 2.6.x's (every permission but restore).
+     */
+    private const LEGACY_PERMS = ['view', 'create', 'edit', 'delete', 'move', 'bulk', 'lend', 'import', 'export', 'stocktake', 'labels', 'settings', 'users', 'backup'];
+
+    /**
+     * @param list<string> $stored
+     * @return list<string> what 2.6.x lets the role do: its "backup" counts as download and restore
+     */
+    private static function legacyMay(array $stored): array
+    {
+        $perms = array_values(array_intersect(self::LEGACY_PERMS, $stored));
+
+        return in_array('backup', $perms, true) ? [...$perms, 'restore'] : $perms;
+    }
+
+    public function testARollbackNeverGrantsMoreThanBefore(): void
+    {
+        $this->assertSame(array_values(array_diff(array_keys(Permissions::ALL), ['restore'])), self::LEGACY_PERMS);
+        $this->assertNotContains(Permissions::STORED_BACKUP_ONLY, self::LEGACY_PERMS);
+        $this->assertNotContains(Permissions::STORED_RESTORE_ONLY, self::LEGACY_PERMS);
+        foreach ([[], ['backup'], ['restore'], ['backup', 'restore']] as $extra) {
+            $perms = ['view', 'export', ...$extra];
+            $stored = Permissions::stored($perms);
+            $here = Permissions::clean('desk', Permissions::fromStored($stored));
+            $there = self::legacyMay($stored);
+            sort($here);
+            sort($there);
+            $this->assertSame([], array_values(array_diff($there, $here)), implode(',', $extra) . ': 2.6.x grants nothing more');
+            $both = $extra === ['backup', 'restore'];
+            $this->assertSame($both, in_array('backup', $there, true), implode(',', $extra) . ': 2.6.x backup only for both');
+            if ($both) {
+                $this->assertSame($here, $there, 'a role with both keeps both after a rollback');
+            }
+        }
+        // A role stored as "backup" (2.6.x, or both here) downloads and restores on either version.
+        $this->assertSame(['view', 'backup', 'restore'], Permissions::clean('desk', Permissions::fromStored(['view', 'backup'])));
+        $this->assertSame(['view', 'backup', 'restore'], self::legacyMay(['view', 'backup']));
+    }
+
     public function testEveryRoleThatHadBackupMayRestore(): void
     {
         $this->database = TestDatabase::create('sqlite');
