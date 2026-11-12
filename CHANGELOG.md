@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **frontend:** install commands wrap on a phone, and `/favicon.ico` is served and cached with the brand icons ([#290](https://github.com/thordin9/apotheke/pull/290))
+
 ## [3.36.6] - 2026-11-12
 
 ### Fixed
