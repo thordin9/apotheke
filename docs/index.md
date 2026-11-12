@@ -11,7 +11,7 @@ Apotheke is a small, self-hosted web app for cataloguing your belongings: photos
 category, a quantity, tags and a few custom fields, with instant search. From 3.0.0 it is a CodeIgniter 4 app
 on PHP 8.4 with pinned Composer dependencies, PDO (SQLite or PostgreSQL) and GD: no JavaScript build step and no CDNs.
 See [ADR-001](adr/001-codeigniter4.md) and [upgrading to 3.0](upgrade-3.0.md). The 2.x app is on the branch `old`.
-Hosted Cloudflare storage (D1, Durable Object SQLite and R2) is described in [ADR-002](adr/002-edge-storage.md). It is in use on the project's hosted API; on d1, restoring a backup is not available yet.
+Hosted Cloudflare storage (D1, Durable Object SQLite and R2) is described in [ADR-002](adr/002-edge-storage.md). It is in use on the project's hosted API, where backups are downloaded and restored as on a self-hosted install.
 
 The [README](../README.md) is the short tour, and [CHANGELOG.md](../CHANGELOG.md) lists the changes. These pages go into the details.
 Agents working on the codebase should start with [`AGENTS.md`](../AGENTS.md).
@@ -22,7 +22,7 @@ Agents working on the codebase should start with [`AGENTS.md`](../AGENTS.md).
 |---|---|
 | [AGENTS.md](../AGENTS.md) | Instructions for AI agents: stack constraints, layout, tests, commits |
 | [Getting started](getting-started.md) | Docker Compose (including the `postgres` profile), `docker run`, running without Docker, local development, command-line tools |
-| [Self-hosting on Cloudflare](self-host-cloudflare.md) | Your own Cloudflare account with wrangler: the front end, the API, names to change, secrets and settings, custom domains, upgrades and rollbacks. Storage (D1, Installation Durable Object and R2) has landed in the repo and is used by the project's hosted API; this page's self-host storage steps still need writing. On d1, restoring a backup is not available yet. |
+| [Self-hosting on Cloudflare](self-host-cloudflare.md) | Your own Cloudflare account with wrangler: the front end, the API, names to change, secrets and settings, custom domains, upgrades and rollbacks. Storage (D1, Installation Durable Object and R2) has landed in the repo and is used by the project's hosted API; this page's self-host storage steps still need writing. On d1, backups download and restore. |
 | [Configuration](configuration.md) | `config.php`, every environment variable, precedence rules, stored-secret encryption |
 | [JSON API](api.md) | `/api/v1`: the session endpoints, CSRF and Origin rules, problem+json errors, CORS, the OpenAPI document |
 | [Control Panel](control-panel.md) | Settings at `/settings`: what lives in the database vs. `config.php`, accent contrast, logo upload, users & roles, import/export, `bin/settings.php` |

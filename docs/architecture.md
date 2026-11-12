@@ -116,7 +116,7 @@ import, export, stocktake, labels, settings, users, backup; `self` for /account,
   [How the app runs SQL](database.md#how-the-app-runs-sql).
 * On Cloudflare, hosted writes that have been converted run as units of work in one batch on D1 (the Installation
   Durable Object's SQLite), and files go to R2 behind `Core\Storage`. Docker keeps PDO and `DATA_DIR` unchanged
-  ([ADR-002](adr/002-edge-storage.md)). Restoring a backup on d1 is not available yet.
+  ([ADR-002](adr/002-edge-storage.md)). A backup restores on d1 too: staged in bounded batches, swapped in one batch.
 
 More in [Database](database.md).
 

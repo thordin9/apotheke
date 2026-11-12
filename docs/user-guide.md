@@ -445,8 +445,9 @@ Entries of deleted items are kept. With sign-in on, every entry also names the a
   backup cannot be made. The newest five are kept (`RESTORE_KEEP_BACKUPS`) and listed on the page to download; the
   history shows who restored. Downloading needs the Backup permission, restoring the Restore permission.
 
-On a hosted install that uses the d1 database, *Download backup* still works; *Restore* is not available yet and the
-page says so. Self-hosted installs (SQLite or PostgreSQL) restore as described above.
+A hosted install that uses the d1 database downloads and restores backups as described above; the catalog kept from
+before a restore is stored with the installation's files. The command line restore (`php bin/restore.php`) is for
+self-hosted installs.
 
 ☰ → *Export CSV* (also in the footer) downloads the whole catalogue as UTF-8 CSV with these columns:
 `id, name, location, category, quantity, notes, image, created_at, updated_at, tags, value, currency, purchase_date,
