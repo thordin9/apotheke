@@ -565,12 +565,11 @@ preview; for `apotheke-api` also a second dry run of the merged P4 storage confi
 
 **Secrets and variables** (set by the repository owner, never in the repository):
 
-* in each environment, the secret `CLOUDFLARE_API_TOKEN` and the variable `CLOUDFLARE_ACCOUNT_ID`;
+* in each environment, the secret `CLOUDFLARE_API_TOKEN`; `deploy-site` keeps the variable `CLOUDFLARE_ACCOUNT_ID`, and `deploy-edge` keeps the account id and the D1 database id as environment secrets;
 * both environments are limited to `main` and tags `v*`; `deploy-edge` also has a required reviewer;
 * without the secret the deploy job prints a notice, skips its steps and stays green. Fork pull requests never get
   secrets and never reach the deploy job;
-* the account id is masked in the logs (it is a variable, but it appears in container registry paths), and the token
-  is only passed in the environment of the deploy step.
+* the account id is masked in the logs, and the token is only passed in the environment of the steps that need it.
 
 **Token scope.** The tokens are account-wide: `deploy-site` has *Account > Workers Scripts > Edit*; `deploy-edge` has
 *Workers Scripts > Edit* and *Account > Containers > Edit*. Neither has Zone permissions, and CI makes no Zone API
@@ -637,7 +636,7 @@ on the runner's checkout), applies control-plane D1 migrations, deploys, and the
 
 | Binding | Resource | Notes |
 |---|---|---|
-| `DB` | D1 database `apotheke-api` | EU jurisdiction; `database_id` from the repository variable `APOTHEKE_D1_DATABASE_ID`; `migrations_dir` is `migrations/control` |
+| `DB` | D1 database `apotheke-api` | EU jurisdiction; `database_id` from the `deploy-edge` environment secret `APOTHEKE_D1_DATABASE_ID`; `migrations_dir` is `migrations/control` |
 | `STORAGE` | R2 bucket `apotheke-api-storage` | `"jurisdiction": "eu"` |
 | `INSTALLATION` | Durable Object class `Installation`, SQLite storage | hosted mode; migration `v2` (`new_sqlite_classes`) |
 
@@ -662,8 +661,8 @@ deleted. Never paste a token, a secret value or a resource id into a pull reques
 | 1.1 | Storage gate criteria 1 to 4 of [ADR-002](adr/002-edge-storage.md#opening-the-storage-gate): P4-2 to P4-5 merged (so `edge/src/index.ts` exports `Installation`), `edge-local` green with D1 and R2, the preview guard cases, and every `Installation` id made through `jurisdiction("eu")` | app | the merged dry run (part 2) is green on `main` |
 | 1.2 | D1 database `apotheke-api` in the EU jurisdiction (fixed at creation; a `--location` hint is ignored with a jurisdiction) | Stathis | `npx --no-install wrangler d1 list` shows it with jurisdiction `eu` |
 | 1.3 | R2 bucket `apotheke-api-storage` in the EU jurisdiction. **Done:** exists in `eu` (EEUR) | Stathis | `npx --no-install wrangler r2 bucket list --jurisdiction eu`. EU buckets are listed only with the jurisdiction (the API needs the `cf-r2-jurisdiction: eu` header), so a plain listing does not show it |
-| 1.4 | Repository variable `APOTHEKE_D1_DATABASE_ID` = the UUID from `wrangler d1 info apotheke-api` (an identifier, not a secret) | Stathis | `gh variable list` |
-| 1.5 | `deploy-edge` environment: secret `CLOUDFLARE_API_TOKEN`, variable `CLOUDFLARE_ACCOUNT_ID`, required reviewer, `main` and `v*` only | Stathis | `gh secret list --env deploy-edge`, `gh variable list --env deploy-edge` |
+| 1.4 | `deploy-edge` environment secret `APOTHEKE_D1_DATABASE_ID` = the UUID from `wrangler d1 info apotheke-api` | Stathis | `gh secret list --env deploy-edge` |
+| 1.5 | `deploy-edge` environment: secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `APOTHEKE_D1_DATABASE_ID`, required reviewer, `main` and `v*` only | Stathis | `gh secret list --env deploy-edge` |
 | 1.6 | Token scope of that secret: see *Token scope* below | Stathis | Cloudflare dashboard, *Account API tokens* |
 | 1.7 | Worker secrets `APP_KEY` and `APP_PASSWORD` on `apotheke-api` ([One-time manual step](#one-time-manual-step-before-the-first-edge-deploy)) | DevOps (`APP_KEY`), Stathis (`APP_PASSWORD`) | `npx --no-install wrangler secret list --name apotheke-api` lists both names |
 | 1.8 | Custom domain for the first host in `ALLOWED_HOSTS` (`api.services.getapotheke.com`) attached to `apotheke-api` | Stathis | dashboard, *Workers > apotheke-api > Domains* |
@@ -700,7 +699,7 @@ npx --no-install wrangler d1 create apotheke-api --jurisdiction eu
 npx --no-install wrangler r2 bucket create apotheke-api-storage --jurisdiction eu
 npx --no-install wrangler d1 info apotheke-api                 # the database UUID, for 1.4
 npx --no-install wrangler r2 bucket list --jurisdiction eu     # apotheke-api-storage is listed
-gh variable set APOTHEKE_D1_DATABASE_ID --body <database-uuid>
+gh secret set APOTHEKE_D1_DATABASE_ID --env deploy-edge
 ```
 
 The lifecycle rule (1.9) is applied (see the table). To recreate it, list first and keep every existing rule; `add`

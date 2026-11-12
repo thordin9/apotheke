@@ -779,8 +779,8 @@ test("deploy-edge.yml: the deploy job applies control-plane D1 migrations before
 	assert.match(step, /if: steps\.token\.outputs\.set == 'true'\n/);
 	assert.match(step, /working-directory: edge\n/);
 	assert.match(step, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
-	assert.match(step, /CLOUDFLARE_ACCOUNT_ID: \$\{\{ vars\.CLOUDFLARE_ACCOUNT_ID \}\}/);
-	assert.ok(!/secrets\.[A-Z0-9_]+/.test(step.replace("secrets.CLOUDFLARE_API_TOKEN", "")), "no new token secret");
+	assert.match(step, /CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/);
+	assert.ok(!/secrets\.[A-Z0-9_]+/.test(step.replace("secrets.CLOUDFLARE_API_TOKEN", "").replace("secrets.CLOUDFLARE_ACCOUNT_ID", "")), "no new token secret");
 	assert.match(step, /migrations_dir!=="migrations\/control"/);
 	assert.match(step, /wrangler d1 migrations apply apotheke-api --remote --config wrangler\.jsonc/);
 	assert.match(step, /Account > D1 > Edit/);
@@ -793,6 +793,12 @@ test("deploy-edge.yml: the deploy job applies control-plane D1 migrations before
 	const mask = deploy.indexOf("- name: Mask the account id");
 	assert.ok(mask > 0 && mask < merge, "the mask step runs before the storage merge");
 	const maskStep = deploy.slice(mask, merge);
-	assert.match(maskStep, /APOTHEKE_D1_DATABASE_ID: \$\{\{ vars\.APOTHEKE_D1_DATABASE_ID \}\}/);
+	assert.match(maskStep, /CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/);
+	assert.match(maskStep, /APOTHEKE_D1_DATABASE_ID: \$\{\{ secrets\.APOTHEKE_D1_DATABASE_ID \}\}/);
 	assert.match(maskStep, /add-mask::\$APOTHEKE_D1_DATABASE_ID/);
+	// The PR check job keeps the dummy D1 id and does not use the deploy-edge environment, so it
+	// does not need those secrets and does not weaken environment protection.
+	assert.ok(!/\n    environment:/.test(check), "the check job does not use the deploy-edge environment");
+	assert.match(check, /APOTHEKE_D1_DATABASE_ID: 00000000-0000-4000-8000-000000000000\n/);
+	assert.ok(!/secrets\.CLOUDFLARE_ACCOUNT_ID|secrets\.APOTHEKE_D1_DATABASE_ID|vars\.CLOUDFLARE_ACCOUNT_ID|vars\.APOTHEKE_D1_DATABASE_ID/.test(check), "the check job does not read the real identifiers");
 });

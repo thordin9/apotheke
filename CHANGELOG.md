@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
-- **ci:** the edge deploy applies control-plane D1 migrations in `edge/migrations/control/` to `apotheke-api` before `wrangler deploy` (idempotent; a failed apply stops the deploy) ([#300](https://github.com/thordin9/apotheke/pull/300))
+- **ci:** the edge deploy applies control-plane D1 migrations in `edge/migrations/control/` to `apotheke-api` before `wrangler deploy` (idempotent; a failed apply stops the deploy), and the Cloudflare account id and D1 database id come from `deploy-edge` environment secrets ([#300](https://github.com/thordin9/apotheke/pull/300))
 
 ### Changed
 
