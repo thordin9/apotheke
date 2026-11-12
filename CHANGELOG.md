@@ -12,6 +12,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **frontend:** URL resolution in check-dist was tightened ([#295](https://github.com/thordin9/apotheke/pull/295))
 
+## [3.36.8] - 2026-11-12
+
 ### Fixed
 
 - **site:** drop `bluetooth=()` from `Permissions-Policy` on the landing Worker and `_headers`; it is not a recognised feature and logged a console warning on every page (L-1923) ([#285](https://github.com/thordin9/apotheke/pull/285))
@@ -1582,7 +1584,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.7...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.8...HEAD
+[3.36.8]: https://github.com/thordin9/apotheke/compare/v3.36.7...v3.36.8
 [3.36.7]: https://github.com/thordin9/apotheke/compare/v3.36.6...v3.36.7
 [3.36.6]: https://github.com/thordin9/apotheke/compare/v3.36.5...v3.36.6
 [3.36.5]: https://github.com/thordin9/apotheke/compare/v3.36.4...v3.36.5
