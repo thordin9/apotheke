@@ -33,6 +33,43 @@ final class AuthStatusD1Test extends CIUnitTestCase
         }
     }
 
+    /** A new install has no settings table yet: the boot check asks without a failing query on the bridge. */
+    public function testANewInstallationRunsNoFailingQuery(): void
+    {
+        $failed = [];
+        $inner = new D1SqliteStandIn();
+        $d1 = new class ($inner, $failed) implements D1Executor {
+            /** @param list<string> $failed */
+            public function __construct(private readonly D1Executor $inner, private array &$failed)
+            {
+            }
+
+            public function run(array $statements): array
+            {
+                return $this->inner->run($statements);
+            }
+
+            public function query(string $sql, array $params = []): array
+            {
+                try {
+                    return $this->inner->query($sql, $params);
+                } catch (\Throwable $e) {
+                    $this->failed[] = $sql;
+
+                    throw $e;
+                }
+            }
+
+            public function exec(string $sql): array
+            {
+                return $this->inner->exec($sql);
+            }
+        };
+        $this->assertSame([0, "on\n", ''], $this->authStatus($d1, 'long-enough'));
+        $this->assertSame([3, "off\n", ''], $this->authStatus($d1, ''));
+        $this->assertSame([], $failed, 'no query failed');
+    }
+
     public function testTheStoredSettingDecides(): void
     {
         $d1 = new D1SqliteStandIn();

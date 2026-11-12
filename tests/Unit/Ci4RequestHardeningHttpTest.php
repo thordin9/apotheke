@@ -76,18 +76,22 @@ final class Ci4RequestHardeningHttpTest extends TestCase
     {
         $this->withServer([], function (Server $server, string $dir): void {
             $client = $server->client();
-            foreach (['/no-such-page', '/healthz', '/settings'] as $path) {
+            // A path no route serves is 404 for any method, before this check (it has nothing to refuse).
+            $this->assertSame(404, $client->post('/no-such-page', [], [], ['Origin: http://other.example'])['status']);
+            // /healthz takes only GET: 405, which has nothing to refuse either.
+            $this->assertSame([405, 'GET, HEAD'], [$client->post('/healthz', [], [], ['Origin: http://other.example'])['status'], $client->post('/healthz', [], [], ['Origin: http://other.example'])['headers']['allow'] ?? null]);
+            foreach (['/theme'] as $path) {
                 $refused = $client->post($path, [], [], ['Origin: http://other.example']);
                 $this->assertSame(403, $refused['status'], $path);
                 $this->assertStringContainsString('<p>' . self::CROSS_SITE . '</p>', $refused['body'], $path);
                 $this->assertStringStartsWith('text/html', $refused['headers']['content-type'] ?? '', $path);
                 $this->assertSame('nosniff', $refused['headers']['x-content-type-options'] ?? '', $path);
             }
-            $json = $client->post('/no-such-page', [], [], ['Sec-Fetch-Site: cross-site', 'Accept: application/json']);
+            $json = $client->post('/theme', [], [], ['Sec-Fetch-Site: cross-site', 'Accept: application/json']);
             $this->assertSame(403, $json['status']);
             $this->assertSame(['ok' => false, 'error' => self::CROSS_SITE], $json['json']);
             foreach (['PUT', 'PATCH', 'DELETE'] as $method) {
-                $this->assertSame(403, $client->req($method, '/x', [], [], ['Sec-Fetch-Site: same-site'])['status'], $method);
+                $this->assertSame(403, $client->req($method, '/login', [], [], ['Sec-Fetch-Site: same-site'])['status'], $method);
             }
             // Same origin, no headers at all (curl), and safe methods go on to routing (no POST route exists yet).
             foreach ([['Sec-Fetch-Site: same-origin'], ['Sec-Fetch-Site: none'], ['Origin: ' . $server->base], []] as $headers) {
@@ -100,7 +104,7 @@ final class Ci4RequestHardeningHttpTest extends TestCase
             $pdo->exec("INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES ('root', 'root', 'x', 'admin', 'active', '2026-01-01')");
             $pdo->exec("DELETE FROM settings WHERE name = 'auth_enabled'");
             $pdo->exec("INSERT INTO settings (name, value, updated_at) VALUES ('auth_enabled', 'true', '2026-01-01')");
-            $signedOut = $client->post('/no-such-page', [], [], ['Origin: http://other.example']);
+            $signedOut = $client->post('/theme', [], [], ['Origin: http://other.example']);
             $this->assertSame([303, '/login'], [$signedOut['status'], $signedOut['headers']['location'] ?? null]);
         });
     }
@@ -137,7 +141,7 @@ final class Ci4RequestHardeningHttpTest extends TestCase
             $id = str_repeat('e', 26);
             file_put_contents($dir . '/sessions/sess_' . $id, 'uid|i:3;');
             $client->cookies['apothekesid'] = $id;
-            $this->assertArrayNotHasKey('set-cookie', $client->get('/no-such-page')['headers']);
+            $this->assertArrayNotHasKey('set-cookie', $client->get('/stats')['headers']);
             $data = (string)file_get_contents($dir . '/sessions/sess_' . $id);
             $this->assertMatchesRegularExpression('/csrf\|s:64:"[0-9a-f]{64}"/', $data);
             $this->assertMatchesRegularExpression('/last_activity\|i:\d+;/', $data);

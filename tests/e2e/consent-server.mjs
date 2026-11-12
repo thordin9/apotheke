@@ -52,6 +52,13 @@ function fileFor(urlPath) {
 
 const server = createServer((req, res) => {
     const requestUrl = new URL(req.url || '/', 'http://' + host);
+    if (requestUrl.pathname === '/config.json' && (req.method === 'GET' || req.method === 'HEAD')) {
+        for (const [name, value] of headersFor(rules, '/config.json')) res.setHeader(name, value);
+        if (!res.getHeader('content-type')) res.setHeader('content-type', 'application/json; charset=utf-8');
+        res.writeHead(200);
+        res.end(req.method === 'HEAD' ? undefined : '{"apiBase":"https://api.services.getapotheke.com/api/v1"}');
+        return;
+    }
     const decision = appFallback(req.url || '/', mount);
     if (decision.kind === 'redirect') {
         for (const [name, value] of headersFor(rules, requestUrl.pathname)) res.setHeader(name, value);
