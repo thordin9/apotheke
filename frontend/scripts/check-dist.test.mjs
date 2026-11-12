@@ -18,6 +18,18 @@ test('pages set HSTS, nosniff, Referrer-Policy, X-Frame-Options and Permissions-
     }
 });
 
+test('the API host is only in the app connect-src', () => {
+    const api = 'https://api.services.getapotheke.com';
+    for (const path of ['/', '/privacy/', '/404.html']) {
+        const csp = headersFor(rules, path).get('content-security-policy') || '';
+        assert.equal(csp.includes(api), false, path);
+    }
+    for (const path of ['/app/', '/app/index.html']) {
+        const csp = headersFor(rules, path).get('content-security-policy') || '';
+        assert.equal(csp.includes("connect-src 'self' " + api), true, path);
+    }
+});
+
 test('a missing /assets file is not cached as immutable', () => {
     assert.equal(headersFor(rules, '/assets/missing.js').get('cache-control'), 'no-cache');
     assert.equal(headersFor(rules, '/assets/missing.css').get('cache-control'), 'no-cache');
