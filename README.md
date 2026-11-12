@@ -85,10 +85,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Photos & autofill | 68.2 % | 14.3 % | 69.7 % |
 | Notes & layout | 88.3 % | 75.2 % | 94.8 % |
 | Settings & Control Panel | 53.1 % | 48.5 % | 68.8 % |
-| Backup & restore | 64.7 % | 64.3 % | 81.6 % |
+| Backup & restore | 64.4 % | 63.9 % | 81.2 % |
 | Database & migrations | 80.6 % | 58.1 % | 82.6 % |
 | Core & dev server | 78.2 % | 59.0 % | 91.0 % |
-| **All PHP** (19508 lines) | **66.0 %** | **68.1 %** | **84.4 %** |
+| **All PHP** (19525 lines) | **66.0 %** | **68.1 %** | **84.3 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
