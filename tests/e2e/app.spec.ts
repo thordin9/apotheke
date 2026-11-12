@@ -22,6 +22,16 @@ test('header Sign in stays header ink and underlines on hover', async ({ browser
     await context.close();
 });
 
+test('install commands fit a phone without sideways scroll', async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await context.newPage();
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Decline' }).click();
+    const fit = await page.locator('#install pre').evaluate((el) => el.scrollWidth <= el.clientWidth);
+    expect(fit).toBe(true);
+    await context.close();
+});
+
 test('header and hero CTAs point at the app', async ({ page }) => {
     for (const path of ['/', '/privacy/']) {
         await page.goto(path);

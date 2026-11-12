@@ -44,7 +44,7 @@ test('two wildcards are rejected and a placeholder matches a hashed name', () =>
 test('only a hashed Vite js or css file is immutable', () => {
     assert.equal(headersFor(rules, '/assets/index-Ab12Cd34.js').get('cache-control'), 'public, max-age=31536000, immutable');
     assert.equal(headersFor(rules, '/assets/style-Ab12Cd34.css').get('cache-control'), 'public, max-age=31536000, immutable');
-    for (const path of ['/assets/brand/mark.svg', '/assets/mascot/pose-asleep.svg', '/assets/shots/home.png', '/assets/icons.svg']) {
+    for (const path of ['/favicon.ico', '/assets/brand/mark.svg', '/assets/mascot/pose-asleep.svg', '/assets/shots/home.png', '/assets/icons.svg']) {
         assert.equal(headersFor(rules, path).get('cache-control'), 'public, max-age=86400', path);
     }
 });

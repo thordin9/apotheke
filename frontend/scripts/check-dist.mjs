@@ -125,7 +125,7 @@ export const PAGE_SECURITY = {
 export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=(), accelerometer=(), gyroscope=(), magnetometer=(), payment=(), usb=(), bluetooth=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()";
 
 function expectedCache(path) {
-    if (path === '/assets/icons.svg' || path.startsWith('/assets/brand/') || path.startsWith('/assets/mascot/') || path.startsWith('/assets/shots/')) {
+    if (path === '/favicon.ico' || path === '/assets/icons.svg' || path.startsWith('/assets/brand/') || path.startsWith('/assets/mascot/') || path.startsWith('/assets/shots/')) {
         return 'public, max-age=86400';
     }
     // Only Vite's hashed name-hash.js / name-hash.css files. A missing /assets/missing.js does not match.
@@ -674,7 +674,7 @@ function checkChrome() {
 
 function run() {
     if (!existsSync(dist)) fail('frontend/dist is missing (run npm run build)');
-    for (const rel of ['index.html', 'privacy/index.html', '404.html', 'app/index.html']) {
+    for (const rel of ['index.html', 'privacy/index.html', '404.html', 'app/index.html', 'favicon.ico']) {
         if (!existsSync(join(dist, rel))) fail('missing ' + rel);
     }
     const assetsDir = join(dist, 'assets');
