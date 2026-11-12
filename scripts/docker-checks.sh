@@ -35,6 +35,8 @@ done
 check "random .php is 404"            404 "$(code "$base/foo.php")"
 check "asset served"                  200 "$(code "$base/assets/app.css")"
 check "asset cache-control"           "public, max-age=31536000, immutable" "$(hdr Cache-Control "$base/assets/app.css")"
+check "missing asset is 404"          404 "$(code "$base/assets/no-such-file.js")"
+check "missing asset not cached"      no-store "$(hdr Cache-Control "$base/assets/no-such-file.js")"
 check "asset gzip"                    gzip "$(hdr Content-Encoding -H 'Accept-Encoding: gzip' "$base/assets/app.js")"
 check "html gzip"                     gzip "$(hdr Content-Encoding -H 'Accept-Encoding: gzip' "$base/")"
 check "manifest type"                 application/manifest+json "$(hdr Content-Type "$base/manifest.webmanifest")"

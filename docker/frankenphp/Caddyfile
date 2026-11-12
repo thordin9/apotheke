@@ -123,15 +123,17 @@
 		}
 		respond @otherphp 404
 
-		# Static assets: long-lived cache, nosniff, never the app (nginx: location ^~ /assets/ ... try_files $uri =404)
+		# Static assets: long-lived cache, nosniff, never the app (nginx: location ^~ /assets/ ... try_files $uri =404).
+		# A missing asset is a 404 that is never cached.
 		@assets path /assets/*
-		header @assets Cache-Control "public, max-age=31536000, immutable"
 		header @assets X-Content-Type-Options nosniff
 		@assetfile {
 			path /assets/*
 			file {path}
 		}
+		header @assetfile Cache-Control "public, max-age=31536000, immutable"
 		file_server @assetfile
+		header @assets Cache-Control no-store
 		respond @assets 404
 
 		# Backup restore: up to 520 MiB, only for POST on exactly /backup/restore (case-sensitive, no trailing slash;
