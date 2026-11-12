@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.36.5] - 2026-11-12
+
 ### Fixed
 
 - **storage:** storage mode starts and serves photos: the app boots with `DB_DRIVER=d1` (the D1 settings no longer name a class that is not loaded yet at boot), the entrypoint's `auth status` reads sign-in over the D1 bridge with the same answers and exit codes as on SQLite and PostgreSQL, and object metadata lookups are `GET ?action=head` with a JSON answer, so `/media` reads no longer fail after the bridge timeout; the Worker answers HEAD on `r2.internal` with 405 ([#282](https://github.com/thordin9/apotheke/pull/282))
@@ -1552,7 +1554,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.4...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.5...HEAD
+[3.36.5]: https://github.com/thordin9/apotheke/compare/v3.36.4...v3.36.5
 [3.36.4]: https://github.com/thordin9/apotheke/compare/v3.36.3...v3.36.4
 [3.36.3]: https://github.com/thordin9/apotheke/compare/v3.36.2...v3.36.3
 [3.36.2]: https://github.com/thordin9/apotheke/compare/v3.36.1...v3.36.2
