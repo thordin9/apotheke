@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **docs:** update the hand-off and deploy runbook for the current release, sign-in, and hosted storage-mode flip ([#284](https://github.com/thordin9/apotheke/pull/284))
+
 ### Fixed
 
 - **site:** drop `bluetooth=()` from `Permissions-Policy` on the landing Worker and `_headers`; it is not a recognised feature and logged a console warning on every page (L-1923) ([#285](https://github.com/thordin9/apotheke/pull/285))
