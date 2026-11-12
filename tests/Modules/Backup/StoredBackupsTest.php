@@ -316,7 +316,9 @@ final class StoredBackupsTest extends CIUnitTestCase
         $this->assertContains($this->filter('backup')?->getStatusCode(), [303, 401], 'the guest signs in first');
         $this->database->db->table('roles')->where('role_key', 'viewer')->update(['perms' => '["view"]']);
         $this->signInAs($this->account('vic', 'viewer'));
-        $body = (string)$this->filter('backup', 'GET', ['HTTP_X_REQUESTED_WITH' => 'fetch'])?->getBody();
+        $refused = $this->filter('backup');
+        $this->assertSame(403, $refused?->getStatusCode());
+        $body = (string)$refused->getBody();
         $this->assertStringContainsString('it needs the “Backup” or the “Restore” permission', $body);
     }
 
@@ -372,14 +374,10 @@ final class StoredBackupsTest extends CIUnitTestCase
         return $c;
     }
 
-    /** @param array<string,string> $server */
-    private function filter(string $route, string $method = 'GET', array $server = []): ?\CodeIgniter\HTTP\ResponseInterface
+    private function filter(string $route, string $method = 'GET'): ?\CodeIgniter\HTTP\ResponseInterface
     {
         $config = clone config(\Config\App::class);
         $request = (new \CodeIgniter\HTTP\IncomingRequest($config, new \CodeIgniter\HTTP\SiteURI($config, $route), null, new \CodeIgniter\HTTP\UserAgent()))->withMethod($method);
-        foreach ($server as $k => $v) {
-            $request->setGlobal('server', [$k => $v] + (array)$request->getServer());
-        }
 
         return (new \Apotheke\Auth\Filters\PermissionFilter())->before($request);
     }
