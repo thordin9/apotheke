@@ -199,3 +199,5 @@ body:has(#app) #main { flex: 1; display: flex; align-items: center; justify-cont
 #sign-in-note { margin: 0; }
 #sign-in-error { margin: 0; color: var(--color-error); }
 #sign-in-error:empty { margin: 0; padding: 0; height: 0; overflow: hidden; }
+.sign-in .field-error { margin: 0; color: var(--color-error); font-size: var(--text-sm); }
+.sign-in .field-error:empty { display: none; }

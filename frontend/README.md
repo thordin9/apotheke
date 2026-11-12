@@ -113,7 +113,8 @@ page. Links inside the app do not reload the page. The router does not use web
 storage.
 
 Sign-in stays disabled until cookies are accepted, and asks for nothing until
-then. After Accept it requests `GET /api/v1/session` on this origin. A missing
+then. After Accept it reads `apiBase` from `/config.json` and requests `GET`
+`apiBase + '/session'` on the API origin. A missing
 or unusable token shows "Sign-in is coming soon." with a link home, and the form
 stays disabled. The consent cookie is unchanged: nothing is stored before Accept,
 Decline stores nothing, and `Path=/` shares `apotheke_consent=v1` across `/` and

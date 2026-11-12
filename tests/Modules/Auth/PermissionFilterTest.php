@@ -20,6 +20,7 @@ use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
 use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Database\BaseConnection;
+use CodeIgniter\Exceptions\PageNotFoundException;
 use CodeIgniter\Test\CIUnitTestCase;
 use CodeIgniter\Test\FeatureTestTrait;
 use Config\Filters;
@@ -517,16 +518,23 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->post($route)->assertStatus(419);
     }
 
-    public function testAnUnknownPathIsCheckedToo(): void
+    /** A path no route serves is 404 before this check (RouteMethodFilter); routed paths are still checked. */
+    public function testAnUnknownPathIs404BeforeTheCheck(): void
     {
         $this->database = TestDatabase::create('sqlite');
         $this->wire();
         $this->account('ada', 'admin');
         $this->settings()->store(['auth_enabled' => true]);
-        $this->assertSame(303, $this->post('no-such-route')->response()->getStatusCode());
-        $this->assertSame(303, $this->get('no-such-page')->response()->getStatusCode());
-        $this->assertSame(401, $this->get('media/x.jpg')->response()->getStatusCode());
-        $this->assertSame('', (string)$this->get('media/x.jpg')->response()->getBody());
+        foreach (['post' => 'no-such-route', 'get' => 'no-such-page'] as $method => $path) {
+            try {
+                $this->{$method}($path);
+                $this->fail($path . ': no 404');
+            } catch (PageNotFoundException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+        $this->assertSame(401, $this->get('media/full/x.jpg')->response()->getStatusCode());
+        $this->assertSame('', (string)$this->get('media/full/x.jpg')->response()->getBody());
         $this->get('healthz')->assertStatus(200);
     }
 

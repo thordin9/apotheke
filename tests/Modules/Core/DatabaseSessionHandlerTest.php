@@ -7,6 +7,7 @@ namespace Tests\Core;
 use Apotheke\Core\Database\BatchExecutor;
 use Apotheke\Core\Database\LocalBatchExecutor;
 use Apotheke\Core\Http\DatabaseSessionHandler;
+use Apotheke\Core\Http\SessionGate;
 use CodeIgniter\Test\CIUnitTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
@@ -339,6 +340,31 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
             $probe->close();
             $this->assertSame([['id' => hash('sha256', $new)]], $database->db->query('SELECT id FROM sessions')->getResultArray(), 'the old row is gone, the new one keyed by its digest');
             $this->assertNoRawValue($database, [self::ID, $new]);
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** Session hardening: sign-out through SessionGate removes the row and leaves no new session behind. */
+    #[DataProvider('drivers')]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testSignOutRemovesTheRowAndStartsNoNewSession(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $handler = $this->handler($database, time());
+            session_set_save_handler($handler, true);
+            ini_set('session.use_strict_mode', '0');
+            session_id(self::ID);
+            session_start();
+            $_SESSION['uid'] = 3;
+            session_write_close();
+            $this->assertTrue($this->handler($database, time())->exists(self::ID));
+            (new SessionGate(time()))->signOut([SessionGate::COOKIE]);
+            $this->assertSame(PHP_SESSION_NONE, session_status());
+            $this->assertSame([], $_SESSION);
+            $this->assertSame([], $database->db->query('SELECT id FROM sessions')->getResultArray(), 'no row, old or new');
         } finally {
             $database->drop();
         }

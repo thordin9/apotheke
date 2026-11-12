@@ -15,6 +15,7 @@ const failures = [];
 const fail = (msg) => failures.push(msg);
 
 const LANDING_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://analytics.services.webapp.gr; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
+const API_ORIGIN = 'https://api.services.getapotheke.com';
 const SPA_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data: https://api.services.getapotheke.com; connect-src 'self' https://api.services.getapotheke.com https://analytics.services.webapp.gr; font-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
 
 function escapeRegExp(s) {
@@ -100,6 +101,19 @@ function matches(pattern, path) {
     return patternRegExp(pattern).test(path);
 }
 
+export function connectSrcHas(csp, source) {
+    const directive = String(csp)
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('connect-src '));
+    if (!directive) return false;
+    const sources = directive.slice('connect-src '.length).split(/\s+/);
+    for (const token of sources) {
+        if (token === source) return true;
+    }
+    return false;
+}
+
 export function headersFor(rules, path) {
     const out = new Map();
     for (const rule of rules) {
@@ -122,7 +136,7 @@ export const PAGE_SECURITY = {
     'referrer-policy': 'strict-origin-when-cross-origin',
     'x-frame-options': 'DENY',
 };
-export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=(), accelerometer=(), gyroscope=(), magnetometer=(), payment=(), usb=(), bluetooth=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()";
+export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=(), accelerometer=(), gyroscope=(), magnetometer=(), payment=(), usb=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()";
 
 function expectedCache(path) {
     if (path === '/favicon.ico' || path === '/assets/icons.svg' || path.startsWith('/assets/brand/') || path.startsWith('/assets/mascot/') || path.startsWith('/assets/shots/')) {
@@ -694,9 +708,14 @@ function run() {
             if (csp !== LANDING_CSP) fail(path + ' CSP is ' + JSON.stringify(csp));
             if (csp && (csp.match(/script-src/g) || []).length !== 1) fail(path + ' CSP must name script-src once');
         }
+        for (const path of landingPaths) {
+            const csp = headersFor(rules, path).get('content-security-policy') || '';
+            if (connectSrcHas(csp, API_ORIGIN)) fail(path + ' landing connect-src must not name the API host');
+        }
         for (const path of ['/app/', '/app/index.html']) {
             const csp = headersFor(rules, path).get('content-security-policy');
             if (csp !== SPA_CSP) fail(path + ' CSP is ' + JSON.stringify(csp));
+            if (!connectSrcHas(csp, API_ORIGIN)) fail(path + ' app connect-src must allow the API host');
         }
         for (const path of ['/', '/privacy/', '/404.html', '/app/', '/app/index.html']) {
             const headers = headersFor(rules, path);

@@ -72,10 +72,10 @@ final class SessionController extends AuthPages
         return ApiResponse::json($this->response, $this->state());
     }
 
-    /** DELETE /api/v1/session: sign out. ApiCsrf already needed this session's token. */
+    /** DELETE /api/v1/session: sign out (the session is removed and its cookie expires). ApiCsrf already needed this session's token. */
     public function delete(): ResponseInterface
     {
-        (new SessionGate(time()))->signOut();
+        (new SessionGate(time()))->signOut(SessionGate::carried((array)$this->request->getCookie()));
 
         return $this->response->setStatusCode(204)->setBody('');
     }
