@@ -21,6 +21,16 @@ final class BackupView
     {
     }
 
+    /** The database a backup was made on, as the preview names it (an unknown name reads as SQLite, as legacy). */
+    public static function driverLabel(string $driver): string
+    {
+        return match ($driver) {
+            'pgsql' => 'PostgreSQL',
+            'd1' => 'hosted database',
+            default => 'SQLite',
+        };
+    }
+
     private static function h(?string $s): string
     {
         return Page::e($s);
@@ -69,7 +79,7 @@ final class BackupView
   <?php if ($preview !== null): ?>
   <section class="panel panel-warn" id="restore-preview" aria-labelledby="rp-title">
     <h2 id="rp-title">Restore this backup?</h2>
-    <p>Backup from <b><?= self::h($preview['created_at'] !== '' ? $this->activity->time($preview['created_at']) : 'an unknown date') ?></b> (<?= self::h($preview['driver'] === 'pgsql' ? 'PostgreSQL' : 'SQLite') ?>), with <b><?= self::h(Backups::summaryText($preview['tables'], $preview['photos'])) ?></b>.</p>
+    <p>Backup from <b><?= self::h($preview['created_at'] !== '' ? $this->activity->time($preview['created_at']) : 'an unknown date') ?></b> (<?= self::h(self::driverLabel($preview['driver'])) ?>), with <b><?= self::h(Backups::summaryText($preview['tables'], $preview['photos'])) ?></b>.</p>
     <?= self::tableRows($current, $preview['tables']) ?>
     <?php foreach ($preview['warnings'] as $w): ?><p class="hint warn">⚠ <?= self::h($w) ?></p><?php endforeach; ?>
     <p class="hint"><b>Everything currently in the catalog will be replaced.</b> Download a backup first if you might want it back.</p>

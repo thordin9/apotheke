@@ -97,6 +97,14 @@ final class D1HostedRefusalsTest extends CIUnitTestCase
         $this->assertStringNotContainsString('bin/restore.php', $backup);
         $this->assertSame(422, $this->controller(BackupController::class, 'POST')->upload()->getStatusCode(), 'no file chosen');
         $this->assertSame(410, $this->controller(BackupController::class, 'POST', ['token' => str_repeat('a', 32), 'confirm' => '1'])->confirm()->getStatusCode(), 'no such upload');
+        // The preview names the database the backup was made on: a hosted backup is not shown as SQLite.
+        foreach (['d1' => 'hosted database', 'pgsql' => 'PostgreSQL', 'sqlite' => 'SQLite'] as $driver => $label) {
+            $preview = (string)service('backupView')->page(['items' => 0], null, ['token' => str_repeat('b', 32), 'tables' => ['items' => 1],
+                'photos' => 0, 'created_at' => '', 'driver' => $driver, 'warnings' => []]);
+            $this->assertStringContainsString('(' . $label . ')', $preview, $driver);
+        }
+        $this->assertStringNotContainsString('(SQLite)', (string)service('backupView')->page([], null, ['token' => str_repeat('b', 32), 'tables' => [],
+            'photos' => 0, 'created_at' => '', 'driver' => 'd1', 'warnings' => []]));
 
         // Bulk editing runs on the hosted database (D1HostedBulkTest): the list keeps every action and no notice.
         $list = (string)$this->controller(ListController::class, 'GET', [], '', ['select' => '1'])->index()->getBody();
