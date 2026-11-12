@@ -1,8 +1,8 @@
 # Self-hosting on your own Cloudflare account
 
 **Docker is the recommended way to self-host Apotheke** ([Getting started](getting-started.md)). This page is for
-running a copy on **your own** Cloudflare account instead. It is a manual install with `wrangler`, and today only part
-of it is usable: read [What works today](#what-works-today) first.
+running a copy on **your own** Cloudflare account instead. It is a manual install with `wrangler`. Read
+[What works today](#what-works-today) first.
 
 The hosted getapotheke.com deploy is a different thing: it is described in
 [Deployment and operations: Cloudflare deploys](deployment-and-operations.md#cloudflare-deploys-getapothekecom), and its
@@ -18,7 +18,8 @@ front end on `www.example.com` and the API on `api.example.com` in the examples.
 * [An API token for your account](#an-api-token-for-your-account)
 * [Names: what is hard-coded today](#names-what-is-hard-coded-today)
 * [Deploy the front end](#deploy-the-front-end)
-* [The API (pending P4: D1 + R2)](#the-api-pending-p4-d1--r2)
+* [The API](#the-api)
+* [Storage](#storage)
 * [Custom domains](#custom-domains)
 * [Upgrading and rolling back](#upgrading-and-rolling-back)
 * [Backups](#backups)
@@ -30,19 +31,20 @@ front end on `www.example.com` and the API on `api.example.com` in the examples.
 |---|---|---|---|
 | Front end | `edge/app/` (routing and headers) + `frontend/dist` (the landing page and the SPA under `/app/`) | a Worker with static assets | [`edge/app/wrangler.jsonc`](../edge/app/wrangler.jsonc) |
 | API | `edge/` (Worker + Container Durable Object) + [`Dockerfile.frankenphp`](../Dockerfile.frankenphp) (the FrankenPHP image) | a Worker, a Durable Object and a Container (instance `basic`, at most 1 instance, sleeps after 15 minutes) | [`edge/wrangler.jsonc`](../edge/wrangler.jsonc) |
-| Storage (**pending P4**) | storage adapters, not written yet | D1 for the database, R2 for photos and files | not in the config yet |
+| Storage | D1 driver, Installation Durable Object SQLite, and R2 via `StorageFactory` (`edge/storage.jsonc`, [ADR-002](adr/002-edge-storage.md)) | D1 for the database, R2 for photos and files | `edge/storage.jsonc`, merged into the API Worker for a storage-mode deploy |
 
 ## What works today
 
-* **Front end: yes.** The landing page and the SPA placeholder under `/app/` deploy and work on your own Worker. The
-  placeholder does not sign in yet (sign-in stays off until the SPA passes the API origin), so it needs no API.
-* **API: pending P4 (D1 + R2). Not for real data.** The Worker and its container deploy, but a Cloudflare Containers
-  instance has **no persistent disk**: `/data` starts empty on every cold start (after 15 idle minutes, a deploy or a
-  restart). Each start is a new install, the `admin` account is created again from `APP_PASSWORD`, and everything
-  saved before is gone. Use it only to try the API out.
-* **Storage: pending P4 (D1 + R2).** Nothing to set up yet. When it lands this page gets the D1 and R2 steps.
-
-Until then, run Apotheke with Docker for anything you want to keep.
+* **Front end: yes.** The landing page and the app under `/app/` deploy on your own Worker. After cookie consent,
+  `/app/sign-in` reads `apiBase` from `/config.json` and signs in against that API (`frontend/src/consent.js`, #286).
+* **API: yes, in storage mode.** The Worker, container and Installation Durable Object deploy from `edge/`. With D1
+  and R2 bound (storage mode), the catalogue and files survive a container sleep or cold start. Without those bindings
+  the container has no persistent disk: `/data` starts empty after idle sleep, a deploy or a restart, and everything
+  saved before is gone.
+* **Storage: landed in the repo; this page's bind-and-create steps are still to be written.** See
+  [ADR-002](adr/002-edge-storage.md) and [Deployment and operations](deployment-and-operations.md#cloudflare-deploys-getapothekecom).
+  On d1, restoring a backup is not available yet. Until restore works and a backup has been tested end to end, do not
+  keep data you cannot afford to lose on a storage-mode install; Docker remains the recommended way to self-host for that.
 
 ## Prerequisites
 
@@ -85,7 +87,7 @@ permissions, to **your zone** only. Permission names as in the dashboard (the AP
 | **Zone > Workers Routes > Edit**, on your zone | custom domains or routes | adding, changing or removing a Custom Domain or route needs it for every affected zone ([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/workers/)) |
 | **Zone > DNS > Edit**, on your zone | routes only, if you create their DNS record with the token | a route needs a proxied DNS record for its host; a Custom Domain creates its own DNS record and certificate, so it doesn't need this |
 | **Account > Account Settings > Read** | only if wrangler asks | with `CLOUDFLARE_ACCOUNT_ID` set, wrangler doesn't have to look the account up |
-| **Account > D1 > Edit**, **Account > Workers R2 Storage > Edit** | **pending P4** | create the database and bucket, run migrations and exports. Deploying a Worker that is only *bound* to them needs no extra permission ([Bindings](https://developers.cloudflare.com/workers/authorization/workers/#bindings)) |
+| **Account > D1 > Edit**, **Account > Workers R2 Storage > Edit** | storage mode | create the database and bucket, run migrations and exports. Deploying a Worker that is only *bound* to them needs no extra permission ([Bindings](https://developers.cloudflare.com/workers/authorization/workers/#bindings)) |
 | Account > Workers Tail > Read | optional | `wrangler tail` (live logs) |
 
 No other permission is needed. In particular the token needs no KV permission (Apotheke uses no KV) and no
@@ -163,11 +165,13 @@ Then attach a domain ([Custom domains](#custom-domains)). `/config.json` answers
 
 To try it locally first: `cd edge/app && npx --no-install wrangler dev --config wrangler.jsonc` (no account needed).
 
-## The API (pending P4: D1 + R2)
+## The API
 
-> **Pending P4 (D1 + R2).** The API deploys, but it is stateless: no persistent disk, a new install on every cold
-> start. Don't put real data in it. The steps below are for trying it out, and become the real install once the D1
-> and R2 storage lands.
+> In storage mode (D1, Installation Durable Object and R2 bound) the API keeps the catalogue and files across cold
+> starts. The steps below deploy the Worker and container. Bindings follow [ADR-002](adr/002-edge-storage.md) and the
+> project's deploy runbook; this page's own D1 and R2 steps still need writing. On d1, restoring a backup is not
+> available yet, so do not keep data you cannot afford to lose until restore works and a backup has been tested end
+> to end. A deploy without those bindings is still stateless: each cold start is a new install.
 
 ### Settings
 
@@ -181,9 +185,10 @@ These `vars` in `edge/wrangler.jsonc` are not secrets. The Worker (`edge/src/ind
   cookie**: never to the `__Host-apothekesid` session cookie, which may not carry a `Domain` attribute. Never use a
   public suffix (`co.uk`, `github.io`). See [Cookie consent](deployment-and-operations.md#cookie-consent).
 * **`APOTHEKE_JOBS_WORKER: "0"`**, keep it: no long-lived `php spark jobs:work` in the container. The container
-  runs only while requests keep it awake and starts with an empty `/data`, so a worker inside it would have no durable
-  queue to work on. On Cloudflare, background jobs will run from a Cron Trigger or Queues, designed in P4 with the
-  storage. The Docker images keep the worker on by default ([Background jobs](deployment-and-operations.md#background-jobs)).
+  runs only while requests keep it awake, so that process stops when the container sleeps. Job rows are in the `jobs`
+  table, which storage mode keeps on D1. On Cloudflare, background jobs are intended to run from a Cron Trigger or
+  Queues (not set up yet). The Docker images keep the worker on by default
+  ([Background jobs](deployment-and-operations.md#background-jobs)).
 * **`APOTHEKE_PHP_WORKER: "0"`**: classic mode, as shipped. `"1"` turns on FrankenPHP worker mode, so the app boots
   once per PHP thread instead of on every request; for `apotheke-api` that is a later step, after an interleaved
   classic/worker preview of the merged head ([The FrankenPHP image](deployment-and-operations.md#the-frankenphp-image)).
@@ -246,6 +251,14 @@ Worker's logs (*Workers & Pages > <your-api-worker> > Logs*, or `wrangler tail`)
 To try it locally: copy `edge/.dev.vars.example` to `edge/.dev.vars` (git-ignored), fill in generated values, and run
 `npx --no-install wrangler dev` in `edge/` (needs Docker).
 
+## Storage
+
+Hosted storage (D1, the Installation Durable Object's SQLite, and R2) is described in
+[ADR-002](adr/002-edge-storage.md). Bindings for a storage-mode deploy are in the project's runbook
+([Deployment and operations](deployment-and-operations.md#p4-edge-storage-flip-checklist)). This page's own steps for
+creating the database and the bucket and binding them still need to be written. On d1, restoring a backup is not
+available yet.
+
 ## Custom domains
 
 A [Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) points a whole
@@ -282,12 +295,12 @@ back is to check out the previous release tag and deploy it again. Don't delete 
 
 ## Backups
 
-**Pending P4 (D1 + R2).** Once storage lands, a backup will be a D1 export (`wrangler d1 export`) plus the R2
-objects (photos and files), and this section will give the exact steps.
-
-What exists today: on Cloudflare there is nothing to back up, because the API keeps no data across cold starts. The
-app's own backup (one zip file with the database and the photos; [Backup and restore](deployment-and-operations.md#backup-and-restore))
-is for Docker and other installs with a disk. Do keep a copy of your `APP_KEY` and your local config changes.
+In storage mode, use the app's own backup (☰ → *Backup & restore*, or `php bin/backup.php` where you can run it) to
+get one zip with the database and the stored photos and files
+([Backup and restore](deployment-and-operations.md#backup-and-restore)). On d1, creating that zip pages each table and
+records `"driver":"d1"` (#287); restoring a backup is not available yet. A platform-level copy (`wrangler d1 export`
+plus the R2 objects) is a possible extra; the exact steps are not written here yet. Keep a copy of your `APP_KEY` and
+your local config changes. A deploy without storage bindings still keeps no data across cold starts.
 
 ## The project's CI is not for your account
 

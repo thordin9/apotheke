@@ -38,6 +38,11 @@ afterwards). *Restore* uploads a zip, validates it and shows a dry-run compariso
 confirmation and press *Restore* is **all data replaced**, in one transaction. Uploaded restore files wait in
 `DATA_DIR/tmp` under a random token until confirmed.
 
+On the hosted database (`DB_DRIVER=d1`) a download reads each table in pages and records `"driver":"d1"` in `backup.json`.
+If the temp disk has no room for the stored photos and files, the download stops with a clear message and leaves no
+partial zip (#287). Restoring a backup on d1 is not available yet: the actions are hidden on the page, and a restore
+request is refused before anything is stored.
+
 **In chunks:** where a request body is capped (an edge host), a backup can be sent in pieces instead (see
 [API](api.md#chunked-restore)). On local disk each upload is a folder `DATA_DIR/uploads/restore/<32 hex>/` (0770, never followed
 through a link) holding `manifest.json` and the data. With storage explicitly set to R2, the chunks, manifest and
@@ -596,7 +601,7 @@ permission the environment's token probably lacks; a missing container push perm
 
 ### Storage gate: EDGE_STORAGE_READY
 
-The hosted API is live in storage mode (since 2026-11-12, on v3.36.5 then v3.36.6). On d1, restoring a backup is refused, as is duplicating an item with its photos, and adding a new location or category in the same step as saving the item. Do not move real data onto the hosted installation until backup restore works on d1 and a backup has been tested by a round trip.
+The hosted API is live in storage mode (flip 2026-11-12, on v3.36.5 then v3.36.6; current release v3.37.0, FrankenPHP worker mode off). On d1, restoring a backup is refused, as is duplicating an item with its photos, and adding a new location or category in the same step as saving the item. Do not move real data onto the hosted installation until backup restore works on d1 and a backup has been tested by a round trip.
 
 The first `apotheke-api` deploy waits for the storage design (P4: D1 for data, R2 for files). Until then the deploy
 job of `deploy-edge.yml` does not run, on any trigger (release and manual), unless the **repository variable**
@@ -623,7 +628,7 @@ uploads is an account lifecycle rule on the bucket. This repository does not cre
 
 ### P4 edge storage: flip checklist
 
-The hosted API is live in storage mode (since 2026-11-12, on v3.36.5 then v3.36.6). On d1, restoring a backup is refused, as is duplicating an item with its photos, and adding a new location or category in the same step as saving the item. Do not move real data onto the hosted installation until backup restore works on d1 and a backup has been tested by a round trip.
+The hosted API is live in storage mode (flip 2026-11-12, on v3.36.5 then v3.36.6; current release v3.37.0, FrankenPHP worker mode off). On d1, restoring a backup is refused, as is duplicating an item with its photos, and adding a new location or category in the same step as saving the item. Do not move real data onto the hosted installation until backup restore works on d1 and a backup has been tested by a round trip.
 Its bindings are in
 `edge/storage.jsonc`, not in `edge/wrangler.jsonc`, so `wrangler dev`, the *Edge local test* and the pull request's default dry run use the default
 config unchanged. The pull request checks also dry-run the merged config with a dummy D1 id (part 2 below). Only the
