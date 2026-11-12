@@ -8,11 +8,14 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **ci:** the edge deploy applies control-plane D1 migrations in `edge/migrations/control/` to `apotheke-api` before `wrangler deploy` (idempotent; a failed apply stops the deploy), and the Cloudflare account id and D1 database id come from `deploy-edge` environment secrets ([#300](https://github.com/thordin9/apotheke/pull/300))
+
 ## [3.38.0] - 2026-11-12
 
 ### Added
 
-- **ci:** the edge deploy applies control-plane D1 migrations in `edge/migrations/control/` to `apotheke-api` before `wrangler deploy` (idempotent; a failed apply stops the deploy), and the Cloudflare account id and D1 database id come from `deploy-edge` environment secrets ([#300](https://github.com/thordin9/apotheke/pull/300))
 - **edge:** control-plane schema for the hosted operator console in `edge/migrations/control/` (installations, routes, plans and limits, manual subscriptions, usage counters, an append-only audit log), with `primary` seeded under its existing names on plan `internal`; see [docs/operator-console.md](docs/operator-console.md). Not applied by any deploy yet ([#299](https://github.com/thordin9/apotheke/pull/299))
 
 ### Maintenance
