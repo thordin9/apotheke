@@ -130,6 +130,39 @@ test('E3a: the container object wires storage from its own name only, and will n
   assert.equal(none.started, false);
 });
 
+test('E3a: a restarted object with its container still running rebinds storage from its own name, or fails closed', async () => {
+  const restarted = async (id) => {
+    const { env, bucket, names } = world();
+    Object.assign(env, { APP_PASSWORD: 'placeholder', APP_KEY: 'placeholder' });
+    const handlers = new Map(), started = [], forwarded = [];
+    let pending;
+    const container = {
+      running: true, start: () => started.push(1), setInactivityTimeout: async () => {},
+      getTcpPort: () => ({ fetch: async () => { forwarded.push(1); return new Response('ok'); } }),
+      interceptOutboundHttp: async (host, handler) => { handlers.set(host, handler); },
+    };
+    const ctx = { id, container, waitUntil() {}, blockConcurrencyWhile: (f) => (pending = f()),
+      exports: { D1Outbound: (o) => new D1Outbound(o, env), R2Outbound: (o) => new R2Outbound(o, env) } };
+    const object = new ApothekeContainer(ctx, env);
+    await pending;
+    const put = await handlers.get('r2.internal').fetch(r2('PUT', 'media/x.jpg', {}, 'x'));
+    const query = await handlers.get('d1.internal').fetch(d1('/exec', { sql: 'CREATE TABLE t (v TEXT)' }));
+    const res = await object.fetch(new Request('https://b.example.test/'));
+    return { put: put.status, query: query.status, res: res.status, keys: [...bucket.objects.keys()], names, started, forwarded };
+  };
+  // No name (never expected: every object is reached by getByName): both handlers answer 503, nothing is read or
+  // written, requests get the 503 and the running container is never forwarded to.
+  for (const id of [{}, undefined]) {
+    const none = await restarted(id);
+    assert.deepEqual({ ...none, names: none.names.length }, { put: 503, query: 503, res: 503, keys: [], names: 0, started: [], forwarded: [] });
+  }
+  const b = await restarted({ name: 'tenant-b' });
+  assert.deepEqual([b.put, b.query, b.res], [200, 200, 200]);
+  assert.deepEqual(b.keys, ['installations/tenant-b/media/x.jpg']);
+  assert.deepEqual([...new Set(b.names)], ['tenant-b']);
+  assert.deepEqual([b.started, b.forwarded], [[], [1]]);
+});
+
 test('E3a: primary keeps its prefix, marker keys and marker size bound exactly', async () => {
   assert.equal(installationPrefix('primary'), 'installations/primary/');
   assert.equal(markerBodyLimit(installationPrefix('primary')), 6 * (1024 + 1024) + 'installations/primary/'.length + 15);

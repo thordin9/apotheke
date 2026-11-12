@@ -57,7 +57,8 @@ host is used; `X-Forwarded-Host` is ignored. A hit or a miss is cached in the Wo
 seconds to show.
 
 - No row, no `DB` binding, or a failed lookup: the request goes to `primary`, as before routing existed. The app's
-  own `ALLOWED_HOSTS` check still applies.
+  own `ALLOWED_HOSTS` check still applies. A failed lookup (for example before the control migrations are applied)
+  logs one line with the D1 error and is retried for that host after 5 seconds, not on every request.
 - Status `provisioning` answers 503, `suspended` 402, `deleting` and `deleted` 410, without starting a container.
   This applies only to installations other than `primary`: `primary` is served as before whatever its row says.
   Suspending `primary` will be a separate, explicit operator flow later.

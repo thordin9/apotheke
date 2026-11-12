@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
 const { default: publicWorker } = await import('../src/index.ts');
-const { cachedHosts, clearRouteCache, normalizeHost, ROUTE_CACHE_MAX, routeFor } = await import('../src/route.ts');
+const { cachedHosts, clearRouteCache, FAILURE_TTL_MS, normalizeHost, ROUTE_CACHE_MAX, routeFor } = await import('../src/route.ts');
 
 /** The control migrations on a real SQLite behind D1's prepare().bind().first(). */
 function controlDb() {
@@ -49,15 +49,44 @@ test('E2: a route miss falls back to primary, and the miss is cached', async () 
   assert.equal(db.queries.length, 2);
 });
 
-test('E2: a failed D1 lookup or no DB binding falls back to primary and is not cached', async () => {
+test('E2: a failed D1 lookup or no DB binding falls back to primary', async () => {
   clearRouteCache();
   for (const DB of [failingDb, undefined]) {
     const w = worker(DB);
     assert.equal(await (await w.go('https://api.services.getapotheke.com/')).text(), 'app');
     assert.deepEqual(w.seen, ['primary']);
   }
+});
+
+test('E3a: missing control tables fall back to primary, log once, and are retried after FAILURE_TTL_MS', async (t) => {
+  const logged = t.mock.method(console, 'error', () => {});
+  for (const table of ['installation_routes', 'installations']) {
+    clearRouteCache();
+    logged.mock.resetCalls();
+    const db = new DatabaseSync(':memory:');
+    if (table === 'installations') db.exec('CREATE TABLE installation_routes (host TEXT, installation_id TEXT)');
+    let calls = 0;
+    // D1 rejects first() with the SQLite error, like a database the control migrations never ran on.
+    const DB = { prepare: (sql) => ({ bind: (...v) => ({ first: async () => { calls += 1; return db.prepare(sql).get(...v) ?? null; } }) }) };
+    const w = worker(DB);
+    for (let i = 0; i < 20; i++) assert.equal((await w.go('https://b.example.test/')).status, 200);
+    assert.deepEqual([...new Set(w.seen)], ['primary']);
+    assert.equal(calls, 1, `${table}: one D1 query, not one per request`);
+    assert.equal(logged.mock.callCount(), 1);
+    const line = logged.mock.calls[0].arguments.join(' ');
+    assert.match(line, new RegExp(`no such table: ${table}`));
+    assert.doesNotMatch(line, /example\.test/);
+    const t0 = 1e15;
+    assert.deepEqual(await routeFor('c.example.test', DB, t0), { doName: 'primary', status: 'active' });
+    assert.deepEqual(await routeFor('c.example.test', DB, t0 + FAILURE_TTL_MS - 1), { doName: 'primary', status: 'active' });
+    assert.equal(calls, 2);
+    await routeFor('c.example.test', DB, t0 + FAILURE_TTL_MS);
+    assert.equal(calls, 3, 'retried once the failure expires');
+  }
+  // Once the migrations are applied, the host routes as soon as the failure expires.
+  clearRouteCache();
   const db = controlDb();
-  await routeFor('api.services.getapotheke.com', db);
+  assert.deepEqual(await routeFor('api.services.getapotheke.com', db), { doName: 'primary', status: 'active' });
   assert.equal(db.queries.length, 1);
 });
 
