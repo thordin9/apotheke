@@ -11,7 +11,8 @@ import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, sto
 export { Installation } from "./installation";
 
 const PORT = 9091;
-const READY_TIMEOUT_MS = 30_000;
+// A first start that runs migrations took 29.4 s against the old 30 s: 90 s leaves about 3x headroom.
+const READY_TIMEOUT_MS = 90_000;
 
 /**
  * Outbound Worker for the container's http://d1.internal/{query,batch,exec}.
@@ -35,6 +36,9 @@ export class R2Outbound extends WorkerEntrypoint<Env & R2Env> {
 }
 
 export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
+	/** /healthz answered 200 for the running container. False after a timed-out start or a failed forward. */
+	private ready = false;
+
 	private sleepAfter(): number {
 		return Number(this.env.SLEEP_AFTER_MS) || 15 * 60 * 1000;
 	}
@@ -45,6 +49,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		// A restarted Durable Object starts without a timeout: set it again when the container is already up.
 		// Re-bind d1.internal so a warm container keeps the outbound handler after a DO eviction.
 		if (c?.running) {
+			this.ready = true;
 			void ctx.blockConcurrencyWhile(async () => {
 				await c.setInactivityTimeout(this.sleepAfter());
 				await this.wireStorage(c);
@@ -65,9 +70,10 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		// Throws on half a storage fragment: the Worker answers 503 and the container never starts on a fallback.
 		const backend = storageBackend(this.env);
 		await this.wireStorage(c);
-		if (c.running) return 0;
+		if (c.running && this.ready) return 0;
 		const t0 = Date.now();
-		c.start({
+		// A container left running but not ready (a timed-out start, a deploy or restart) gets the timeout and probe too.
+		if (!c.running) c.start({
 			enableInternet: false,
 			env: {
 				// The entrypoint refuses to start without a valid APP_PASSWORD (exit 78): the Worker answers 503.
@@ -100,7 +106,10 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		while (Date.now() - t0 < READY_TIMEOUT_MS) {
 			try {
 				const r = await port.fetch(probe, { redirect: "manual" });
-				if (r.status === 200) return Date.now() - t0;
+				if (r.status === 200) {
+					this.ready = true;
+					return Date.now() - t0;
+				}
 			} catch {
 				// not listening yet
 			}
@@ -116,19 +125,30 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 			cold = await this.ensureReady();
 		} catch (e) {
 			console.error("start failed", String(e));
-			// Never show the reason to the client (plan 1A.6).
-			return new Response("Apotheke is not available right now.\n", {
-				status: 503,
-				headers: { "Retry-After": "5", "Cache-Control": "no-store" },
-			});
+			return unavailable();
 		}
-		const res = await this.ctx.container!.getTcpPort(PORT).fetch(toContainer(request), { redirect: "manual" });
+		let res: Response;
+		try {
+			res = await this.ctx.container!.getTcpPort(PORT).fetch(toContainer(request), { redirect: "manual" });
+		} catch (e) {
+			// Running but not listening (an earlier start timed out): 503 like a failed start, not error 1101.
+			this.ready = false;
+			console.error("forward failed", String(e));
+			return unavailable();
+		}
 		const out = new Response(res.body, res);
 		out.headers.append("Server-Timing", `container-start;dur=${cold}`);
 		return out;
 	}
 }
 
+/** Never show the reason to the client (plan 1A.6). */
+function unavailable(): Response {
+	return new Response("Apotheke is not available right now.\n", {
+		status: 503,
+		headers: { "Retry-After": "5", "Cache-Control": "no-store" },
+	});
+}
 
 /** First public host from ALLOWED_HOSTS (comma or space separated, a port is kept).
  *  "*" is skipped: it is not a Host the app's allow-list can accept as a name. */
