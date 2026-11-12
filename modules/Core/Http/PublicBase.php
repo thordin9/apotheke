@@ -19,6 +19,23 @@ final class PublicBase
 {
     private const DEFAULT_PORTS = ['http' => 80, 'https' => 443];
 
+    /**
+     * $path ("/brand/logo.svg?v=…") as an absolute URL on the origin (scheme, host and port) of $base,
+     * the base apply() put into Config\App. Anything that is not a root-relative path is returned as is.
+     */
+    public static function absolute(string $base, string $path): string
+    {
+        $parts = parse_url($base);
+        if (!str_starts_with($path, '/') || str_starts_with($path, '//') || !is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
+            return $path;
+        }
+        $scheme = strtolower($parts['scheme']);
+        $host = str_contains($parts['host'], ':') && !str_starts_with($parts['host'], '[') ? '[' . $parts['host'] . ']' : $parts['host'];
+        $port = isset($parts['port']) && $parts['port'] !== (self::DEFAULT_PORTS[$scheme] ?? null) ? ':' . $parts['port'] : '';
+
+        return $scheme . '://' . $host . $port . $path;
+    }
+
     public function apply(App $app, ?SiteURI $uri, string $base): void
     {
         $base = rtrim($base, '/');

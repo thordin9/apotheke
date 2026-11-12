@@ -11,6 +11,17 @@ export const CONSENT_MAX_AGE = 15552000;
 export const CONSENT_PARENT = 'getapotheke.com';
 export const SESSION_PATH = '/api/v1/session';
 
+/**
+ * apiBase from /config.json already ends in /api/v1, and SESSION_PATH is
+ * /api/v1/session. Joining them as strings would call /api/v1/api/v1/session.
+ */
+export function sessionUrl(apiBase) {
+    const base = String(apiBase || '').replace(/\/+$/, '');
+    if (base.endsWith('/api/v1')) return base + '/session';
+    if (base === '') return SESSION_PATH;
+    return base + SESSION_PATH;
+}
+
 /** Parent domain for getapotheke.com and its subdomains; '' (host-only) everywhere else. */
 export function consentDomain(hostname) {
     const host = String(hostname || '').toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
@@ -100,19 +111,47 @@ export function declineConsent() {
     if (hasConsent()) withdrawConsent();
 }
 
+let apiBasePromise = null;
+
+/** A successful /config.json read is kept. A failure is forgotten so the next call tries again. */
+export function loadApiBase() {
+    if (!apiBasePromise) {
+        apiBasePromise = fetch('/config.json', { headers: { Accept: 'application/json' } })
+            .then(async (res) => {
+                if (!res.ok) throw new Error('config');
+                const data = await res.json();
+                const base = data && typeof data.apiBase === 'string' ? data.apiBase : '';
+                if (base === '') throw new Error('config');
+                return base;
+            })
+            .catch(() => {
+                apiBasePromise = null;
+                return '';
+            });
+    }
+    return apiBasePromise;
+}
+
+export function rememberCsrf(data) {
+    const token = data && typeof data.csrf_token === 'string' ? data.csrf_token : '';
+    if (token) csrfToken = token;
+    return token;
+}
+
 export async function fetchSession(apiBase = '') {
-    const base = String(apiBase || '').replace(/\/$/, '');
     try {
-        const res = await fetch(base + SESSION_PATH, {
+        const res = await fetch(sessionUrl(apiBase), {
             credentials: 'include',
             headers: { Accept: 'application/json' },
         });
-        if (!res.ok) return { csrf_token: '' };
+        if (!res.ok) return { csrf_token: '', signed_in: false, username: '' };
         const data = await res.json();
-        const token = data && typeof data.csrf_token === 'string' ? data.csrf_token : '';
-        return { csrf_token: token };
+        const token = rememberCsrf(data);
+        const user = data && data.user;
+        const username = user && typeof user.username === 'string' ? user.username : '';
+        return { csrf_token: token, signed_in: !!(data && data.signed_in === true), username };
     } catch {
-        return { csrf_token: '' };
+        return { csrf_token: '', signed_in: false, username: '' };
     }
 }
 
@@ -122,11 +161,9 @@ export function currentCsrfToken() {
     return csrfToken;
 }
 
-export async function enableLogin(form, apiBase = '') {
-    // Placeholder calls pass no API base, so this stays on the page's own origin.
-    // On getapotheke.com that is not the API host, and sign-in stays off until the
-    // SPA passes the API origin (N-1494).
-    const session = await fetchSession(apiBase);
+export async function enableLogin(form, apiBase) {
+    const base = apiBase === undefined ? await loadApiBase() : apiBase;
+    const session = await fetchSession(base);
     const note = document.getElementById('sign-in-note');
     const token = session && typeof session.csrf_token === 'string' ? session.csrf_token : '';
     const home = document.getElementById('sign-in-home');
@@ -164,54 +201,173 @@ function dismissNotice(banner) {
     main.focus();
 }
 
-async function signIn(form, apiBase) {
+function setFieldError(errorId, inputId, message) {
+    const el = document.getElementById(errorId);
+    const input = document.getElementById(inputId);
+    if (el) el.textContent = message || '';
+    if (!input) return;
+    if (message) {
+        input.setAttribute('aria-invalid', 'true');
+        input.setAttribute('aria-describedby', errorId);
+    } else {
+        input.removeAttribute('aria-invalid');
+        input.removeAttribute('aria-describedby');
+    }
+}
+
+function clearFieldErrors() {
+    setFieldError('sign-in-user-error', 'sign-in-user', '');
+    setFieldError('sign-in-pass-error', 'sign-in-pass', '');
+}
+
+function showFieldErrors(errors) {
+    setFieldError('sign-in-user-error', 'sign-in-user', errors.username || '');
+    setFieldError('sign-in-pass-error', 'sign-in-pass', errors.password || '');
+}
+
+async function readProblem(res) {
+    try {
+        const problem = await res.json();
+        if (!problem || typeof problem !== 'object') return { code: '', detail: '', errors: {} };
+        const code = typeof problem.code === 'string' ? problem.code : '';
+        const detail = typeof problem.detail === 'string' ? problem.detail : '';
+        const errors = {};
+        const raw = problem.errors;
+        if (raw && typeof raw === 'object') {
+            if (typeof raw.username === 'string') errors.username = raw.username;
+            if (typeof raw.password === 'string') errors.password = raw.password;
+        }
+        return { code, detail, errors };
+    } catch {
+        return { code: '', detail: '', errors: {} };
+    }
+}
+
+function retryAfterSeconds(res) {
+    const raw = res.headers.get('Retry-After');
+    if (!raw) return null;
+    const text = raw.trim();
+    if (/^\d+$/.test(text)) return Number(text);
+    const when = Date.parse(text);
+    if (Number.isNaN(when)) return null;
+    return Math.max(0, Math.round((when - Date.now()) / 1000));
+}
+
+function rateLimitMessage(res, detail) {
+    if (detail) return detail;
+    const seconds = retryAfterSeconds(res);
+    if (seconds === null) return 'Too many sign-in attempts. Try again later.';
+    const minutes = Math.ceil(seconds / 60);
+    const wait = minutes < 1 ? 1 : minutes;
+    return 'Too many sign-in attempts. Try again in ' + wait + (wait === 1 ? ' minute.' : ' minutes.');
+}
+
+async function postSession(url, body, token) {
+    return fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+            Accept: 'application/problem+json, application/json',
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': token,
+        },
+        body: JSON.stringify(body),
+    });
+}
+
+function applyFailure(error, res, problem) {
+    clearFieldErrors();
+    if (!error) return;
+    if (problem.code === 'consent_required') {
+        error.textContent = 'Accept cookies, then try again.';
+        return;
+    }
+    if (problem.code === 'validation.failed') {
+        showFieldErrors(problem.errors);
+        error.textContent = problem.detail || 'Enter a user name and password.';
+        return;
+    }
+    if (res.status === 429 || problem.code === 'rate_limited') {
+        error.textContent = rateLimitMessage(res, problem.detail);
+        return;
+    }
+    if (problem.code === 'auth.invalid_credentials') {
+        error.textContent = problem.detail || 'Wrong user name or password.';
+        return;
+    }
+    error.textContent = problem.detail || 'Sign-in did not succeed.';
+}
+
+function submitButton(form) {
+    const button = form.querySelector('button[type="submit"]');
+    return button instanceof HTMLButtonElement ? button : null;
+}
+
+function setBusy(button, busy) {
+    if (!button) return;
+    button.disabled = busy;
+    if (busy) button.setAttribute('aria-busy', 'true');
+    else button.removeAttribute('aria-busy');
+}
+
+async function signIn(form, onSignedIn) {
     const error = document.getElementById('sign-in-error');
+    const button = submitButton(form);
+    if (button && button.getAttribute('aria-busy') === 'true') return;
     if (error) error.textContent = '';
+    clearFieldErrors();
     if (!csrfToken) return;
+    setBusy(button, true);
     const body = {
         username: form.username.value,
         password: form.password.value,
     };
-    let res;
     try {
-        res = await fetch(String(apiBase || '').replace(/\/$/, '') + SESSION_PATH, {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-                Accept: 'application/problem+json, application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': csrfToken,
-            },
-            body: JSON.stringify(body),
-        });
-    } catch {
-        if (error) error.textContent = 'Sign-in could not reach the server.';
-        return;
-    }
-    if (res.ok) {
-        if (error) error.textContent = '';
-        const note = document.getElementById('sign-in-note');
-        if (note) note.textContent = 'Signed in.';
-        return;
-    }
-    let code = '';
-    try {
-        const problem = await res.json();
-        code = problem && typeof problem.code === 'string' ? problem.code : '';
-    } catch {
-        code = '';
-    }
-    if (error) {
-        error.textContent = code === 'consent_required'
-            ? 'Accept cookies, then try again.'
-            : 'Sign-in did not succeed.';
+        const base = await loadApiBase();
+        const url = sessionUrl(base);
+        let res;
+        try {
+            res = await postSession(url, body, csrfToken);
+        } catch {
+            if (error) error.textContent = 'Sign-in could not reach the server.';
+            return;
+        }
+        let problem = res.ok ? { code: '', detail: '', errors: {} } : await readProblem(res);
+        if (!res.ok && res.status === 403 && problem.code === 'csrf.invalid') {
+            const session = await fetchSession(base);
+            const token = session && typeof session.csrf_token === 'string' ? session.csrf_token : '';
+            if (token) {
+                try {
+                    res = await postSession(url, body, token);
+                } catch {
+                    if (error) error.textContent = 'Sign-in could not reach the server.';
+                    return;
+                }
+                problem = res.ok ? { code: '', detail: '', errors: {} } : await readProblem(res);
+            }
+        }
+        if (res.ok) {
+            try {
+                rememberCsrf(await res.clone().json());
+            } catch {
+                rememberCsrf(null);
+            }
+            if (error) error.textContent = '';
+            clearFieldErrors();
+            if (typeof onSignedIn === 'function') onSignedIn();
+            else location.assign('/app/');
+            return;
+        }
+        applyFailure(error, res, problem);
+    } finally {
+        setBusy(button, false);
     }
 }
 
-export function bindSignIn(form) {
+export function bindSignIn(form, onSignedIn) {
     form.addEventListener('submit', (event) => {
         event.preventDefault();
-        signIn(form, '');
+        signIn(form, onSignedIn);
     });
 }
 
@@ -260,13 +416,13 @@ function start() {
             dismissNotice(banner);
             if (already) return;
             const form = document.getElementById('sign-in');
-            if (form) enableLogin(form, '');
+            if (form) enableLogin(form);
             trackPageview();
         });
     }
     if (hasConsent()) {
         hide(banner);
-        if (login) enableLogin(login, '');
+        if (login) enableLogin(login);
         if (!isAppShell()) trackPageview();
         return;
     }

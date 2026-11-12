@@ -1,8 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { consentCookie, consentDomain, withdrawnConsentCookie } from '../src/consent.js';
+import { consentCookie, consentDomain, loadApiBase, sessionUrl, withdrawnConsentCookie } from '../src/consent.js';
 
 const HOSTED = 'apotheke_consent=v1; Domain=getapotheke.com; Path=/; Max-Age=15552000; Secure; SameSite=Lax';
+
+test('session URL joins an apiBase that already ends in /api/v1', () => {
+    assert.equal(
+        sessionUrl('https://api.services.getapotheke.com/api/v1'),
+        'https://api.services.getapotheke.com/api/v1/session',
+    );
+    assert.equal(
+        sessionUrl('https://api.services.getapotheke.com/api/v1/'),
+        'https://api.services.getapotheke.com/api/v1/session',
+    );
+    assert.equal(sessionUrl(''), '/api/v1/session');
+});
 
 test('getapotheke.com gets the exact hosted cookie', () => {
     assert.equal(consentDomain('getapotheke.com'), 'getapotheke.com');
@@ -63,5 +75,32 @@ test('withdrawing expires the cookie with the attributes it was set with', () =>
             const gone = withdrawnConsentCookie(host, opts).split('; ').filter((p) => !p.startsWith('apotheke_consent=') && !p.startsWith('Max-Age='));
             assert.deepEqual(gone, set, host + ' ' + opts.protocol);
         }
+    }
+});
+
+test('a successful /config.json is fetched once, and a failure is tried again', async () => {
+    let calls = 0;
+    let succeed = false;
+    const previous = globalThis.fetch;
+    globalThis.fetch = async () => {
+        calls += 1;
+        if (!succeed) return new Response('no', { status: 404 });
+        return new Response(JSON.stringify({ apiBase: 'https://api.services.getapotheke.com/api/v1' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        });
+    };
+    try {
+        assert.equal(await loadApiBase(), '');
+        assert.equal(calls, 1);
+        assert.equal(await loadApiBase(), '');
+        assert.equal(calls, 2);
+        succeed = true;
+        assert.equal(await loadApiBase(), 'https://api.services.getapotheke.com/api/v1');
+        assert.equal(calls, 3);
+        assert.equal(await loadApiBase(), 'https://api.services.getapotheke.com/api/v1');
+        assert.equal(calls, 3);
+    } finally {
+        globalThis.fetch = previous;
     }
 });

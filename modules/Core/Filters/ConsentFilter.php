@@ -8,6 +8,7 @@ use Apotheke\Core\Http\ApiResponse;
 use Apotheke\Core\Http\CookieConsent;
 use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Http\SecurityPolicy;
+use Apotheke\Core\Http\SessionGate;
 use Apotheke\Core\Http\WantsJson;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\IncomingRequest;
@@ -24,7 +25,8 @@ use Config\Services;
  * - a state-changing request (sign-in, any form or API write: they all need the
  *   session's CSRF token) gets 403 consent_required: problem+json under /api,
  *   legacy JSON for fetch, else the error page, which shows the consent notice;
- * - no Set-Cookie leaves but the consent cookie from POST /consent: the session
+ * - no Set-Cookie leaves but the consent cookie from POST /consent and the
+ *   expiry of a session cookie (SessionGate::expireCookies): the session
  *   filter and SessionToken start no session, and as a backstop every other
  *   Set-Cookie is removed from the answer (after), and from PHP's header list
  *   right before headers go out, error answers included;
@@ -93,11 +95,18 @@ final class ConsentFilter implements FilterInterface
         return $response;
     }
 
-    /** From PHP's header list: every Set-Cookie but the consent cookie; and Cache-Control: no-store when none is set. */
+    /**
+     * From PHP's header list: every Set-Cookie but the consent cookie and a
+     * session cookie's expiry; and Cache-Control: no-store when none is set.
+     */
     private static function keepOnlyConsentCookie(): void
     {
         $headers = headers_list();
-        $keep = preg_grep('/^(?i:set-cookie):\s*' . preg_quote(Consent::COOKIE, '/') . '=[^,]*$/', $headers) ?: [];
+        $keep = array_filter(
+            $headers,
+            static fn (string $h): bool => preg_match('/^(?i:set-cookie):\s*' . preg_quote(Consent::COOKIE, '/') . '=[^,]*$/', $h) === 1
+                || (preg_match('/^(?i:set-cookie):\s*(.*)$/', $h, $m) === 1 && SessionGate::isExpiry($m[1])),
+        );
         header_remove('Set-Cookie');
         foreach ($keep as $h) {
             header($h, false);
