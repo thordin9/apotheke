@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **docs:** correct the v3.37.0 notes for hosted storage, backups, sign-in, worker mode and the SQL executor ([#301](https://github.com/thordin9/apotheke/pull/301))
+
 ## [3.37.2] - 2026-11-12
 
 ### Performance

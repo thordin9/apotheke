@@ -9,6 +9,9 @@ Accepted. This is the design for P4 (storage and database adapters). It follows 
   self-hosting kept.
 - **2026-10-31:** the owner chose one Container and one Durable Object per installation, with SQLite, an EU R2 key
   prefix and a D1 control plane.
+- **2026-11-12:** call sites use `Config\Services::sqlExecutor()` and `Config\Services::unitsOfWork()`. The P4-2
+  split below still says that no call site uses the executor's batch or a unit of work yet; that sentence is the
+  plan as it was written.
 
 These replace the 2026-10-22 phase (a Container with Postgres through Hyperdrive, plus R2), which stays as
 [plan B](#plan-b-postgres-through-hyperdrive). The binding names and the file ownership below are agreed with
