@@ -122,14 +122,13 @@ test('a signed-in line needs consent', () => {
     }
 });
 
-test('Decline signs out once while consent is still stored, and a refusal is retried once', async () => {
+test('Decline removes the consent cookie before the session read, and reads once', async () => {
     const previousFetch = globalThis.fetch;
     const previousDoc = globalThis.document;
     const previousLocation = globalThis.location;
     const previousSecure = globalThis.isSecureContext;
     let cookie = 'apotheke_consent=v1';
-    const methods = [];
-    const cookieAtDelete = [];
+    const sessionReads = [];
     globalThis.isSecureContext = true;
     globalThis.location = { hostname: '127.0.0.1', protocol: 'http:' };
     globalThis.document = {
@@ -142,24 +141,22 @@ test('Decline signs out once while consent is still stored, and a refusal is ret
     };
     globalThis.fetch = async (url, init) => {
         const href = String(url);
-        const method = init && init.method ? init.method : 'GET';
         if (href.includes('config.json')) {
+            assert.equal(cookie, '');
             return new Response(JSON.stringify({ apiBase: 'https://api.example/api/v1' }), { status: 200 });
         }
-        methods.push(method);
-        if (method === 'DELETE') cookieAtDelete.push(cookie);
-        const deletes = methods.filter((item) => item === 'DELETE').length;
-        if (method === 'DELETE' && deletes === 1) {
-            return new Response(JSON.stringify({ code: 'csrf.invalid' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
-        }
-        return new Response('', { status: 204 });
+        sessionReads.push({
+            method: init && init.method ? init.method : 'GET',
+            credentials: init && init.credentials,
+            cookie,
+        });
+        return new Response('', { status: 500 });
     };
     try {
         declineConsent();
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        assert.deepEqual(methods, ['DELETE', 'DELETE']);
-        assert.deepEqual(cookieAtDelete, ['apotheke_consent=v1', 'apotheke_consent=v1']);
         assert.equal(cookie, '');
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        assert.deepEqual(sessionReads, [{ method: 'GET', credentials: 'include', cookie: '' }]);
     } finally {
         globalThis.fetch = previousFetch;
         globalThis.document = previousDoc;

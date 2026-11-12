@@ -32,7 +32,7 @@ test('the privacy page describes the sign-in session cookie', async ({ page }) =
     await expect(main).toContainText('host-only on api.services.getapotheke.com');
     await expect(main).toContainText('up to 30 days');
     await expect(main).toContainText('See Sign-in for the API session cookie.');
-    await expect(main).toContainText('Declining signs you out on this site.');
+    await expect(main).toContainText('Declining removes the consent cookie at once, and sign-out follows.');
     await expect(main).toContainText('Accepting again needs a fresh sign-in.');
     await expect(main).toContainText('Signing out removes the session cookie.');
     await expect(main).toContainText('removes the consent cookie, apotheke_consent');
@@ -43,22 +43,20 @@ async function hasConsentCookie(page: Page) {
     return cookies.some((cookie) => cookie.name === 'apotheke_consent' && cookie.value === 'v1');
 }
 
-test('Decline after consent sends one sign-out from the app, and none before consent', async ({ page }) => {
-    const methods: string[] = [];
+test('Decline after consent sends one credentialed session read, and none before consent', async ({ page }) => {
+    await allowApiCookie(page);
+    const reads: string[] = [];
     await page.route(API_SESSION, async (route) => {
         const req = route.request();
         if (req.method() === 'DELETE') {
-            const consented = await hasConsentCookie(page);
-            methods.push(consented ? 'delete-with-consent' : 'delete-without');
-            if (!consented) {
-                return route.fulfill({
-                    status: 403,
-                    contentType: 'application/problem+json',
-                    body: JSON.stringify(problem(403, 'Forbidden', 'consent_required', 'Accept cookies, then try again.')),
-                });
-            }
-            return route.fulfill({ status: 204, body: '' });
+            return route.fulfill({
+                status: 403,
+                contentType: 'application/problem+json',
+                body: JSON.stringify(problem(403, 'Forbidden', 'consent_required', 'Accept cookies, then try again.')),
+            });
         }
+        const consented = await hasConsentCookie(page);
+        reads.push((consented ? 'with-cookie' : 'no-cookie') + ' ' + (req.headers().cookie || ''));
         return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -68,25 +66,60 @@ test('Decline after consent sends one sign-out from the app, and none before con
     await page.goto('/app/');
     await page.getByRole('button', { name: 'Decline' }).click();
     await page.waitForTimeout(200);
-    expect(methods).toEqual([]);
+    expect(reads).toEqual([]);
     await page.goto('/app/');
     await page.getByRole('button', { name: 'Accept' }).click();
     await expect(page.locator('#signed-in')).toHaveText('Signed in as ada.');
+    const before = reads.length;
     await page.getByRole('button', { name: 'Cookie settings' }).click();
     await page.getByRole('button', { name: 'Decline' }).click();
     await expect(page.locator('#consent')).toBeHidden();
-    await expect.poll(() => methods).toEqual(['delete-with-consent']);
+    await expect(page.locator('#signed-in')).toHaveCount(0);
+    await expect.poll(() => reads.slice(before)).toEqual(['no-cookie probe=sent']);
     await expect.poll(async () => hasConsentCookie(page)).toBe(false);
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await expect(page.locator('#consent-choice')).toHaveText(/not accepted/);
+});
+
+test('Decline from the landing pages sends one session read after consent', async ({ page }) => {
+    for (const path of ['/', '/privacy/', '/404.html']) {
+        const reads: string[] = [];
+        await page.unroute(API_SESSION).catch(() => {});
+        await page.context().clearCookies();
+        await page.route(API_SESSION, async (route) => {
+            if (route.request().method() === 'GET') {
+                const consented = await hasConsentCookie(page);
+                reads.push(consented ? 'with' : 'without');
+            }
+            if (route.request().method() === 'DELETE' && !(await hasConsentCookie(page))) {
+                return route.fulfill({
+                    status: 403,
+                    contentType: 'application/problem+json',
+                    body: JSON.stringify(problem(403, 'Forbidden', 'consent_required', 'Accept cookies, then try again.')),
+                });
+            }
+            return route.fulfill({ status: 204, body: '' });
+        });
+        await page.goto(path);
+        await page.getByRole('button', { name: 'Decline' }).click();
+        await page.waitForTimeout(200);
+        expect(reads, path + ' before consent').toEqual([]);
+        await page.goto(path);
+        await page.getByRole('button', { name: 'Accept' }).click();
+        await page.getByRole('button', { name: 'Cookie settings' }).click();
+        await page.getByRole('button', { name: 'Decline' }).click();
+        await expect(page.locator('#consent')).toBeHidden();
+        await expect.poll(() => reads, path).toEqual(['without']);
+    }
 });
 
 test('Decline ends the session, and accepting again shows signed out', async ({ page }) => {
     let live = true;
-    const deletes: string[] = [];
+    const calls: string[] = [];
     await page.route(API_SESSION, async (route) => {
         const req = route.request();
         const consented = await hasConsentCookie(page);
         if (req.method() === 'DELETE') {
-            deletes.push(consented ? 'with' : 'without');
             if (!consented) {
                 return route.fulfill({
                     status: 403,
@@ -94,9 +127,14 @@ test('Decline ends the session, and accepting again shows signed out', async ({ 
                     body: JSON.stringify(problem(403, 'Forbidden', 'consent_required', 'Accept cookies, then try again.')),
                 });
             }
-            live = false;
             return route.fulfill({ status: 204, body: '' });
         }
+        if (!consented) {
+            live = false;
+            calls.push('end');
+            return route.fulfill({ status: 403, body: '' });
+        }
+        calls.push(live ? 'in' : 'out');
         return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -109,50 +147,32 @@ test('Decline ends the session, and accepting again shows signed out', async ({ 
     await page.getByRole('button', { name: 'Cookie settings' }).click();
     await page.getByRole('button', { name: 'Decline' }).click();
     await expect(page.locator('#signed-in')).toHaveCount(0);
-    await expect.poll(() => deletes).toEqual(['with']);
-    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await expect.poll(() => calls.includes('end')).toBe(true);
+    await page.goto('/privacy/');
+    await expect(page.locator('#consent')).toBeVisible();
+    expect(await hasConsentCookie(page)).toBe(false);
+    await page.goto('/app/');
     await page.getByRole('button', { name: 'Accept' }).click();
     await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toBeVisible();
     await expect(page.locator('#signed-in')).toHaveCount(0);
+    expect(calls.filter((hit) => hit === 'end')).toHaveLength(1);
 });
 
-test('a refused sign-out is tried once more and no further', async ({ page }) => {
-    const methods: string[] = [];
+test('a failed or hanging session read still leaves consent withdrawn', async ({ page }) => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+        release = resolve;
+    });
     await page.route(API_SESSION, async (route) => {
-        const req = route.request();
-        methods.push(req.method());
-        if (req.method() === 'DELETE') {
+        if (route.request().method() !== 'GET' || (await hasConsentCookie(page))) {
             return route.fulfill({
-                status: 403,
-                contentType: 'application/problem+json',
-                body: JSON.stringify(problem(403, 'Forbidden', 'csrf.invalid', 'The request was refused: reload and try again.')),
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
             });
         }
-        return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
-        });
-    });
-    await page.goto('/app/');
-    await page.getByRole('button', { name: 'Accept' }).click();
-    await expect(page.locator('#signed-in')).toHaveText('Signed in as ada.');
-    const before = methods.length;
-    await page.getByRole('button', { name: 'Cookie settings' }).click();
-    await page.getByRole('button', { name: 'Decline' }).click();
-    await expect.poll(() => methods.slice(before)).toEqual(['DELETE', 'DELETE']);
-    await page.waitForTimeout(200);
-    expect(methods.slice(before)).toEqual(['DELETE', 'DELETE']);
-});
-
-test('a failed sign-out still clears the signed-in line', async ({ page }) => {
-    await page.route(API_SESSION, async (route) => {
-        if (route.request().method() === 'DELETE') return route.fulfill({ status: 500, body: '' });
-        return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
-        });
+        await held;
+        return route.fulfill({ status: 500, body: '' });
     });
     await page.goto('/app/');
     await page.getByRole('button', { name: 'Accept' }).click();
@@ -161,7 +181,11 @@ test('a failed sign-out still clears the signed-in line', async ({ page }) => {
     await page.getByRole('button', { name: 'Decline' }).click();
     await expect(page.locator('#consent')).toBeHidden();
     await expect(page.locator('#signed-in')).toHaveCount(0);
-    await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toBeVisible();
+    expect(await hasConsentCookie(page)).toBe(false);
+    release();
+    await page.waitForTimeout(200);
+    expect(await hasConsentCookie(page)).toBe(false);
+    await expect(page.locator('#signed-in')).toHaveCount(0);
 });
 
 test('a session response that arrives after Decline does not show signed in', async ({ page }) => {
