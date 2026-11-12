@@ -8,6 +8,14 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **core:** session hardening: sign-out (`POST /logout`, `DELETE /api/v1/session`) removes the session on the server, file or database row, and the answer expires the session cookie (`Max-Age=0`, an `Expires` in the past, the same name and attributes) without issuing a new session id; a session cookie sent without cookie consent ends that session the same way, and the consent notice form takes `consent=decline`, which expires the consent cookie and ends the session ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **api:** `GET /api/v1/branding` answers absolute icon URLs (`logo_url`, `favicon_url`, `touch_icon_url`) on the public base: `public_url` when set, else the request's allowed host with `trust_proxy` ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **core:** a path no route serves answers `404` instead of a redirect to `/login`, and a route asked with a method it does not take answers `405` with an `Allow` header instead of `403`, with or without cookie consent; under `/api` both are problem+json (`not_found`, `method_not_allowed`), as is a path with a doubled slash such as `//api/v1/x` or `/api//v1`, and `/` still sends a visitor to `/login` ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **layout:** the cookie notice on the app's pages has a Decline button next to Accept, both of the same weight, and the site notice's title and wording; Decline hides the notice and posts `consent=decline`, which ends any session ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **storage:** the entrypoint's `auth status` on a new storage-mode install checks for the settings table first, so the first start logs no failed queries on the D1 bridge ([#291](https://github.com/thordin9/apotheke/pull/291))
+
 ## [3.36.8] - 2026-11-12
 
 ### Fixed

@@ -46,6 +46,8 @@ class Filters extends BaseFilters
         'hostcheck' => \Apotheke\Core\Filters\HostFilter::class,
         // CI4's base URL from public_url / PUBLIC_URL and trust_proxy, per request (#76 L-2).
         'publicbase' => \Apotheke\Core\Filters\PublicBaseFilter::class,
+        // 404 for a path no route serves, 405 with Allow for a route asked with another method.
+        'routemethod' => \Apotheke\Core\Filters\RouteMethodFilter::class,
         // Sign-in off: non-safe requests from another site get 403 (SEC-M3), on every path.
         'sameorigin' => \Apotheke\Core\Filters\SameOriginFilter::class,
         // Legacy check_csrf() (session token). CI4's cookie CSRF ('csrf') stays off.
@@ -81,6 +83,7 @@ class Filters extends BaseFilters
             'hostcheck',
             'publicbase',
             'api',
+            'routemethod',
             'posttoolarge',
             'consent',
             'session',

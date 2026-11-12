@@ -73,6 +73,32 @@ final class Ci4ApiCookieTest extends TestCase
         });
     }
 
+    /**
+     * Session hardening: on HTTPS a session that ends (sign-out, or consent no longer sent) expires
+     * `__Host-apothekesid` with the attributes it was set with: Secure, Path=/, HttpOnly, SameSite=Lax, no Domain.
+     */
+    public function testHttpsSessionEndExpiresTheHostPrefixedCookie(): void
+    {
+        $expiry = '/^Set-Cookie: __Host-apothekesid=deleted; expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; path=\/; secure; HttpOnly; SameSite=Lax$/D';
+        $this->withServer(['PUBLIC_URL' => 'https://127.0.0.1'], function (Client $client) use ($expiry): void {
+            $client->get('/login');
+            $out = $client->post('/logout');
+            $this->assertSame(303, $out['status']);
+            $this->assertSame([1, 1], [$this->cookieCount($out), preg_match($expiry, $this->cookieLine($out))]);
+            $client->cookies = [];
+            $client->get('/login');
+            $client->consent = null;
+            $gone = $client->get('/login');
+            $this->assertSame([1, 1], [$this->cookieCount($gone), preg_match($expiry, $this->cookieLine($gone))]);
+        });
+    }
+
+    /** @param array{raw:list<string>} $response */
+    private function cookieCount(array $response): int
+    {
+        return count(array_filter($response['raw'], static fn (string $l): bool => stripos($l, 'set-cookie:') === 0));
+    }
+
     /** @param array<string,string> $env @param callable(Client,string):void $test */
     private function withServer(array $env, callable $test): void
     {
