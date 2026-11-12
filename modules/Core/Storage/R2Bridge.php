@@ -7,6 +7,10 @@ namespace Apotheke\Core\Storage;
 /**
  * Relative application keys only. The Worker owns installation IDs and prefixes.
  * Response bodies are capped at 64 MiB; redirects are never followed.
+ *
+ * Every answer is a JSON body, so no request is sent as HTTP HEAD (a HEAD response
+ * carries no body on the wire): metadata() asks with GET ?action=head instead, and
+ * the Worker (edge/src/r2.ts) answers that with {ok, found, etag?, modified?}.
  */
 final class R2Bridge
 {
@@ -50,6 +54,9 @@ final class R2Bridge
      */
     public function request(string $method, string $key, $body = null, bool $allowMissing = false, array $query = []): ?array
     {
+        if (strtoupper($method) === 'HEAD') {
+            throw new \LogicException('A HEAD response has no body; use metadata().');
+        }
         $response = $this->send($method, $key, $body, $query);
         if ($response['status'] === 404 && $allowMissing) {
             return null;
@@ -62,6 +69,17 @@ final class R2Bridge
         }
 
         return $this->json($response['body']);
+    }
+
+    /**
+     * An object's metadata, {ok, found, etag?, modified?}, as GET ?action=head; null when the
+     * Worker answers 404.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function metadata(string $key): ?array
+    {
+        return $this->request('GET', $key, allowMissing: true, query: ['action' => 'head']);
     }
 
     public function beginMultipart(string $key): string

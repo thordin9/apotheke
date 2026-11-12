@@ -36,6 +36,25 @@ final class StorageModeBootErrorTest extends TestCase
     }
 
     /**
+     * Storage mode with DB_DRIVER=d1 boots: startup.php runs before Composer's autoloader, so the
+     * D1 settings it builds may not name a class it did not load itself (the server below has none).
+     */
+    public function testStorageModeWithD1BootsBeforeTheAutoloader(): void
+    {
+        $hit = $this->boot('d1');
+        $this->assertSame(200, $hit['status'], $hit['body'] . $hit['log'] . $hit['err']);
+        $this->assertSame('', $hit['body']);
+        $this->assertStringNotContainsString('Fatal', $hit['log'] . $hit['err']);
+        $this->assertFalse($hit['sqlite'], 'no catalog.sqlite under DATA_DIR');
+    }
+
+    public function testTheTranslatorsD1BaseIsTheExecutorsDefault(): void
+    {
+        $this->assertSame(\Apotheke\Core\Database\D1HttpExecutor::DEFAULT_BASE, \Apotheke\Core\Config\DsnTranslator::D1_BASE);
+        $this->assertSame('d1:' . \Apotheke\Core\Database\D1HttpExecutor::DEFAULT_BASE, \Apotheke\Core\Config\DsnTranslator::D1_DSN);
+    }
+
+    /**
      * @return array{status:int,body:string,log:string,err:string,sqlite:bool}
      */
     private function boot(?string $driver, string $storage = 'r2'): array
