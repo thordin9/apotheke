@@ -88,8 +88,9 @@ final class Ci4CookieConsentTest extends TestCase
     public function testTheFormAcceptSetsOnlyTheConsentCookie(): void
     {
         $page = $this->client(null)->get('/login?next=1');
-        $this->assertStringContainsString('<form method="post" action="/consent"><input type="hidden" name="return" value="/login?next=1">'
-            . '<button type="submit" class="btn btn-primary" id="consent-accept" data-consent="v1" data-domain="" name="consent" value="accept">', $page['body']);
+        $this->assertStringContainsString('<form method="post" action="/consent" class="consent-actions"><input type="hidden" name="return" value="/login?next=1">'
+            . '<button type="submit" class="btn" id="consent-decline" name="consent" value="decline">Decline</button>'
+            . '<button type="submit" class="btn" id="consent-accept" data-consent="v1" data-domain="" name="consent" value="accept">Accept</button>', $page['body']);
         foreach (['Origin: ' . self::$server->base, 'Sec-Fetch-Site: same-origin'] as $header) {
             $c = $this->client(null);
             $r = $c->post('/consent', ['consent' => 'accept', 'return' => '/login?next=1'], [], [$header]);
@@ -244,6 +245,25 @@ final class Ci4CookieConsentTest extends TestCase
         $c->rest('GET', '/api/v1/session');
         $c->post('/login', ['username' => 'admin', 'password' => self::PASSWORD]);
         $this->assertSame($before, glob(self::$dir . '/sessions/sess_*') ?: [], 'nothing on the server either');
+    }
+
+    /**
+     * The app's notice says what the site's says (frontend/src/partials/header.html): the same title, first
+     * sentence and buttons, Decline then Accept, both plain .btn of the same weight (no accent colour).
+     */
+    public function testTheNoticeMatchesTheSiteNotice(): void
+    {
+        $site = (string)file_get_contents(dirname(__DIR__, 2) . '/frontend/src/partials/header.html');
+        $this->assertSame(1, preg_match('#<p id="consent-title" class="consent-title">([^<]+)</p>\s*<p>([^.]+\.)#', $site, $copy));
+        $this->assertSame(2, preg_match_all('#<button type="button" class="btn" id="consent-(decline|accept)">([^<]+)</button>#', $site, $buttons));
+        $this->assertSame(['decline', 'accept'], $buttons[1]);
+        $page = $this->client(null)->get('/login');
+        $this->assertSame(1, preg_match('#<div class="consent" id="consent"[^>]*>.*?</form></div>#s', $page['body'], $notice));
+        $this->assertSame(1, preg_match('#<p id="consent-title" class="consent-title">([^<]+)</p><p>([^.]+\.)#', $notice[0], $app));
+        $this->assertSame([$copy[1], $copy[2]], [$app[1], $app[2]], 'title and first sentence');
+        $this->assertSame(2, preg_match_all('#<button type="submit" class="btn" id="consent-(decline|accept)"[^>]*>([^<]+)</button>#', $notice[0], $ours));
+        $this->assertSame([$buttons[1], $buttons[2]], [$ours[1], $ours[2]], 'the same buttons, in the same order and weight');
+        $this->assertStringNotContainsString('btn-primary', $notice[0]);
     }
 
     public function testTheSignInPageShowsTheNoticeAndNoToken(): void
