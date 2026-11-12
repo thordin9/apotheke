@@ -130,8 +130,7 @@ abstract class AuthPages extends Controller
         }
         $this->accounts()->admit($user);
         (new SessionGate(time()))->signIn($user['id'], (new SessionEpoch())->of($user));
-        $this->limiter()->clear('login', $who);
-        $this->limiter()->forget($mine);   // a success takes back only its own address row
+        $this->limiter()->succeeded('login', $who, $mine);   // a success takes back only its own address row
 
         return $user;
     }

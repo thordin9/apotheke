@@ -6,6 +6,7 @@ namespace Apotheke\Favourites;
 
 use Apotheke\Catalog\ItemList;
 use Apotheke\Catalog\RecentItems;
+use Apotheke\Core\Database\D1\Connection as D1Connection;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
@@ -111,10 +112,17 @@ final class Favourites implements RecentItems
                 . ' WHERE NOT EXISTS (SELECT 1 FROM recent_views WHERE scope = ? AND item_id = ?)', [$scope, $id, $now, $scope, $scope, $id], 'recent');
             $uow->write('DELETE FROM recent_views WHERE scope = ? AND seq <= ' . $max . ' - ?', [$scope, $scope, $this->limit], 'recent');
             // The occasional sweep of old views, when the sequence read here reaches a multiple of 50 (as before).
+            $cut = gmdate('Y-m-d H:i:s', (int)strtotime($now . ' UTC') - self::MAX_AGE_DAYS * 86400);
+            if ($this->db instanceof D1Connection) {
+                // The batch runs after this callback: the scope's highest seq is then this view's, the value the
+                // read here returned plus one, so the condition is a subquery and the view needs no read.
+                $uow->write('DELETE FROM recent_views WHERE viewed_at < ? AND ' . $max . ' % 50 = 0', [$cut, $scope], 'recent');
+
+                return;
+            }
             $seq = (int)(Writes::rows($this->db, 'SELECT COALESCE(MAX(seq), 0) AS s FROM recent_views WHERE scope = ?', [$scope])[0]['s'] ?? 0) + 1;
             if ($seq % 50 === 0) {
-                $cut = (int)strtotime($now . ' UTC') - self::MAX_AGE_DAYS * 86400;
-                $uow->write('DELETE FROM recent_views WHERE viewed_at < ?', [gmdate('Y-m-d H:i:s', $cut)], 'recent');
+                $uow->write('DELETE FROM recent_views WHERE viewed_at < ?', [$cut], 'recent');
             }
         }, $scope);
 
