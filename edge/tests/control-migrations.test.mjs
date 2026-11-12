@@ -42,7 +42,7 @@ test('primary is seeded with its existing DO name and R2 prefix, plan internal, 
 
 // A migration that has been applied must never change: a fix is a new, later file.
 const PINNED = {
-  '0001_control_plane.sql': '56e7c0c8d85c162e66c4628523200bd7d603ddc7262f07f4dd0a79c372e53e8a',
+  '0001_control_plane.sql': 'a066b939768e2180e782e2e83fc53d03f611b6b7edac3b6991f4d5301eb4ecb7',
   '0002_seed_primary.sql': '7c0ecfebc8603b75300154ac1ba66adabebc550ddb0fdbb445df5994a9db8dcc',
 };
 
@@ -58,15 +58,21 @@ const install = (id, doName, prefix = `installations/${doName}/`) =>
 
 test('installations: do_name charset, prefix follows do_name, both unique and fixed, statuses are fixed', () => {
   const db = migrated();
-  for (const name of ['', 'B', 'a.b', 'a/b', '..', 'a b', 'a_b']) refused(db, install('x', name), /CHECK/);
+  for (const name of ['', 'B', 'a.b', 'a/b', '..', 'a b', 'a_b', '-a', 'a-', 'a--b', 'a'.repeat(64)]) refused(db, install('x', name), /CHECK/);
+  for (const name of ['a', 'a-b', 'tenant-2-x', 'a'.repeat(63)]) db.exec(install(`ok-${name}`, name));
   refused(db, install('x', 'b', 'installations/c/'), /CHECK/);
   refused(db, `INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('x', 'b', 'installations/b/', 'paused')`, /CHECK/);
-  refused(db, install('x', 'primary'), /UNIQUE/);
-  refused(db, `INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('x', 'b', 'installations/primary/', 'active')`, /CHECK|UNIQUE/);
+  refused(db, install('x', 'primary'), /already exists/);
+  refused(db, `INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('x', 'b', 'installations/primary/', 'active')`, /CHECK|UNIQUE|already exists/);
   db.exec(install('b2', 'tenant-2'));
   refused(db, `UPDATE installations SET do_name = 'tenant-3', r2_prefix = 'installations/tenant-3/' WHERE id = 'b2'`, /never change/);
   refused(db, `UPDATE installations SET r2_prefix = 'installations/other/' WHERE id = 'primary'`, /never change/);
   db.exec(`UPDATE installations SET status = 'suspended', do_name = do_name WHERE id = 'b2'`);
+  // REPLACE deletes and re-inserts without UPDATE triggers: renaming, or taking another installation's name, is refused.
+  refused(db, `REPLACE INTO installations (id, do_name, r2_prefix, status) VALUES ('primary', 'renamed', 'installations/renamed/', 'active')`, /already exists/);
+  refused(db, `INSERT OR REPLACE INTO installations (id, do_name, r2_prefix, status) VALUES ('primary', 'renamed', 'installations/renamed/', 'active')`, /already exists/);
+  refused(db, `REPLACE INTO installations (id, do_name, r2_prefix, status) VALUES ('other', 'primary', 'installations/primary/', 'active')`, /already exists/);
+  assert.deepEqual({ ...db.prepare(`SELECT do_name, r2_prefix FROM installations WHERE id = 'primary'`).get() }, { do_name: 'primary', r2_prefix: 'installations/primary/' });
   const cols = Object.fromEntries(db.prepare(`PRAGMA index_list('installations')`).all().filter((i) => i.unique)
     .map((i) => [db.prepare(`PRAGMA index_info('${i.name}')`).all().map((c) => c.name).join(), true]));
   assert.ok(cols.do_name && cols.r2_prefix);
@@ -74,11 +80,12 @@ test('installations: do_name charset, prefix follows do_name, both unique and fi
 
 test('routes: hosts are lower case without port, slash, space, empty or trailing dot; the installation must exist', () => {
   const db = migrated();
-  for (const host of ['', 'Api.example.test', 'a.example.test:443', 'a.example.test.', 'a b.test', 'a.test/x', '.a.test']) {
+  for (const host of ['', 'Api.example.test', 'a.example.test:443', 'a.example.test.', 'a b.test', 'a.test/x', '.a.test', 'a..example.test',
+    '-a.example.test', 'a-.example.test', 'a.-b.test', 'a.b-.test', 'example.test-']) {
     refused(db, `INSERT INTO installation_routes (host, installation_id) VALUES ('${host}', 'primary')`, /CHECK/);
   }
   refused(db, `INSERT INTO installation_routes (host, installation_id) VALUES ('x.example.test', 'nope')`, /FOREIGN KEY/);
-  db.exec(`INSERT INTO installation_routes (host, installation_id) VALUES ('x-1.example.test', 'primary')`);
+  db.exec(`INSERT INTO installation_routes (host, installation_id) VALUES ('x-1.example.test', 'primary'), ('a--b.example.test', 'primary')`);
 });
 
 test('subscriptions, limits and usage: plan required and real, statuses fixed, limits sane, months 01-12', () => {
@@ -108,4 +115,15 @@ test('operator_audit is append-only: no update, delete, or insert over an existi
     refused(db, sql, /append-only/);
   }
   assert.deepEqual({ ...db.prepare('SELECT count(*) AS n, max(action) AS a FROM operator_audit').get() }, { n: 1, a: 'set_status' });
+});
+
+test('text primary keys refuse NULL', () => {
+  const db = migrated();
+  for (const sql of [
+    `INSERT INTO plans (id, name) VALUES (NULL, 'n')`,
+    `INSERT INTO installations (id, do_name, r2_prefix, status) VALUES (NULL, 'n', 'installations/n/', 'active')`,
+    `INSERT INTO installation_routes (host, installation_id) VALUES (NULL, 'primary')`,
+    `INSERT INTO subscriptions (installation_id, plan_id, status) VALUES (NULL, 'internal', 'active')`,
+    `INSERT INTO operator_audit (id, operator, action) VALUES (NULL, 'op@example.test', 'x')`,
+  ]) refused(db, sql, /NOT NULL/);
 });

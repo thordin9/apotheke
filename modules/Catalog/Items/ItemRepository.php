@@ -6,6 +6,7 @@ namespace Apotheke\Catalog\Items;
 
 use Apotheke\Core\Database\Ref;
 use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\ReadCache;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
@@ -32,6 +33,8 @@ final class ItemRepository
 
     private readonly UnitsOfWork $units;
 
+    private readonly ReadCache $cache;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
@@ -46,8 +49,10 @@ final class ItemRepository
         private readonly Storage $files,
         private readonly PhotoRepository $photoRows,
         ?UnitsOfWork $units = null,
+        ?ReadCache $cache = null,
     ) {
         $this->units = UnitsOfWork::forSite($db, $units);
+        $this->cache = $cache ?? ReadCache::off();
     }
 
     /** @var list<string> files a save inside atomically() gives up; removed once the outer transaction has committed (N-126) */
@@ -56,7 +61,23 @@ final class ItemRepository
     /** @return array<string,mixed>|null legacy item_get(): the row with names, typed numbers and tags */
     public function get(int $id): ?array
     {
-        $row = $this->rows('SELECT ' . self::COLS . ' ' . self::FROM . ' WHERE i.id = ?', [$id])[0] ?? null;
+        // Remembered for the request until a write to one of the tables it reads (never inside a transaction).
+        return $this->cache->remember($this->db, 'items.get.' . $id, ['items', 'item_tags', 'tags', 'locations', 'categories'],
+            fn (): ?array => $this->read($id), static fn (?array $row): bool => $row !== null);
+    }
+
+    /** @return array<string,mixed>|null */
+    private function read(int $id): ?array
+    {
+        $item = ['SELECT ' . self::COLS . ' ' . self::FROM . ' WHERE i.id = ?', [$id]];
+        $tags = null;
+        if (Writes::batches($this->db)) {
+            // The row and its tags in one round trip (Writes::rowsMany()).
+            [$rows, $tags] = Writes::rowsMany($this->db, [$item, TagRepository::forItemQuery($id)]);
+        } else {
+            $rows = $this->rows(...$item);
+        }
+        $row = $rows[0] ?? null;
         if ($row === null) {
             return null;
         }
@@ -72,7 +93,7 @@ final class ItemRepository
         $row['barcode'] = (string)($row['barcode'] ?? '');
         $row['min_qty'] = $row['min_qty'] === null ? null : (int)$row['min_qty'];
         $row['favourite'] = (int)$row['favourite'];
-        $row['tags'] = $this->tags->forItem($id);
+        $row['tags'] = $tags !== null ? TagRepository::forItemRows($tags) : $this->tags->forItem($id);
 
         return $row;
     }
