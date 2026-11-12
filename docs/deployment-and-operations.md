@@ -588,6 +588,8 @@ permission the environment's token probably lacks; a missing container push perm
 
 ### Storage gate: EDGE_STORAGE_READY
 
+The hosted API is live in storage mode (since 2026-11-12, on v3.36.5 then v3.36.6). On d1, restoring a backup is refused, as is duplicating an item with its photos, and adding a new location or category in the same step as saving the item. Do not move real data onto the hosted installation until backup restore works on d1 and a backup has been tested by a round trip.
+
 The first `apotheke-api` deploy waits for the storage design (P4: D1 for data, R2 for files). Until then the deploy
 job of `deploy-edge.yml` does not run, on any trigger (release and manual), unless the **repository variable**
 `EDGE_STORAGE_READY` is exactly `true`:
@@ -609,13 +611,13 @@ and `deploy-frontend.yml` are not affected.
 An unfinished multipart upload that still has a marker can be expired by the Worker sweep after one day. That
 sweep is not scheduled and is not a public route. Deleting the marker does not abort the upload; the sweep calls
 the binding's abort first. An upload that has no marker is not in the binding's object list. Aborting those
-uploads is an account lifecycle rule on the bucket. This repository does not create that rule, and
-`EDGE_STORAGE_READY` stays unset.
+uploads is an account lifecycle rule on the bucket. This repository does not create that rule.
 
 ### P4 edge storage: flip checklist
 
-The P4 storage for `apotheke-api` is prepared but off. Its bindings are in `edge/storage.jsonc`, not in
-`edge/wrangler.jsonc`, so `wrangler dev`, the *Edge local test* and the pull request's default dry run use the default
+The hosted API is live in storage mode (since 2026-11-12, on v3.36.5 then v3.36.6). On d1, restoring a backup is refused, as is duplicating an item with its photos, and adding a new location or category in the same step as saving the item. Do not move real data onto the hosted installation until backup restore works on d1 and a backup has been tested by a round trip.
+Its bindings are in
+`edge/storage.jsonc`, not in `edge/wrangler.jsonc`, so `wrangler dev`, the *Edge local test* and the pull request's default dry run use the default
 config unchanged. The pull request checks also dry-run the merged config with a dummy D1 id (part 2 below). Only the
 deploy job, which runs only with `EDGE_STORAGE_READY=true`, merges them in for real (`scripts/edge-storage-config.mjs`,
 on the runner's checkout), deploys, and then checks `/healthz`:
@@ -847,8 +849,9 @@ With parts 1 to 3 done and the PM's go:
 - CORS: `curl -si https://api.services.getapotheke.com/api/v1/session -H 'Origin: https://getapotheke.com'` answers
   `Access-Control-Allow-Origin: https://getapotheke.com` with credentials allowed; another origin gets no
   `Access-Control-Allow-Origin`. No `Set-Cookie` carries a `Domain=` attribute (host-only cookies).
-- Sign in from `https://getapotheke.com`, save an item with a photo, wait past `SLEEP_AFTER_MS` (15 minutes) or deploy
-  again, and check that the item and the photo are still there.
+- Sign in from `https://api.services.getapotheke.com/login` (the working sign-in for now; the site's sign-in is being
+  fixed), save an item with a photo, wait past `SLEEP_AFTER_MS` (15 minutes) or deploy again, and check that the item
+  and the photo are still there.
 - The photo is in R2 under `installations/primary/` in `apotheke-api-storage` (dashboard, *R2 > apotheke-api-storage*,
   EU jurisdiction).
 - `npx --no-install wrangler deployments list --name apotheke-api`: the new version is at 100%.
