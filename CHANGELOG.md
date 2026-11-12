@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **docs:** update the hand-off and deploy runbook for the current release, sign-in, and hosted storage-mode flip ([#284](https://github.com/thordin9/apotheke/pull/284))
+
 ### Fixed
 
 - **frontend:** install commands wrap on a phone, and `/favicon.ico` is served and cached with the brand icons ([#290](https://github.com/thordin9/apotheke/pull/290))
