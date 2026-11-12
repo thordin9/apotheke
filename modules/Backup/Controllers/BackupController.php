@@ -53,6 +53,9 @@ final class BackupController extends CatalogController
             $backups->create($tmp);
         } catch (\Throwable $e) {
             @unlink($tmp);
+            if ($e instanceof UserError) {
+                return $this->fail($e->getMessage());   // not enough disk space: this message on the backup page
+            }
             throw $e;
         }
 

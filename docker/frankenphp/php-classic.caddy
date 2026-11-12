@@ -1,0 +1,3 @@
+# Classic mode (the default; imported into php_server by the Caddyfile): existing files are served, everything else
+# runs the front controller with fresh PHP state per request (nginx: try_files $uri @app).
+try_files {path} index.php

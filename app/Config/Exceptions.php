@@ -101,7 +101,8 @@ class Exceptions extends BaseConfig
      */
     public function handler(int $statusCode, Throwable $exception): ExceptionHandlerInterface
     {
-        return new PlainHandler($this->page, $this->cleanup, null, $this->publicUrl);
+        // APOTHEKE_PHP_WORKER: defined by public/frankenphp-worker.php only (FrankenPHP worker mode, QA-1854).
+        return new PlainHandler($this->page, $this->cleanup, null, $this->publicUrl, \defined('APOTHEKE_PHP_WORKER'));
     }
 
     /**

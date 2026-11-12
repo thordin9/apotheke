@@ -122,7 +122,7 @@ RUN set -eux; \
 
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-apotheke.ini
 COPY docker/frankenphp/php-frankenphp.ini /usr/local/etc/php/conf.d/zzz-apotheke-frankenphp.ini
-COPY docker/frankenphp/Caddyfile /etc/apotheke/Caddyfile
+COPY docker/frankenphp/Caddyfile docker/frankenphp/php-classic.caddy docker/frankenphp/php-worker.caddy /etc/apotheke/
 COPY docker/frankenphp/entrypoint.sh /usr/local/bin/apotheke-entrypoint
 COPY docker/jobs-worker.sh /usr/local/bin/apotheke-jobs-worker
 RUN chmod 0755 /usr/local/bin/apotheke-entrypoint /usr/local/bin/apotheke-jobs-worker
@@ -143,7 +143,9 @@ RUN set -eux; \
         /var/www/app/writable/uploads /var/www/app/writable/debugbar /run/apotheke-caddy/config /run/apotheke-caddy/data /data; \
     chown -R www-data:www-data /var/www/app/writable /run/apotheke-caddy /data; \
     php -r 'require "/var/www/app/vendor/autoload.php"; exit(class_exists("CodeIgniter\\CodeIgniter") && class_exists("Apotheke\\Auth\\SignInPace") ? 0 : 1);'; \
-    PORT=9091 FRANKENPHP_NUM_THREADS=2 frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile
+    PORT=9091 FRANKENPHP_NUM_THREADS=2 frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile; \
+    PORT=9091 FRANKENPHP_NUM_THREADS=2 APOTHEKE_PHP_MODE=worker FRANKENPHP_REGULAR_THREADS=1 FRANKENPHP_MAX_THREADS=3 \
+        frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile
 
 # FRANKENPHP_NUM_THREADS: PHP threads (requests served at once). 2 fits Cloudflare Containers "basic"
 # (1/4 vCPU, 1 GiB) with two large HEIC uploads at a time; raise it on bigger hosts.

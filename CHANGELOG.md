@@ -10,11 +10,6 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Fixed
 
-- **core:** session hardening: sign-out (`POST /logout`, `DELETE /api/v1/session`) removes the session on the server, file or database row, and the answer expires the session cookie (`Max-Age=0`, an `Expires` in the past, the same name and attributes) without issuing a new session id; a session cookie sent without cookie consent ends that session the same way, and the consent notice form takes `consent=decline`, which expires the consent cookie and ends the session
-- **api:** `GET /api/v1/branding` answers absolute icon URLs (`logo_url`, `favicon_url`, `touch_icon_url`) on the public base: `public_url` when set, else the request's allowed host with `trust_proxy`
-- **core:** a path no route serves answers `404` instead of a redirect to `/login`, and a route asked with a method it does not take answers `405` with an `Allow` header instead of `403`, with or without cookie consent; under `/api` both are problem+json (`not_found`, `method_not_allowed`), as is a path with a doubled slash such as `//api/v1/x` or `/api//v1`, and `/` still sends a visitor to `/login`
-- **layout:** the cookie notice on the app's pages has a Decline button next to Accept, both of the same weight, and the site notice's title and wording; Decline hides the notice and posts `consent=decline`, which ends any session
-- **storage:** the entrypoint's `auth status` on a new storage-mode install checks for the settings table first, so the first start logs no failed queries on the D1 bridge
 - **core:** a small web POST whose body fills no form fields (JSON, text) gets the consent, sign-in or CSRF answer instead of `413`; only a body past `post_max_size` is `413` ([#294](https://github.com/thordin9/apotheke/pull/294))
 - **core:** a page or form write (any method but GET, HEAD and OPTIONS, outside `/api`) whose `Origin`, or `Referer` when there is no `Origin`, is not this host or the public base answers `403` with sign-in on as well as off; `X-Forwarded-Proto` counts with `trust_proxy`, and a request without either header goes on to the CSRF token check as before ([#294](https://github.com/thordin9/apotheke/pull/294))
 - **core:** a page or form write that sends a field as a list (`id[]=`, `name[]=`) where the form takes one value answers `422` with the usual error page, or `{ok:false,error}` for fetch, after the sign-in, same-origin and CSRF checks, instead of reading it as `Array` or `1`; the list fields (`ids[]`, `perms[]`, `col[]`, `photos[]`, `files[]`) and GET filters are unchanged ([#294](https://github.com/thordin9/apotheke/pull/294))
@@ -26,6 +21,59 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **media:** `/media` answers `304` for an `If-None-Match` list, a weak tag or `*`, sends `Accept-Ranges: bytes`, and answers a single byte range with `206` and `Content-Range` (or `416` with `Content-Range: bytes */<size>`), with `If-Range`, on local and R2 storage ([#294](https://github.com/thordin9/apotheke/pull/294))
 - **catalog:** deleting an item's last photo by fetch answers `index` `0`, the photo the redirect shows, instead of `-1` ([#294](https://github.com/thordin9/apotheke/pull/294))
 - **api:** `POST /api/v1/session` with an empty body answers `422` `validation.failed` with both fields `Required.`, like `{}`, instead of `400`; a field sent as a number or a list is `Must be text.` instead of `Required.` ([#294](https://github.com/thordin9/apotheke/pull/294))
+
+## [3.37.1] - 2026-11-12
+
+### Fixed
+
+- **frontend:** the landing FAQ says a hosted Apotheke is available and that sign-up is invitation-only ([#288](https://github.com/thordin9/apotheke/pull/288))
+
+## [3.37.0] - 2026-11-12
+
+### Added
+
+- add opt-in FrankenPHP worker mode for the hosted container ([#292](https://github.com/thordin9/apotheke/pull/292))
+- **edge:** the hosted container can run PHP in FrankenPHP worker mode (`APOTHEKE_PHP_WORKER` in `edge/wrangler.jsonc`): the app boots once per PHP thread through `public/frankenphp-worker.php`, with CodeIgniter's worker reset between requests, and an answered error no longer ends the worker. The FrankenPHP image takes `APOTHEKE_PHP_WORKER` (default classic mode; self-hosted images are unchanged) ([#292](https://github.com/thordin9/apotheke/pull/292))
+
+### Changed
+
+- **edge:** FrankenPHP worker mode ships off by default on the hosted container (`APOTHEKE_PHP_WORKER=0` in `edge/wrangler.jsonc`), so a release deploy keeps classic mode; turning it on (`1`) is a later step, after an interleaved classic/worker preview of the merged head ([#292](https://github.com/thordin9/apotheke/pull/292))
+
+## [3.36.10] - 2026-11-12
+
+### Fixed
+
+- **frontend:** sign-in uses the API base from `/config.json`, and a failed sign-in shows the API's detail, field errors, one CSRF retry and the rate-limit wait ([#286](https://github.com/thordin9/apotheke/pull/286))
+
+## [3.36.9] - 2026-11-12
+
+### Fixed
+
+- **core:** session hardening: sign-out (`POST /logout`, `DELETE /api/v1/session`) removes the session on the server, file or database row, and the answer expires the session cookie (`Max-Age=0`, an `Expires` in the past, the same name and attributes) without issuing a new session id; a session cookie sent without cookie consent ends that session the same way, and the consent notice form takes `consent=decline`, which expires the consent cookie and ends the session ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **api:** `GET /api/v1/branding` answers absolute icon URLs (`logo_url`, `favicon_url`, `touch_icon_url`) on the public base: `public_url` when set, else the request's allowed host with `trust_proxy` ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **core:** a path no route serves answers `404` instead of a redirect to `/login`, and a route asked with a method it does not take answers `405` with an `Allow` header instead of `403`, with or without cookie consent; under `/api` both are problem+json (`not_found`, `method_not_allowed`), as is a path with a doubled slash such as `//api/v1/x` or `/api//v1`, and `/` still sends a visitor to `/login` ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **layout:** the cookie notice on the app's pages has a Decline button next to Accept, both of the same weight, and the site notice's title and wording; Decline hides the notice and posts `consent=decline`, which ends any session ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **storage:** the entrypoint's `auth status` on a new storage-mode install checks for the settings table first, so the first start logs no failed queries on the D1 bridge ([#291](https://github.com/thordin9/apotheke/pull/291))
+
+## [3.36.8] - 2026-11-12
+
+### Fixed
+
+- **site:** drop `bluetooth=()` from `Permissions-Policy` on the landing Worker and `_headers`; it is not a recognised feature and logged a console warning on every page (L-1923) ([#285](https://github.com/thordin9/apotheke/pull/285))
+
+## [3.36.7] - 2026-11-12
+
+### Fixed
+
+- **backup:** on the hosted database a backup reads each table in pages, records `"driver":"d1"`, and stops with a clear message, leaving no partial zip, when the temp disk has no room for the stored photos and files ([#287](https://github.com/thordin9/apotheke/pull/287))
+
+### Maintenance
+
+- docs: update stale release, sign-in, and hosted storage status ([#284](https://github.com/thordin9/apotheke/pull/284))
+
+### Changed
+
+- **docs:** update the hand-off and deploy runbook for the current release, sign-in, and hosted storage-mode flip ([#284](https://github.com/thordin9/apotheke/pull/284))
 
 ## [3.36.6] - 2026-11-12
 
@@ -1579,7 +1627,13 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.6...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.37.1...HEAD
+[3.37.1]: https://github.com/thordin9/apotheke/compare/v3.37.0...v3.37.1
+[3.37.0]: https://github.com/thordin9/apotheke/compare/v3.36.10...v3.37.0
+[3.36.10]: https://github.com/thordin9/apotheke/compare/v3.36.9...v3.36.10
+[3.36.9]: https://github.com/thordin9/apotheke/compare/v3.36.8...v3.36.9
+[3.36.8]: https://github.com/thordin9/apotheke/compare/v3.36.7...v3.36.8
+[3.36.7]: https://github.com/thordin9/apotheke/compare/v3.36.6...v3.36.7
 [3.36.6]: https://github.com/thordin9/apotheke/compare/v3.36.5...v3.36.6
 [3.36.5]: https://github.com/thordin9/apotheke/compare/v3.36.4...v3.36.5
 [3.36.4]: https://github.com/thordin9/apotheke/compare/v3.36.3...v3.36.4

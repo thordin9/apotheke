@@ -97,6 +97,7 @@ if [[ $server == frankenphp ]]; then
   # N-1452: only POST is the restore (a PUT is the app's, which answers a method the route does not take with 405,
   # not the restore check's 401), and Caddy's own Server header is gone, also on its own answers.
   check "anonymous PUT /backup/restore is the app's" 405 "$(code -b apotheke_consent=v1 -X PUT -d 'x=1' "$base/backup/restore")"
+  check "anonymous PUT /backup/restore Allow" "POST" "$(hdr Allow -b apotheke_consent=v1 -X PUT -d 'x=1' "$base/backup/restore")"
   for p in / /originals/x.jpg /assets/no-such-file.css /no/such/page; do
     check "no Server header on $p"       "" "$(hdr Server "$base$p")"
   done
