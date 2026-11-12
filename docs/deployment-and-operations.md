@@ -465,6 +465,13 @@ once. Two fit Cloudflare's `basic` instance (1/4 vCPU, 1 GiB) with two large HEI
 about 300 MB while it is decoded). On a bigger server, raise it, for example to 8. A value outside 1–64 exits with
 code 64. The nginx image ignores it (php-fpm's own settings apply).
 
+**Worker mode.** `APOTHEKE_PHP_WORKER` (`1`, `true` or `yes`; default off) runs PHP in FrankenPHP worker mode: the app
+boots once per PHP thread (`public/frankenphp-worker.php`) and serves requests in a loop, with CodeIgniter's worker
+reset between requests (`app/Config/WorkerMode.php`). Then there are `FRANKENPHP_NUM_THREADS` worker threads plus one
+regular thread (for a literal `/index.php`). Empty, `0`, `false` or `no` keeps classic mode, where every request
+starts with fresh PHP state; any other value exits with code 64. The hosted `apotheke-api` container ships it off (`0`, QA-1854);
+turning it on is a later step, after an interleaved classic/worker preview of the merged head. Self-hosted images keep classic mode unless you set it. The nginx image has no worker mode.
+
 **Request body limits.** Sizes are binary: 1 MiB = 1,048,576 bytes (nginx's `22m` is the same 22 MiB). The same
 limits as the nginx image, enforced by Caddy per route:
 
@@ -531,7 +538,8 @@ this repository, and only these two:
 **`apotheke-api` settings** are vars in `edge/wrangler.jsonc` (not secrets; changed by a reviewed pull request) that
 the Worker passes to the container: `SLEEP_AFTER_MS`, `ALLOWED_HOSTS` (`api.services.getapotheke.com`),
 `APOTHEKE_JOBS_WORKER` (`0`: no `jobs:work` in the container; jobs will run through a Cron Trigger or Queues, see
-[Background jobs](#background-jobs)), `CORS_ALLOWED_ORIGINS` (`https://getapotheke.com`: the front end calls the API
+[Background jobs](#background-jobs)), `APOTHEKE_PHP_WORKER` (`0`: classic mode as shipped; `1`, a later step, turns on FrankenPHP worker mode, see
+[The FrankenPHP image](#the-frankenphp-image)), `CORS_ALLOWED_ORIGINS` (`https://getapotheke.com`: the front end calls the API
 from another host) and `COOKIE_DOMAIN` (`getapotheke.com`). `COOKIE_DOMAIN` is the hosted value from
 the 3.6.1 upgrade note: the consent cookie gets `Domain=getapotheke.com` (empty means host-only, the self-hosting
 default), and it never applies to the `__Host-apothekesid` session cookie, which may not carry a `Domain` attribute
@@ -588,6 +596,8 @@ permission the environment's token probably lacks; a missing container push perm
 
 ### Storage gate: EDGE_STORAGE_READY
 
+The hosted API is live in storage mode (since 2026-11-12, on v3.36.5 then v3.36.6). On d1, restoring a backup is refused, as is duplicating an item with its photos, and adding a new location or category in the same step as saving the item. Do not move real data onto the hosted installation until backup restore works on d1 and a backup has been tested by a round trip.
+
 The first `apotheke-api` deploy waits for the storage design (P4: D1 for data, R2 for files). Until then the deploy
 job of `deploy-edge.yml` does not run, on any trigger (release and manual), unless the **repository variable**
 `EDGE_STORAGE_READY` is exactly `true`:
@@ -609,13 +619,13 @@ and `deploy-frontend.yml` are not affected.
 An unfinished multipart upload that still has a marker can be expired by the Worker sweep after one day. That
 sweep is not scheduled and is not a public route. Deleting the marker does not abort the upload; the sweep calls
 the binding's abort first. An upload that has no marker is not in the binding's object list. Aborting those
-uploads is an account lifecycle rule on the bucket. This repository does not create that rule, and
-`EDGE_STORAGE_READY` stays unset.
+uploads is an account lifecycle rule on the bucket. This repository does not create that rule.
 
 ### P4 edge storage: flip checklist
 
-The P4 storage for `apotheke-api` is prepared but off. Its bindings are in `edge/storage.jsonc`, not in
-`edge/wrangler.jsonc`, so `wrangler dev`, the *Edge local test* and the pull request's default dry run use the default
+The hosted API is live in storage mode (since 2026-11-12, on v3.36.5 then v3.36.6). On d1, restoring a backup is refused, as is duplicating an item with its photos, and adding a new location or category in the same step as saving the item. Do not move real data onto the hosted installation until backup restore works on d1 and a backup has been tested by a round trip.
+Its bindings are in
+`edge/storage.jsonc`, not in `edge/wrangler.jsonc`, so `wrangler dev`, the *Edge local test* and the pull request's default dry run use the default
 config unchanged. The pull request checks also dry-run the merged config with a dummy D1 id (part 2 below). Only the
 deploy job, which runs only with `EDGE_STORAGE_READY=true`, merges them in for real (`scripts/edge-storage-config.mjs`,
 on the runner's checkout), deploys, and then checks `/healthz`:
@@ -847,8 +857,8 @@ With parts 1 to 3 done and the PM's go:
 - CORS: `curl -si https://api.services.getapotheke.com/api/v1/session -H 'Origin: https://getapotheke.com'` answers
   `Access-Control-Allow-Origin: https://getapotheke.com` with credentials allowed; another origin gets no
   `Access-Control-Allow-Origin`. No `Set-Cookie` carries a `Domain=` attribute (host-only cookies).
-- Sign in from `https://getapotheke.com`, save an item with a photo, wait past `SLEEP_AFTER_MS` (15 minutes) or deploy
-  again, and check that the item and the photo are still there.
+- Sign in from `https://getapotheke.com/app/sign-in` against the API, save an item with a photo, wait past
+  `SLEEP_AFTER_MS` (15 minutes) or deploy again, and check that the item and the photo are still there.
 - The photo is in R2 under `installations/primary/` in `apotheke-api-storage` (dashboard, *R2 > apotheke-api-storage*,
   EU jurisdiction).
 - `npx --no-install wrangler deployments list --name apotheke-api`: the new version is at 100%.
@@ -1038,18 +1048,23 @@ banner, or the notice the app's own pages show at the top until then). The contr
   forms count. Any other value (`v0`, `1`, empty, another case) is no consent and gets exactly the same answer as no
   cookie. A later banner text adds its version (`v2`) to `Consent::ACCEPTED`. There is no header form.
 * **Without consent:** no `Set-Cookie` on any answer but `POST /consent`'s (no session cookie, no CSRF token, no `theme`,
-  `stats_open` or recently-viewed cookie, and the page scripts write none), redirects and 404, 419 and 500 pages included; no session is loaded or started, so an old
-  session cookie is not used until consent is back. Reads that need no session still answer. Every POST, PUT,
+  `stats_open` or recently-viewed cookie, and the page scripts write none), redirects and 404, 419 and 500 pages included; no session is loaded or started. A
+  session cookie sent without consent (consent declined or withdrawn) ends that session: it is removed on the
+  server and the answer expires the cookie (the only other `Set-Cookie` allowed). Reads that need no session still answer. Every POST, PUT,
   PATCH and DELETE (sign-in, sign-up, sign-out, forms, `/api` writes) is `403`: under `/api` problem+json with
   `"code": "consent_required"` and `"error": "consent_required"`, for a fetch from the pages
   `{"ok": false, "error": "…", "code": "consent_required"}`, otherwise the error page with the notice. A
   `Set-Cookie` that reaches the answer anyway is removed (`Core\Filters\ConsentFilter`).
 * **With consent** everything is as before.
-* **Without JavaScript** the notice's Accept is a form: `POST /consent` with `consent=accept` and `return` (the
-  page's path). It needs no token but must be strictly same-origin (`Sec-Fetch-Site: same-origin`, or this
-  server's own `Origin`; anything else is `403`), sets only the consent cookie (`Secure` on HTTPS, `Domain` as
-  above) and answers `303` to `return` when that is a path on this site, else to `/`. Another `consent` value
-  is `400`. There is no decline button: ignoring the notice keeps the browser cookieless.
+* **Without JavaScript** the notice's Accept and Decline are a form: `POST /consent` with `consent=accept` or
+  `consent=decline` and `return` (the page's path). It needs no token but must be strictly same-origin
+  (`Sec-Fetch-Site: same-origin`, or this server's own `Origin`; anything else is `403`). Accept sets only the
+  consent cookie (`Secure` on HTTPS, `Domain` as above); Decline expires it with the same attributes and ends the
+  session the browser carries. Both answer `303` to `return` when that is a path on this site, else to `/`.
+  Another `consent` value is `400`. Ignoring the notice keeps the browser cookieless, as Decline does.
+* **Sign-out** (`POST /logout`, `DELETE /api/v1/session`) removes the session on the server and the answer expires
+  the session cookie with the attributes it was set with (`Max-Age=0`, an `Expires` in the past); no new session
+  id is issued.
 * **`COOKIE_CONSENT`** (environment): `required` (the default) or `off`. With `off` the app behaves as before
   3.4: cookies from the first request, no notice, no `403 consent_required`. Any other value counts as
   `required`. In Docker set it in `.env`.

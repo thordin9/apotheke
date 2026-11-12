@@ -61,21 +61,23 @@ final class AuthStatus
     /**
      * The connection for db.driver d1: the Installation's database over the D1 bridge. A probe query must
      * answer first, else it is the "no database" exit with $failure (the sanitized connect line), as a
-     * refused PDO connection. The settings are then read through the PDO-shaped D1 adapter, so onAtStart()
+     * refused PDO connection. The probe also asks whether the settings table exists: before the first
+     * migration it does not, which is a new install (null, as a missing SQLite file), so no query fails on
+     * the bridge at boot. The settings are then read through the PDO-shaped D1 adapter, so onAtStart()
      * gives the same answer as on SQLite, and nothing is migrated.
      *
-     * @return Closure():PDO
+     * @return Closure():?PDO
      */
     public static function d1(D1Executor $d1, string $failure): Closure
     {
-        return static function () use ($d1, $failure): PDO {
+        return static function () use ($d1, $failure): ?PDO {
             try {
-                $d1->query('SELECT 1');
+                $rows = $d1->query("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'settings'");
             } catch (RuntimeException) {
                 throw new RuntimeException($failure);
             }
 
-            return new D1Pdo($d1);
+            return (int)($rows[0]['n'] ?? 0) > 0 ? new D1Pdo($d1) : null;
         };
     }
 

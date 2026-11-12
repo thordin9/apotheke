@@ -244,11 +244,15 @@ fail on every backend.
 
 ## Request state (FrankenPHP)
 
-The edge image runs FrankenPHP in **classic mode**. `docker/frankenphp/Caddyfile` has a plain `php_server` with no
-`worker` directive, so each request starts with fresh PHP state, as under php-fpm. Worker mode
-(`app/Config/WorkerMode.php` is in the tree) is a later optimisation, behind its own QA gate.
+The hosted container can run FrankenPHP in **worker mode** (QA-1854, #292). It ships off (`APOTHEKE_PHP_WORKER=0` in
+`edge/wrangler.jsonc`); turning it on (`1`) is a later step, after an interleaved classic/worker preview of the merged
+head. With `1`, the entrypoint picks
+`docker/frankenphp/php-worker.caddy`, and `public/frankenphp-worker.php` boots the app once per PHP thread and serves requests in a loop, with CodeIgniter's worker reset in between
+(`Config\WorkerMode::$persistentServices`, factories, session close, transaction cleanup). An answered error returns
+to the loop (`PlainHandler`) instead of exiting, so a 404 does not restart the worker. Self-hosted images stay in
+**classic mode** by default (`php-classic.caddy`: each request starts with fresh PHP state, as under php-fpm).
 
-The storage code is written for worker mode now, so that turning it on later changes nothing:
+The storage code is written for worker mode:
 
 - **Executor and bridge client:** built per request by `Config\Services` and never listed in
   `WorkerMode::$persistentServices`. They hold no static property, and no request or connection state survives the
@@ -264,6 +268,11 @@ The storage code is written for worker mode now, so that turning it on later cha
   (`FilterStateTest`) checks that `Core\Database` and the storage adapters declare no static mutable state. A worker
   test runs two requests through the same process with the CodeIgniter worker reset in between. It checks that the
   second request sees no unit, executor or storage client from the first. Both run in P4-2 and P4-3.
+- **Boot migration (N-1982):** `Migrations\BootMigration` memoises "migrated" per process in a static
+  (`BootMigration::$done`, keyed by database). In classic mode every request is a new process, so the check
+  (`sqlite_master` probe and `schema_migrations` read) runs on every request; in worker mode it runs once per worker
+  thread, on its first request, and not again until the worker restarts. A migration shipped by a deploy is applied
+  by the new container's workers, which start fresh.
 
 ## Migrations
 

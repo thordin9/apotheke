@@ -37,7 +37,7 @@
     }
   } catch (_) {}
 
-  /* ---------- cookie consent: Accept sets the consent cookie (the first cookie the app has), then reloads ---------- */
+  /* ---------- cookie consent: Accept sets the consent cookie (the first cookie the app has), then reloads; Decline ---------- */
   const consent = $('#consent-accept');
   // Same attributes as POST /consent (CookieConsent::cookie()), which the form uses without JavaScript.
   if (consent) consent.addEventListener('click', e => {
@@ -45,6 +45,16 @@
     document.cookie = 'apotheke_consent=' + consent.dataset.consent + '; Path=/; Max-Age=15552000' + (consent.dataset.domain ? '; Domain=' + consent.dataset.domain : '')
       + (location.protocol === 'https:' ? '; Secure' : '') + '; SameSite=Lax';
     location.reload();
+  });
+  // Decline: the notice goes for this page, and POST /consent consent=decline ends any session and expires the
+  // consent cookie, as the form does without JavaScript.
+  const decline = $('#consent-decline');
+  if (decline) decline.addEventListener('click', e => {
+    e.preventDefault();
+    const notice = $('#consent');
+    if (notice) notice.hidden = true;
+    fetch('/consent', {method: 'POST', credentials: 'same-origin', keepalive: true, redirect: 'manual',
+      body: new URLSearchParams({consent: 'decline'})}).catch(() => {});
   });
 
   /* ---------- theme switch (Auto / Light / Dark): instant, persisted in localStorage + cookie ---------- */

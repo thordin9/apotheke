@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Apotheke\Backup;
 
 use Apotheke\Catalog\Items\Attachments;
+use Apotheke\Core\Database\D1\Connection as D1Connection;
 use Apotheke\Core\Database\Writes;
+use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Storage\LocalStorage;
@@ -45,8 +47,13 @@ final class Backups
 
     public const VERSION = 1;
 
-    /** Rows per fetch from the PostgreSQL cursor. */
+    /** Rows per fetch from the PostgreSQL cursor, and per page on the hosted database. */
     public const BATCH = 500;
+
+    /** Free space kept on the temp folder's disk while a backup spools remote objects. */
+    public const SPOOL_HEADROOM = 64 * 1048576;
+
+    public const NO_SPACE = 'There is not enough free disk space to make the backup. Nothing was saved.';
 
     private const JSON = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION;
 
@@ -66,6 +73,7 @@ final class Backups
         private readonly string $originalsDir,
         ?Storage $storage = null,
         ?Storage $originals = null,
+        private readonly ?\Closure $freeSpace = null,   // test seam: (dir) → free bytes
     ) {
         $this->storage = $storage ?? new LocalStorage($dataDir);
         $this->originals = $originals ?? new LocalStorage($originalsDir, 0640);
@@ -77,6 +85,9 @@ final class Backups
 
     /** @var list<string> */
     private array $spooled = [];
+
+    /** Bytes spooled so far by this create(). */
+    private int $spooledBytes = 0;
 
     /**
      * Tables in foreign-key order (parents first). Restore deletes in reverse.
@@ -189,6 +200,7 @@ final class Backups
         try {
             [$counts, $photos, $attachments] = $this->writeDump($json);
             $this->spooled = [];
+            $this->spooledBytes = (int)filesize($json);
             $zip = new ZipArchive();
             if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
                 throw new RuntimeException("Cannot write $zipPath");
@@ -262,6 +274,12 @@ final class Backups
         try {
             $bytes = $storage->read($key);
             if ($bytes === null) return null;
+            // The spooled files and then the zip of them share this disk: room for this object and a zip of all so far.
+            $this->spooledBytes += strlen($bytes);
+            $free = $this->freeSpace !== null ? ($this->freeSpace)(dirname($path)) : @disk_free_space(dirname($path));
+            if (is_numeric($free) && $free < strlen($bytes) + $this->spooledBytes + self::SPOOL_HEADROOM) {
+                throw new UserError(self::NO_SPACE, 507);
+            }
             if (fwrite($out, $bytes) !== strlen($bytes) || !fflush($out)) {
                 throw new RuntimeException('Cannot write the backup.');
             }
@@ -299,7 +317,7 @@ final class Backups
                 }
             }
             $put('{"format":' . self::enc(self::FORMAT) . ',"version":' . self::VERSION . ',"created_at":' . self::enc($this->clock->now())
-                . ',"app":"Apotheke","driver":' . self::enc($this->driver()) . ',"schema":' . self::enc(array_keys($schema)) . ',"tables":');
+                . ',"app":"Apotheke","driver":' . self::enc($this->db instanceof D1Connection ? 'd1' : $this->driver()) . ',"schema":' . self::enc(array_keys($schema)) . ',"tables":');
             $counts = $photos = $attachments = [];
             $first = true;
             foreach (self::tables() as $t) {
@@ -358,6 +376,11 @@ final class Backups
         $cols = array_keys($types);
         $order = in_array('id', $cols, true) ? 'id' : implode(', ', array_slice($cols, 0, 2));
         $sql = 'SELECT ' . implode(', ', $cols) . " FROM $table ORDER BY $order";
+        if ($this->db instanceof D1Connection) {
+            yield from $this->pages($table, $cols, in_array('id', $cols, true) ? ['id'] : array_slice($cols, 0, 2));
+
+            return;
+        }
         if ($this->driver() !== 'pgsql') {
             $result = $this->db->query($sql);
             if (!$result instanceof BaseResult) {
@@ -396,6 +419,27 @@ final class Backups
         } finally {
             $this->db->transRollback();
         }
+    }
+
+    /**
+     * The hosted database's rows in pages of BATCH, by the order key (unique in every table a backup carries), so
+     * no read returns a whole table: the same rows in the same order as one SELECT.
+     *
+     * @param list<string> $cols
+     * @param list<string> $key
+     * @return Generator<int, list<mixed>>
+     */
+    private function pages(string $table, array $cols, array $key): Generator
+    {
+        $after = [];
+        do {
+            $where = $after === [] ? '' : ' WHERE (' . implode(', ', $key) . ') > (' . implode(', ', array_fill(0, count($key), '?')) . ')';
+            $rows = Writes::rows($this->db, 'SELECT ' . implode(', ', $cols) . " FROM $table$where ORDER BY " . implode(', ', $key) . ' LIMIT ' . self::BATCH, $after);
+            foreach ($rows as $r) {
+                yield array_values($r);
+                $after = array_map(static fn (string $k): mixed => $r[$k], $key);
+            }
+        } while (count($rows) === self::BATCH);
     }
 
     /** @return array<string,string> column => its type, in the table's order (legacy backup_columns()) */
