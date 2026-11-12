@@ -11,7 +11,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Added
 
 - **edge:** the Worker routes each request by host through the control plane's `installation_routes`; a missing row, an unbound `DB` or a failed lookup falls back to `primary` as before, and paused or removed installations get a status page without starting a container ([#302](https://github.com/thordin9/apotheke/pull/302))
-- **edge:** each installation's database object and R2 key prefix come from its own container object's name, passed as props to `d1.internal` and `r2.internal`; multipart markers and the unfinished-upload sweep are per installation. `primary` keeps its names, prefix and keys ([#303](https://github.com/thordin9/apotheke/pull/303))
+- **edge:** each installation's database object and R2 key prefix come from its own container object's name, passed as props to `d1.internal` and `r2.internal`; multipart markers and the unfinished-upload sweep are per installation. `primary` keeps its names, prefix and keys. A failed route lookup is retried after 5 seconds instead of on every request ([#303](https://github.com/thordin9/apotheke/pull/303))
 
 ## [3.38.2] - 2026-11-12
 
