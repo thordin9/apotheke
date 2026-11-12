@@ -10,12 +10,28 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
-- **edge:** control-plane schema for the hosted operator console in `edge/migrations/control/` (installations, routes, plans and limits, manual subscriptions, usage counters, an append-only audit log), with `primary` seeded under its existing names on plan `internal`; see [docs/operator-console.md](docs/operator-console.md). Not applied by any deploy yet ([#299](https://github.com/thordin9/apotheke/pull/299))
 - **edge:** the Worker routes each request by host through the control plane's `installation_routes`; a missing row, an unbound `DB` or a failed lookup falls back to `primary` as before, and paused or removed installations get a status page without starting a container ([#302](https://github.com/thordin9/apotheke/pull/302))
 - **edge:** each installation's database object and R2 key prefix come from its own container object's name, passed as props to `d1.internal` and `r2.internal`; multipart markers and the unfinished-upload sweep are per installation. `primary` keeps its names, prefix and keys ([#303](https://github.com/thordin9/apotheke/pull/303))
 
+## [3.38.0] - 2026-11-12
+
+### Added
+
+- **edge:** control-plane schema for the hosted operator console in `edge/migrations/control/` (installations, routes, plans and limits, manual subscriptions, usage counters, an append-only audit log), with `primary` seeded under its existing names on plan `internal`; see [docs/operator-console.md](docs/operator-console.md). Not applied by any deploy yet ([#299](https://github.com/thordin9/apotheke/pull/299))
+
+### Maintenance
+
+- docs: correct v3.37.0 storage, backup and sign-in notes ([#301](https://github.com/thordin9/apotheke/pull/301))
+
+### Changed
+
+- **docs:** correct the v3.37.0 notes for hosted storage, backups, sign-in, worker mode and the SQL executor ([#301](https://github.com/thordin9/apotheke/pull/301))
+
+## [3.37.2] - 2026-11-12
+
 ### Performance
 
+- cut database round trips per request on d1 ([#293](https://github.com/thordin9/apotheke/pull/293))
 - **d1:** fewer database round trips per request on the D1 driver: the request's settings, roles and account count are read in one batch and remembered until a write to their tables, independent list, item, stats and undo reads are batched (`Writes::rowsMany`), and the rate limiter, recent-views sweep and sign-in checks use fewer calls; SQLite and PostgreSQL read as before (signed-in list 45 to 12 calls, `/api/v1/me` 15 to 8, healthz 2 to 1) ([#293](https://github.com/thordin9/apotheke/pull/293))
 
 ## [3.37.1] - 2026-11-12
@@ -1623,7 +1639,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.37.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.38.0...HEAD
+[3.38.0]: https://github.com/thordin9/apotheke/compare/v3.37.2...v3.38.0
+[3.37.2]: https://github.com/thordin9/apotheke/compare/v3.37.1...v3.37.2
 [3.37.1]: https://github.com/thordin9/apotheke/compare/v3.37.0...v3.37.1
 [3.37.0]: https://github.com/thordin9/apotheke/compare/v3.36.10...v3.37.0
 [3.36.10]: https://github.com/thordin9/apotheke/compare/v3.36.9...v3.36.10
