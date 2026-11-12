@@ -39,11 +39,13 @@ test('two wildcards are rejected and a placeholder matches a hashed name', () =>
     assert.equal(headersFor(hashed, '/assets/index-Ab12Cd34.js').get('cache-control'), 'public, max-age=31536000, immutable');
     assert.equal(headersFor(hashed, '/assets/style-Ab12Cd34.css').get('cache-control'), 'public, max-age=31536000, immutable');
     assert.equal(headersFor(hashed, '/assets/missing.js').get('cache-control'), undefined);
+    assert.equal(headersFor(hashed, '/assets/a/b-c.js').get('cache-control'), undefined);
 });
 
 test('only a hashed Vite js or css file is immutable', () => {
     assert.equal(headersFor(rules, '/assets/index-Ab12Cd34.js').get('cache-control'), 'public, max-age=31536000, immutable');
     assert.equal(headersFor(rules, '/assets/style-Ab12Cd34.css').get('cache-control'), 'public, max-age=31536000, immutable');
+    assert.equal(headersFor(rules, '/assets/a/b-c.js').get('cache-control'), 'no-cache');
     for (const path of ['/assets/brand/mark.svg', '/assets/mascot/pose-asleep.svg', '/assets/shots/home.png', '/assets/icons.svg']) {
         assert.equal(headersFor(rules, path).get('cache-control'), 'public, max-age=86400', path);
     }
@@ -87,6 +89,15 @@ test('CSS url and image-set off-site references are checked', () => {
     assert.deepEqual(offSiteHosts('a{background:image-set(url(//cdn.example/a.png) 1x)}', true), ['cdn.example']);
     assert.deepEqual(offSiteHosts('a{background:image-set(url("https://cdn.example/a.png"))}', true), ['cdn.example']);
     assert.deepEqual(offSiteHosts('a{background:url(https://getapotheke.com/a.png)}', true), []);
+});
+
+test('decoded resource URLs resolve to their host', () => {
+    const host = 'cdn.example';
+    assert.deepEqual(offSiteHosts('<img src="' + String.raw`https:\\\\${host}/x` + '">', false), [host]);
+    assert.deepEqual(offSiteHosts('<video poster="' + String.raw`\\\\${host}/x` + '">', false), [host]);
+    assert.deepEqual(offSiteHosts('a{background:' + String.raw`url(/\5c ${host}/x)` + '}', true), [host]);
+    assert.deepEqual(offSiteHosts('a{background:' + String.raw`url("\\\\\\\\${host}/x")` + '}', true), [host]);
+    assert.deepEqual(offSiteHosts('a{background:' + String.raw`url("ht\9 tps://${host}/x")` + '}', true), [host]);
 });
 
 test('encoded schemes in attributes and stylesheets are checked', () => {

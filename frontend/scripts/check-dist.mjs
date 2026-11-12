@@ -133,25 +133,37 @@ function expectedCache(path) {
     return 'no-cache';
 }
 
+const PAGE_BASE = 'https://getapotheke.com/';
+
 function onSiteHost(host) {
     return host === 'getapotheke.com' || host === 'www.getapotheke.com';
 }
 
-function hostFromUrl(url) {
-    const trimmed = url.trim();
-    const lower = trimmed.toLowerCase();
-    let rest = '';
-    if (lower.startsWith('https://')) rest = trimmed.slice('https://'.length);
-    else if (lower.startsWith('http://')) rest = trimmed.slice('http://'.length);
-    else if (lower.startsWith('//')) rest = trimmed.slice(2);
-    else return '';
-    let end = 0;
-    while (end < rest.length) {
-        const c = rest[end];
-        if (c === '/' || c === '?' || c === '#' || c === '"' || c === "'" || c === ')' || c === ' ' || c === '>' || c === '\\' || c === '\n' || c === '\r' || c === '\t' || c === ',') break;
-        end++;
+function parsedUrl(url) {
+    try {
+        return new URL(String(url).trim(), PAGE_BASE);
+    } catch {
+        return null;
     }
-    return rest.slice(0, end).toLowerCase().replace(/:\d+$/, '');
+}
+
+function urlHost(parsed) {
+    return parsed.host.toLowerCase().replace(/:\d+$/, '');
+}
+
+function hostFromUrl(url) {
+    const parsed = parsedUrl(url);
+    if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) return '';
+    return urlHost(parsed);
+}
+
+function inheritsHost(url, parsed) {
+    try {
+        const other = new URL(String(url).trim(), 'https://other.example/');
+        return urlHost(parsed) !== urlHost(other) || parsed.protocol !== other.protocol;
+    } catch {
+        return true;
+    }
 }
 
 function decodeHtmlEntities(text) {
@@ -541,10 +553,14 @@ let spaMount = '/app';
 
 export function resolves(url) {
     const trimmed = String(url || '').trim();
-    if (/^http:/i.test(trimmed)) return { ok: false, why: 'not https' };
-    const path = trimmed.split('#')[0].split('?')[0];
-    if (path === '' || /^(https:|mailto:)/i.test(path)) return { ok: true };
-    if (path.startsWith('//') || !path.startsWith('/')) return { ok: false, why: 'not a root-absolute path' };
+    const parsed = parsedUrl(trimmed);
+    if (!parsed) return { ok: false, why: 'not a root-absolute path' };
+    if (parsed.protocol === 'mailto:') return { ok: true };
+    if (parsed.protocol === 'http:') return { ok: false, why: 'not https' };
+    if (parsed.protocol !== 'https:') return { ok: false, why: 'not a root-absolute path' };
+    if (!inheritsHost(trimmed, parsed)) return { ok: true };
+    const path = parsed.pathname;
+    if (path === '') return { ok: true };
     const decision = appFallback(path, spaMount.endsWith('/') ? spaMount : spaMount + '/');
     if (decision.kind === 'shell' || decision.kind === 'redirect') {
         const shell = join(dist, 'app/index.html');

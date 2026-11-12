@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **frontend:** URL resolution in check-dist was tightened
+
 ## [3.36.7] - 2026-11-12
 
 ### Fixed
