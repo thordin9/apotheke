@@ -43,12 +43,16 @@ final class PlainHandler implements ExceptionHandlerInterface
      * @param (Closure(string): void)|null $log error_log() when null
      * @param (Closure(): string)|null $publicUrl PUBLIC_URL from the environment or config.php (never the database),
      *        for the HSTS decision of an /api answer
+     * @param bool $worker FrankenPHP worker mode (public/frankenphp-worker.php): handle() returns after the answer
+     *        instead of exit(), so the worker loop goes on to the next request. An exit would end the worker script,
+     *        and FrankenPHP restarts it with its failure backoff on a non-zero status (QA-1854).
      */
     public function __construct(
         private readonly ?Closure $page = null,
         private readonly ?Closure $cleanup = null,
         private readonly ?Closure $log = null,
         private readonly ?Closure $publicUrl = null,
+        private readonly bool $worker = false,
     )
     {
     }
@@ -66,6 +70,9 @@ final class PlainHandler implements ExceptionHandlerInterface
             $this->render($exception, $response, is_array($server) ? $server : [])->send();
         } else {
             fwrite(STDERR, $this->status($exception)[1] . "\n");
+        }
+        if ($this->worker) {
+            return;
         }
         exit($exitCode);
     }

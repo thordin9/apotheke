@@ -365,6 +365,7 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 		"ALLOWED_HOSTS",
 		"APOTHEKE_EDGE_CLIENT_IP",
 		"APOTHEKE_JOBS_WORKER",
+		"APOTHEKE_PHP_WORKER",
 		"APP_KEY",
 		"APP_PASSWORD",
 		"COOKIE_DOMAIN",
@@ -611,6 +612,7 @@ test("edge-storage-config: D1 DB, R2 STORAGE (eu) and the Installation Durable O
 		assert.equal(c.vars.CORS_ALLOWED_ORIGINS, "https://getapotheke.com");
 		assert.equal(c.vars.ALLOWED_HOSTS, "api.services.getapotheke.com");
 		assert.equal(c.vars.APOTHEKE_JOBS_WORKER, "0");
+		assert.equal(c.vars.APOTHEKE_PHP_WORKER, "0");
 		assert.equal(guard("apotheke-api", cfg).status, 0);
 		// a second merge (a re-run on the same checkout) is refused rather than doubling the bindings
 		const again = run("node", [join(root, "scripts/edge-storage-config.mjs"), cfg, join(root, "edge/storage.jsonc")], {

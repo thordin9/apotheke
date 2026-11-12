@@ -192,4 +192,53 @@ final class PlainHandlerTest extends CIUnitTestCase
             "RuntimeException: pg_query(): Query failed: ERROR:  new row violates check constraint \"c\"\nDETAIL: (removed)",
         ], $lines);
     }
+
+    /**
+     * QA-1854: in FrankenPHP worker mode an answered error returns to the worker loop. An exit() would end the worker
+     * script, and FrankenPHP restarts it with a failure backoff on a non-zero status: every 404 would cost a boot.
+     * (Without the flag handle() exits, so only the worker case can run in-process.) Config\Exceptions sets the flag
+     * when public/frankenphp-worker.php defined APOTHEKE_PHP_WORKER, never otherwise.
+     */
+    public function testInWorkerModeTheHandlerReturnsInsteadOfExiting(): void
+    {
+        $lines = [];
+        $handler = new PlainHandler(null, null, static function (string $line) use (&$lines): void {
+            $lines[] = $line;
+        }, null, true);
+        // On the CLI the answer is one line on STDERR; drop it here so the suite's own output stays clean.
+        if (!\in_array('apotheke.test.drop', stream_get_filters(), true)) {
+            stream_filter_register('apotheke.test.drop', DropStream::class);
+        }
+        $filter = stream_filter_append(STDERR, 'apotheke.test.drop', STREAM_FILTER_WRITE);
+        try {
+            $handler->handle(new RuntimeException('internal detail'), service('request'), new Response(config(App::class)), 500, EXIT_ERROR);
+        } finally {
+            if (\is_resource($filter)) {
+                stream_filter_remove($filter);
+            }
+        }
+        $this->assertSame(['RuntimeException: internal detail'], $lines, 'answered (and logged), then returned');
+        $this->assertFalse(\defined('APOTHEKE_PHP_WORKER'));
+        $this->assertInstanceOf(PlainHandler::class, (new \Config\Exceptions())->handler(500, new RuntimeException('x')));
+        $flag = new \ReflectionProperty(PlainHandler::class, 'worker');
+        $this->assertFalse($flag->getValue((new \Config\Exceptions())->handler(500, new RuntimeException('x'))), 'classic mode still exits');
+    }
+}
+
+/** A write filter that drops everything (the CLI answer of the worker-mode test above). */
+final class DropStream extends \php_user_filter
+{
+    /**
+     * @param resource $in
+     * @param resource $out
+     * @param int $consumed
+     */
+    public function filter($in, $out, &$consumed, bool $closing): int
+    {
+        while ($bucket = stream_bucket_make_writeable($in)) {
+            $consumed += $bucket->datalen;
+        }
+
+        return PSFS_PASS_ON;
+    }
 }

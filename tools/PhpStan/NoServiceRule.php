@@ -14,7 +14,8 @@ use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 
 /**
- * service() and Services:: belong in controllers, filters and Config/Services.php only.
+ * service() and Services:: belong in controllers, filters and Config/Services.php only (and the worker-mode front
+ * controller public/frankenphp-worker.php).
  * CI4 builds filters with `new $class()`, so like controllers they have no constructor
  * injection and take collaborators from the shared (per-request) services.
  *
@@ -49,7 +50,9 @@ final class NoServiceRule implements Rule
     private function violation(Scope $scope, string $what): array
     {
         $file = str_replace('\\', '/', $scope->getFile());
-        if (str_contains($file, '/Controllers/') || str_ends_with($file, '/app/Config/Services.php') || $this->inFilterHook($file, $scope)) {
+        // public/frankenphp-worker.php is the worker-mode front controller: its loop is CodeIgniter's own worker
+        // reset (QA-1854), as the framework's template has it, and nothing else.
+        if (str_contains($file, '/Controllers/') || str_ends_with($file, '/app/Config/Services.php') || str_ends_with($file, '/public/frankenphp-worker.php') || $this->inFilterHook($file, $scope)) {
             return [];
         }
 
