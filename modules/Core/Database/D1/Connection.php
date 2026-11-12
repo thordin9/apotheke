@@ -6,6 +6,7 @@ namespace Apotheke\Core\Database\D1;
 
 use Apotheke\Core\Database\D1HttpExecutor;
 use Apotheke\Core\Database\D1Limits;
+use Apotheke\Core\Database\WriteClock;
 use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Database\Exceptions\DatabaseException;
 use CodeIgniter\Database\SQLite3\Connection as SQLite3Connection;
@@ -73,10 +74,14 @@ class Connection extends SQLite3Connection
     /** Inside atomic(): how many units have opened (null: not inside atomic()). */
     private ?int $atomicUnits = null;
 
+    /** Every write this connection sent, per table (ReadCache). */
+    private WriteClock $clock;
+
     /** @param array<string,mixed> $params */
     public function __construct(array $params)
     {
         parent::__construct($params);
+        $this->clock = new WriteClock();
         // The bridge enforces foreign keys and owns durability; these PRAGMAs and the busy timeout are local only.
         $this->foreignKeys = false;
         $this->busyTimeout = null;
@@ -238,8 +243,49 @@ class Connection extends SQLite3Connection
             throw new UnitRuleViolation('D1 cannot send a batch inside a transaction; run the unit on its own.');
         }
         $this->changes = $this->lastId = null;
+        foreach ($statements as $s) {
+            $this->clock->wrote($s['sql']);
+        }
 
         return $this->bridge()->run($statements);
+    }
+
+    /**
+     * Several reads in one batch, for Writes::rowsMany(): each statement is a SELECT, none comes after a queued
+     * write, and each passes D1Limits. Null when one does not (or the batch fails): the caller reads them one at a
+     * time, so the failure is reported as a single read reports it.
+     *
+     * @param list<array{0:string,1:list<mixed>}> $queries
+     * @return list<list<array<string,mixed>>>|null
+     */
+    public function readMany(array $queries): ?array
+    {
+        if ($this->transDepth > 0 && $this->queue !== []) {
+            return null;
+        }
+        $statements = [];
+        foreach ($queries as [$sql, $binds]) {
+            if (self::mutates($sql) || preg_match('/^\s*SELECT\b/i', $sql) !== 1) {
+                return null;
+            }
+            foreach ($binds as $v) {
+                if ($v !== null && !is_scalar($v)) {
+                    return null;   // read one at a time, where the query builder handles (or refuses) it
+                }
+            }
+            $params = array_map(static fn (mixed $v): mixed => is_bool($v) ? (int)$v : $v, $binds);
+            try {
+                D1Limits::refuse($sql, count($params));
+            } catch (Throwable) {
+                return null;
+            }
+            $statements[] = ['sql' => $sql, 'params' => $params];
+        }
+        try {
+            return $this->bridge()->run($statements);
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -255,8 +301,15 @@ class Connection extends SQLite3Connection
         return $this->bridge()->query($sql, $params);
     }
 
+    /** The writes this connection sent (and the ones reported to it), for ReadCache. */
+    public function writeClock(): WriteClock
+    {
+        return $this->clock;
+    }
+
     private function send(string $sql): Rows|bool
     {
+        $this->clock->wrote($sql);   // a queued write too: nothing is remembered inside a transaction
         $mutates = self::mutates($sql);
         if ($mutates && $this->units > 0) {
             throw new UnitRuleViolation('D1 writes while a unit of work is open go through the unit.');
