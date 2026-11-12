@@ -322,6 +322,7 @@ final class ListView
     /** The overview's body (legacy stats_body_html(); GET /stats). */
     public function statsBody(Stats $stats): string
     {
+        $stats->prefetch();   // every aggregate below in one round trip on D1
         $t = $stats->totals();
         $tiles = [
             ['Items', $t['items']], ['Total qty', $t['qty']], ['Locations', $t['locations']],
