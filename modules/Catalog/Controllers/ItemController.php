@@ -224,7 +224,7 @@ final class ItemController extends CatalogController
         $token = null;
         if ($before !== []) {
             $strip = static fn (array $s): array => [array_diff_key($s['row'], ['updated_at' => 1, 'search' => 1, 'image' => 1]), $s['tags']];
-            $now = $undo->snapshot([$savedId]);
+            $now = $undo->snapshot([$savedId], true);   // with the expired tokens create() prunes (one batch on D1)
             if ($now !== [] && $strip($now[0]) !== $strip($before[0])) {
                 $token = $undo->create('edit', 'Saved “' . $vals['name'] . '”', $before);
             }

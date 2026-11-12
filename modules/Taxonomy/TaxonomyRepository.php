@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Taxonomy;
 
 use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\ReadCache;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
@@ -12,6 +13,7 @@ use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\ItemHistory;
 use Apotheke\Core\Libraries\Text;
 use CodeIgniter\Database\BaseConnection;
+use Closure;
 
 /**
  * Locations and categories (legacy tax_*() and location_*()). Both drivers
@@ -24,13 +26,16 @@ final class TaxonomyRepository
 {
     private readonly UnitsOfWork $units;
 
+    private readonly ReadCache $cache;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
      */
-    public function __construct(private readonly BaseConnection $db, private readonly Clock $clock, private readonly ItemHistory $activity, ?UnitsOfWork $units = null)
+    public function __construct(private readonly BaseConnection $db, private readonly Clock $clock, private readonly ItemHistory $activity, ?UnitsOfWork $units = null, ?ReadCache $cache = null)
     {
         $this->units = UnitsOfWork::forSite($db, $units);
+        $this->cache = $cache ?? ReadCache::off();
     }
 
     /**
@@ -41,13 +46,27 @@ final class TaxonomyRepository
      */
     public function all(string $kind): array
     {
+        /** @var list<Entry> */
+        return $this->cache->through($this->db, $this->allRead($kind));
+    }
+
+    /**
+     * all()'s read, remembered for the request until the next write to the table or to items (the counts), for
+     * ReadCache::prefetch().
+     *
+     * @return array{key:string,tables:list<string>,sql:string,shape:Closure(list<array<string,mixed>>):list<Entry>}
+     */
+    public function allRead(string $kind): array
+    {
         $t = Kind::get($kind);
         $isLoc = $kind === 'location';
 
-        return LocationTree::order($this->rows('SELECT x.id, x.name, x.is_default, ' . ($isLoc ? 'x.parent_id' : 'NULL') . " AS parent_id, COUNT(i.id) AS n
+        return ['key' => 'taxonomy.all.' . $kind, 'tables' => [$t['table'], 'items'],
+            'sql' => 'SELECT x.id, x.name, x.is_default, ' . ($isLoc ? 'x.parent_id' : 'NULL') . " AS parent_id, COUNT(i.id) AS n
             FROM {$t['table']} x LEFT JOIN items i ON i.{$t['col']} = x.id
             GROUP BY x.id, x.name, x.is_default, x.sort_key" . ($isLoc ? ', x.parent_id' : '') . '
-            ORDER BY x.sort_key, x.id'));
+            ORDER BY x.sort_key, x.id',
+            'shape' => static fn (array $rows): array => LocationTree::order($rows)];
     }
 
     /** @return array<int,Entry> locations keyed by id */

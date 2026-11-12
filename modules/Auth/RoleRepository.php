@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Apotheke\Auth;
 
 use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\ReadCache;
+use Apotheke\Core\Database\RequestReads;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use CodeIgniter\Database\BaseConnection;
@@ -16,34 +18,40 @@ use PDOException;
  * The `roles` table (legacy roles(), role_has(), role_name()). Before
  * migration 0022 adds the table, the built-in defaults: a database error
  * (missing table, no connection) falls back to them, as legacy does on a
- * PDOException; any other error propagates. Holds no state:
- * every call reads the table again, so a shared instance is safe across
- * requests.
+ * PDOException; any other error propagates. Holds no state: all() is
+ * remembered only in the request's ReadCache (Services::readCache()) until the
+ * next write to roles, so a shared instance is safe across requests.
  */
 final class RoleRepository
 {
     private readonly UnitsOfWork $units;
 
+    private readonly ReadCache $cache;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
      */
-    public function __construct(private readonly BaseConnection $db, ?UnitsOfWork $units = null)
+    public function __construct(private readonly BaseConnection $db, ?UnitsOfWork $units = null, ?ReadCache $cache = null)
     {
         $this->units = UnitsOfWork::forSite($db, $units);
+        $this->cache = $cache ?? ReadCache::off();
     }
 
     /** @return array<string,array{name:string,perms:list<string>}> role key => name and permissions, built-in first */
     public function all(): array
     {
-        $rows = null;
-        try {
-            $result = $this->db->table('roles')->select('role_key, name, perms')
-                ->orderBy('builtin', 'DESC')->orderBy('id', 'ASC')->get();
-            $rows = $result instanceof BaseResult ? $result->getResultArray() : null;
-        } catch (DatabaseException|PDOException) {
-            $rows = null;   // before migration 0022, or no connection
-        }
+        // The same rows SettingsRepository::accountRoles() reads (one read for both in a request).
+        $rows = $this->cache->remember($this->db, RequestReads::ROLES, ['roles'], function (): ?array {
+            try {
+                $result = $this->db->table('roles')->select('role_key, name, perms')
+                    ->orderBy('builtin', 'DESC')->orderBy('id', 'ASC')->get();
+
+                return $result instanceof BaseResult ? $result->getResultArray() : null;
+            } catch (DatabaseException|PDOException) {
+                return null;   // before migration 0022, or no connection
+            }
+        }, static fn (?array $rows): bool => $rows !== null);   // a failed read is read again next time
         $out = [];
         if ($rows === null) {
             foreach (Permissions::ROLE_DEFAULTS as $key => [$name, $perms]) {

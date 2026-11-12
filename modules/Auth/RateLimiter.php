@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Apotheke\Auth;
 
+use Apotheke\Core\Database\D1\Connection as D1Connection;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
+use Closure;
 
 /**
  * Sign-in and registration throttling (legacy rate_limit(), rate_limit_clear()
@@ -26,6 +28,9 @@ final class RateLimiter
 
     /** Attempts older than this are removed on every check. */
     public const KEEP_SECONDS = 86400;
+
+    /** The hosted database: this limiter's old rows are already gone (one prune per request). */
+    private bool $pruned = false;
 
     /** @param BaseConnection<object|resource, object|resource> $db */
     public function __construct(private readonly BaseConnection $db, private readonly string $clientAddress, private readonly int $now)
@@ -64,6 +69,10 @@ final class RateLimiter
     {
         [$max, $window] = self::LIMITS[$kind];
         $key = $this->bucket($kind, $account);
+        $batch = $this->batch();
+        if ($batch !== null) {
+            return $this->hitBatch($batch, $kind, $key, $max, $window);
+        }
         Writes::check($this->db->query('DELETE FROM auth_attempts WHERE at < ?', [$this->now - self::KEEP_SECONDS]), 'auth_attempts prune');
         // Record first, then count every attempt in the window including this one, so requests at the same time
         // see each other and no more than $max get through (at the limit, both may be refused). A refused attempt
@@ -86,6 +95,68 @@ final class RateLimiter
     }
 
     /** Legacy rate_limit_forget(): take back one recorded attempt (a success's own row in the per-address count). */
+    /**
+     * hit() on the hosted database: the prune, the insert, its id and the count in one batch (one transaction in the
+     * Installation), the same order as above.
+     */
+    private function hitBatch(D1Connection $db, string $kind, string $key, int $max, int $window): int
+    {
+        $statements = $this->pruned ? [] : [['sql' => 'DELETE FROM auth_attempts WHERE at < ?', 'params' => [$this->now - self::KEEP_SECONDS]]];
+        array_push($statements,
+            ['sql' => 'INSERT INTO auth_attempts (kind, client, at) VALUES (?, ?, ?)', 'params' => [$kind, $key, $this->now]],
+            ['sql' => 'SELECT last_insert_rowid() AS id', 'params' => []],
+            ['sql' => 'SELECT COUNT(*) AS n FROM auth_attempts WHERE kind = ? AND client = ? AND at >= ?', 'params' => [$kind, $key, $this->now - $window]]);
+        $rows = self::sent(static fn (): array => $db->runBatch($statements), 'auth_attempts insert');
+        $this->pruned = true;
+        $n = (int)(array_pop($rows)[0]['n'] ?? 0);
+        $mine = (int)(array_pop($rows)[0]['id'] ?? 0);
+        if ($n > $max) {
+            $this->forget($mine);
+            $scope = $kind === 'login' ? 'for this account from this address' : 'from this address';
+            throw new UserError('Too many attempts ' . $scope . ' – please wait ' . (int)ceil($window / 60) . ' minutes and try again.', 429);
+        }
+
+        return $mine;
+    }
+
+    /**
+     * After a sign-in: clear() the account's rows and forget() this request's address row; one batch on the hosted
+     * database, the two statements one after the other elsewhere.
+     */
+    public function succeeded(string $kind, ?string $account, int $mine): void
+    {
+        $db = $this->batch();
+        if ($db === null) {
+            $this->clear($kind, $account);
+            $this->forget($mine);
+
+            return;
+        }
+        self::sent(fn (): array => $db->runBatch([
+            ['sql' => 'DELETE FROM auth_attempts WHERE kind = ? AND client = ?', 'params' => [$kind, $this->bucket($kind, $account)]],
+            ['sql' => 'DELETE FROM auth_attempts WHERE id = ?', 'params' => [$mine]],
+        ]), 'auth_attempts clear');
+    }
+
+    /** The D1 connection when a batch can be sent now (no transaction open), else null. */
+    private function batch(): ?D1Connection
+    {
+        return $this->db instanceof D1Connection && (int)$this->db->transDepth === 0 ? $this->db : null;
+    }
+
+    /**
+     * @param Closure(): list<list<array<string,mixed>>> $send
+     * @return list<list<array<string,mixed>>>
+     */
+    private static function sent(Closure $send, string $step): array
+    {
+        try {
+            return $send();
+        } catch (WriteFailed $e) {
+            throw new WriteFailed('Database write failed: ' . $step, 0, $e);
+        }
+    }
+
     public function forget(int $id): void
     {
         Writes::check($this->db->query('DELETE FROM auth_attempts WHERE id = ?', [$id]), 'auth_attempts forget');
