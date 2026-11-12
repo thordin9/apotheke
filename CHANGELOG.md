@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Fixed
 
-- **frontend:** the privacy page describes the sign-in session cookie, declining consent signs out on this site, and the landing pages may connect to the API host ([#289](https://github.com/thordin9/apotheke/pull/289))
+- **frontend:** the privacy page describes the sign-in session cookie; Decline removes the consent cookie immediately and asks the server to end the session, and if that request can't get through the server ends it the next time the browser contacts it without consent; the landing pages may connect to the API host ([#289](https://github.com/thordin9/apotheke/pull/289))
 
 ## [3.38.0] - 2026-11-12
 

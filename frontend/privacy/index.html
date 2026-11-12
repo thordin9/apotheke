@@ -18,7 +18,7 @@
 <!-- apotheke:header -->
 <main id="main" class="doc container" tabindex="-1">
   <h1>Privacy</h1>
-  <p class="answer">This site runs no code from other servers. Only after you accept, it sets one consent cookie and counts page views without cookies. See Sign-in for the API session cookie. Declining removes the consent cookie at once, and sign-out follows. Accepting again needs a fresh sign-in.</p>
+  <p class="answer">This site runs no code from other servers. Only after you accept, it sets one consent cookie and counts page views without cookies. See Sign-in for the API session cookie. Decline removes the consent cookie immediately and asks the server to end your session right away. If that request can't get through (for example, you're offline), the server ends the session the next time your browser contacts it without consent. Accepting again needs a fresh sign-in.</p>
   <h2>What the server sees</h2>
   <p>Cloudflare serves the pages and keeps standard request logs (address, time, page) for security, as its own policy describes.</p>
   <h2>Page views</h2>
@@ -32,7 +32,7 @@
   <h2>The app</h2>
   <p>Apotheke runs on your own server. Your catalogue never passes through this site.</p>
   <h2>Cookies</h2>
-  <p>The notice asks before anything is stored or counted. Decline stores nothing and counts nothing, and the notice comes back on the next visit. Accept sets one consent cookie on this site and turns on page-view counting.</p>
+  <p>The notice asks before anything is stored or counted. Decline stores nothing and counts nothing, and the notice comes back on the next visit. Decline removes the consent cookie immediately and asks the server to end your session right away. If that request can't get through (for example, you're offline), the server ends the session the next time your browser contacts it without consent. Accept sets one consent cookie on this site and turns on page-view counting.</p>
   <ul class="facts">
     <li><strong>Name</strong>apotheke_consent</li>
     <li><strong>Value</strong>v1. Any other value is not consent.</li>
@@ -41,9 +41,9 @@
     <li><strong>Domain</strong>On getapotheke.com it is set for that domain, so the browser sends it to every getapotheke.com subdomain. api.services.getapotheke.com reads it as consent. autofill.services.getapotheke.com stores nothing from it. On any other host the cookie is host-only.</li>
   </ul>
   <h2>Sign-in</h2>
-  <p>Once you have accepted, the API host may set a session cookie named <code>__Host-apothekesid</code> when you visit that host or start signing in, not only after a successful sign-in. It keeps you signed in. The cookie is Secure, HttpOnly, SameSite=Lax and host-only on api.services.getapotheke.com, and it lasts up to 30 days. Keeping it host-only is privacy hardening: the browser sends it only to that host. Signing out removes the session cookie. Declining removes the consent cookie at once, and sign-out follows. Accepting again needs a fresh sign-in. Declining on this site removes the consent cookie, apotheke_consent.</p>
+  <p>Once you have accepted, the API host may set a session cookie named <code>__Host-apothekesid</code> when you visit that host or start signing in, not only after a successful sign-in. It keeps you signed in. The cookie is Secure, HttpOnly, SameSite=Lax and host-only on api.services.getapotheke.com, and it lasts up to 30 days. Keeping it host-only is privacy hardening: the browser sends it only to that host. Signing out removes the session cookie. Decline removes the consent cookie immediately and asks the server to end your session right away. If that request can't get through (for example, you're offline), the server ends the session the next time your browser contacts it without consent. Accepting again needs a fresh sign-in. Declining on this site removes the consent cookie, apotheke_consent.</p>
   <h2 id="withdraw">Withdrawing consent</h2>
-  <p>Choose <strong>Cookie settings</strong> at the bottom of any page, then <strong>Decline</strong>. That removes the consent cookie, apotheke_consent, and stops counting at once, without reloading the page. Deleting the apotheke_consent cookie for getapotheke.com in your browser's settings does the same for consent from the next page you open. Views counted before you withdrew stay in the totals until they expire.</p>
+  <p>Choose <strong>Cookie settings</strong> at the bottom of any page, then <strong>Decline</strong>. Decline stores nothing. It removes the consent cookie, apotheke_consent, immediately and asks the server to end your session right away, and stops counting, without reloading the page. If that request can't get through (for example, you're offline), the server ends the session the next time your browser contacts it without consent. Deleting the apotheke_consent cookie for getapotheke.com in your browser's settings does the same for consent from the next page you open. Views counted before you withdrew stay in the totals until they expire.</p>
   <h2>Contact</h2>
   <p>Stathis Papandreou</p>
   <p class="hint">Last updated <time class="slot-text">{date}</time>.</p>

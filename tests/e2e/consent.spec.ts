@@ -425,7 +425,7 @@ test.describe('page-view counting', () => {
         // Reopening with consent shows the choice, focuses the first button, and Accept again counts nothing extra.
         await settings.click();
         await expect(page.locator('#consent')).toBeVisible();
-        await expect(page.locator('#consent-choice')).toHaveText(/accepted\. Decline deletes/);
+        await expect(page.locator('#consent-choice')).toHaveText(/accepted\. Decline removes the consent cookie immediately/);
         await expect(page.getByRole('button', { name: 'Decline' })).toBeFocused();
         await page.getByRole('button', { name: 'Accept' }).click();
         await expect(page.locator('#consent')).toBeHidden();

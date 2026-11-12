@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { consentCookie, consentDomain, declineConsent, fetchSession, hasConsent, loadApiBase, retryPendingSignOut, sessionUrl, signOutPending, signedInLineAllowed, withdrawnConsentCookie } from '../src/consent.js';
+import { consentCookie, consentDomain, declineConsent, fetchSession, loadApiBase, sessionUrl, signedInLineAllowed, withdrawnConsentCookie } from '../src/consent.js';
 
 const HOSTED = 'apotheke_consent=v1; Domain=getapotheke.com; Path=/; Max-Age=15552000; Secure; SameSite=Lax';
 
@@ -135,54 +135,33 @@ function installCookieDocument(cookieRef) {
     };
 }
 
-test('the sign-out value is not consent', () => {
-    assert.equal(hasConsent('apotheke_consent=out'), false);
-    assert.equal(signOutPending('apotheke_consent=out'), true);
-    assert.equal(signOutPending('apotheke_consent=v1'), false);
-});
-
-test('a response clears the sign-out value, and a network failure is tried once later', async () => {
+test('Decline removes the consent cookie before one keepalive session read', async () => {
     const previousFetch = globalThis.fetch;
     const previousDoc = globalThis.document;
     const previousLocation = globalThis.location;
     const previousSecure = globalThis.isSecureContext;
     const cookieRef = { value: 'apotheke_consent=v1' };
     const sessionReads = [];
-    let fail = true;
     installCookieDocument(cookieRef);
     globalThis.fetch = async (url, init) => {
         const href = String(url);
         if (href.includes('config.json')) {
+            assert.equal(cookieRef.value, '');
             return new Response(JSON.stringify({ apiBase: 'https://api.example/api/v1' }), { status: 200 });
         }
         sessionReads.push({
             method: init && init.method ? init.method : 'GET',
             credentials: init && init.credentials,
             keepalive: init && init.keepalive,
-            pending: cookieRef.value.includes('apotheke_consent=out'),
+            cookie: cookieRef.value,
         });
-        if (fail) throw new Error('offline');
         return new Response('', { status: 200 });
     };
     try {
         declineConsent();
-        assert.equal(hasConsent(), false);
-        assert.equal(signOutPending(), true);
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        assert.equal(sessionReads.length, 1);
-        assert.equal(sessionReads[0].keepalive, true);
-        assert.equal(sessionReads[0].credentials, 'include');
-        assert.equal(sessionReads[0].pending, true);
-        assert.equal(signOutPending(), true);
-        fail = false;
-        retryPendingSignOut();
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        assert.equal(sessionReads.length, 2);
-        assert.equal(signOutPending(), false);
         assert.equal(cookieRef.value, '');
-        retryPendingSignOut();
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        assert.equal(sessionReads.length, 2);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        assert.deepEqual(sessionReads, [{ method: 'GET', credentials: 'include', keepalive: true, cookie: '' }]);
     } finally {
         globalThis.fetch = previousFetch;
         globalThis.document = previousDoc;
@@ -212,19 +191,18 @@ test('Decline during a slow config read sends the session read when config resol
         }
         sessionReads += 1;
         assert.equal(init && init.keepalive, true);
-        assert.equal(cookieRef.value.includes('apotheke_consent=out'), true);
+        assert.equal(cookieRef.value, '');
         return new Response('', { status: 200 });
     };
     try {
         const pendingConfig = mod.loadApiBase();
         mod.declineConsent();
         assert.equal(sessionReads, 0);
-        assert.equal(mod.signOutPending(), true);
+        assert.equal(cookieRef.value, '');
         release();
         await pendingConfig;
         await new Promise((resolve) => setTimeout(resolve, 20));
         assert.equal(sessionReads, 1);
-        assert.equal(mod.signOutPending(), false);
     } finally {
         globalThis.fetch = previousFetch;
         globalThis.document = previousDoc;
