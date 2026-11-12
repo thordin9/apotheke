@@ -8,6 +8,15 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** each FrankenPHP worker recycles itself after `APOTHEKE_WORKER_MAX_REQUESTS` requests (default 1000, `0` for no cap), because FrankenPHP 1.13.4 rejects `max_requests`, and logs `apotheke: PHP worker started` on every boot; a rejected value (not a whole number, or 10 or more digits) logs a warning and uses 1000. The hosted container always uses 1000 (L-1979, N-2044) ([#298](https://github.com/thordin9/apotheke/pull/298))
+- **ci:** the FrankenPHP image job runs `scripts/docker-worker-checks.sh` in worker mode, so an answered error that restarts the worker, or a recycle that exits instead of returning, fails CI (L-1980, L-2039) ([#298](https://github.com/thordin9/apotheke/pull/298))
+
+### Changed
+
+- **tests:** the Caddyfile validate test skips worker mode when `/var/www/app/public/frankenphp-worker.php` is missing, so a host `frankenphp` on `PATH` no longer fails it (N-1981); stale worker-mode comments fixed (N-1985) ([#298](https://github.com/thordin9/apotheke/pull/298))
+
 ## [3.38.1] - 2026-11-12
 
 ### Fixed
