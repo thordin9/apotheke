@@ -8,10 +8,6 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-### Changed
-
-- **docs:** correct the v3.37.0 notes for hosted storage, backups, sign-in, worker mode and the SQL executor ([#301](https://github.com/thordin9/apotheke/pull/301))
-
 ### Fixed
 
 - **core:** a small web POST whose body fills no form fields (JSON, text) gets the consent, sign-in or CSRF answer instead of `413`; only a body past `post_max_size` is `413` ([#294](https://github.com/thordin9/apotheke/pull/294))
@@ -25,6 +21,20 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **media:** `/media` answers `304` for an `If-None-Match` list, a weak tag or `*`, sends `Accept-Ranges: bytes`, and answers a single byte range with `206` and `Content-Range` (or `416` with `Content-Range: bytes */<size>`), with `If-Range`, on local and R2 storage ([#294](https://github.com/thordin9/apotheke/pull/294))
 - **catalog:** deleting an item's last photo by fetch answers `index` `0`, the photo the redirect shows, instead of `-1` ([#294](https://github.com/thordin9/apotheke/pull/294))
 - **api:** `POST /api/v1/session` with an empty body answers `422` `validation.failed` with both fields `Required.`, like `{}`, instead of `400`; a field sent as a number or a list is `Must be text.` instead of `Required.` ([#294](https://github.com/thordin9/apotheke/pull/294))
+
+## [3.38.0] - 2026-11-12
+
+### Added
+
+- **edge:** control-plane schema for the hosted operator console in `edge/migrations/control/` (installations, routes, plans and limits, manual subscriptions, usage counters, an append-only audit log), with `primary` seeded under its existing names on plan `internal`; see [docs/operator-console.md](docs/operator-console.md). Not applied by any deploy yet ([#299](https://github.com/thordin9/apotheke/pull/299))
+
+### Maintenance
+
+- docs: correct v3.37.0 storage, backup and sign-in notes ([#301](https://github.com/thordin9/apotheke/pull/301))
+
+### Changed
+
+- **docs:** correct the v3.37.0 notes for hosted storage, backups, sign-in, worker mode and the SQL executor ([#301](https://github.com/thordin9/apotheke/pull/301))
 
 ## [3.37.2] - 2026-11-12
 
@@ -1638,7 +1648,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.37.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.38.0...HEAD
+[3.38.0]: https://github.com/thordin9/apotheke/compare/v3.37.2...v3.38.0
 [3.37.2]: https://github.com/thordin9/apotheke/compare/v3.37.1...v3.37.2
 [3.37.1]: https://github.com/thordin9/apotheke/compare/v3.37.0...v3.37.1
 [3.37.0]: https://github.com/thordin9/apotheke/compare/v3.36.10...v3.37.0
