@@ -42,7 +42,7 @@ final class BackupController extends CatalogController
         /** @var \Apotheke\Backup\StoredBackups $stored */
         $stored = service('storedBackups');
 
-        return $this->html($this->pages()->page($this->backups()->counts(), null, null, $toast, $this->restorer()->hosted(), $stored->all()));
+        return $this->html($this->pages()->page($this->backups()->counts(), null, null, $toast, $this->restorer()->hosted(), $stored->all(), $this->may('restore')));
     }
 
     /** GET /backup.zip: written to DATA_DIR/tmp, sent in chunks, then removed. */
@@ -140,13 +140,13 @@ final class BackupController extends CatalogController
         return $this->redirectTo('/backup?restored=' . ($restored['token_cleared'] ? 'token-cleared' : '1'));
     }
 
-    /** GET /backup/restore/check: 204 when the request's user may restore, else 401 (nobody signed in) or 403. */
+    /** GET /backup/restore/check: 204 when the request's user may restore (the restore permission), else 401 (nobody signed in) or 403. */
     public function check(): ResponseInterface
     {
         /** @var PermissionGate $gate */
         $gate = service('permissionGate');
         try {
-            $gate->require('backup');
+            $gate->require('restore');
             $status = 204;
         } catch (UserError $e) {
             $status = $e->getMessage() === 'Not signed in' ? 401 : 403;

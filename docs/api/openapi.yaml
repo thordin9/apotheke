@@ -208,7 +208,7 @@
     "/api/v1/restores": {
       "post": {
         "operationId": "createRestore",
-        "summary": "Start a chunked restore upload (backup permission)",
+        "summary": "Start a chunked restore upload (restore permission)",
         "description": "For a backup too large for one request. Declare its size in bytes (at most RESTORE_MAX_MB) and, optionally, its SHA-256; then send it in chunks of `chunk_size` bytes (RESTORE_CHUNK_KB, but never more than this server's PHP takes in one request). Your earlier upload is removed (409 while a request uses it): one at a time per account. A guest gets 403 permission.denied; an account that cannot be read (a database error) gets 500 server_error. An upload idle for `idle_seconds` is removed. When RESTORE_MAX_UPLOADS uploads are open, other accounts' unconfirmed uploads idle for 10 minutes are removed first (a fully sent upload too, so confirm within 10 minutes of finish; operators can raise RESTORE_MAX_UPLOADS); still full: 503 restore.busy (with Retry-After). 507 storage.insufficient when the disk lacks the size plus a margin beyond what the other open uploads still expect.",
         "parameters": [{"$ref": "#/components/parameters/CsrfToken"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["size"], "properties": {"size": {"type": "integer", "minimum": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "nullable": true}}}}}},
@@ -230,7 +230,7 @@
     "/api/v1/restores/{id}": {
       "get": {
         "operationId": "getRestore",
-        "summary": "How far a restore upload is (backup permission)",
+        "summary": "How far a restore upload is (restore permission)",
         "description": "Your own upload only: anyone else gets the same 404 as for an unknown id. Resume by sending `next_chunk`.",
         "parameters": [{"$ref": "#/components/parameters/RestoreId"}],
         "responses": {
@@ -244,7 +244,7 @@
       },
       "delete": {
         "operationId": "deleteRestore",
-        "summary": "Cancel a restore upload; its files are removed (backup permission)",
+        "summary": "Cancel a restore upload; its files are removed (restore permission)",
         "parameters": [{"$ref": "#/components/parameters/RestoreId"}, {"$ref": "#/components/parameters/CsrfToken"}],
         "responses": {
           "204": {"description": "Removed"},
@@ -259,7 +259,7 @@
     "/api/v1/restores/{id}/chunks/{n}": {
       "post": {
         "operationId": "sendRestoreChunk",
-        "summary": "Send chunk n of a restore upload (backup permission)",
+        "summary": "Send chunk n of a restore upload (restore permission)",
         "description": "Chunks go in order from 0; every one but the last is exactly `chunk_size` bytes. A chunk out of order (409 restore.conflict), larger than `chunk_size` or past the declared size (413), or short before the end (422) changes nothing.",
         "parameters": [{"$ref": "#/components/parameters/RestoreId"}, {"name": "n", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 0}}, {"$ref": "#/components/parameters/CsrfToken"}],
         "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["chunk"], "properties": {"chunk": {"type": "string", "format": "binary"}}}}}},
@@ -279,7 +279,7 @@
     "/api/v1/restores/{id}/finish": {
       "post": {
         "operationId": "finishRestore",
-        "summary": "Check a complete upload and the backup in it: a dry run (backup permission)",
+        "summary": "Check a complete upload and the backup in it: a dry run (restore permission)",
         "description": "The size and the SHA-256 (when given) must match, then the backup is checked as the Backup page checks an upload; nothing is changed. A SHA-256 that does not match, or a file that is not a backup that can be restored, removes the upload (422). Incomplete, or confirmed already: 409. Again on a checked upload: the dry run again.",
         "parameters": [{"$ref": "#/components/parameters/RestoreId"}, {"$ref": "#/components/parameters/CsrfToken"}],
         "responses": {
@@ -297,7 +297,7 @@
     "/api/v1/restores/{id}/confirm": {
       "post": {
         "operationId": "confirmRestore",
-        "summary": "Replace the catalog with the checked backup (backup permission)",
+        "summary": "Replace the whole catalog, for everyone, with the checked backup (restore permission)",
         "description": "Needs `{\"confirm\": true}` after finish. The backup's settings are restored only for a user who may change settings. While another restore runs the answer is 409 and the upload is kept. Otherwise the backup is removed and the outcome kept: GET answers status restored (with `result`, this answer) or failed (`result.error`), and confirm again gives the same answer without restoring again, for a client that lost the answer to a timeout. A confirm that stopped before its outcome was kept (the server ended it) reads as status interrupted: it may have been applied, so check the data; confirm again answers 409 and never restores it again.",
         "parameters": [{"$ref": "#/components/parameters/RestoreId"}, {"$ref": "#/components/parameters/CsrfToken"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["confirm"], "properties": {"confirm": {"type": "boolean"}}}}}},
@@ -330,7 +330,7 @@
     "/api/v1/backups/{id}": {
       "get": {
         "operationId": "downloadBackup",
-        "summary": "Download a kept backup as its zip (backup permission)",
+        "summary": "Download a kept backup of the whole catalog as its zip (backup permission)",
         "description": "The whole installation's catalog, as it was when the backup was made.",
         "parameters": [{"$ref": "#/components/parameters/BackupId"}],
         "responses": {
@@ -448,7 +448,7 @@
       },
       "Permissions": {
         "type": "array",
-        "items": {"type": "string", "enum": ["view", "create", "edit", "delete", "move", "bulk", "lend", "import", "export", "stocktake", "labels", "settings", "users", "backup"]}
+        "items": {"type": "string", "enum": ["view", "create", "edit", "delete", "move", "bulk", "lend", "import", "export", "stocktake", "labels", "settings", "users", "backup", "restore"]}
       },
       "Session": {
         "type": "object",

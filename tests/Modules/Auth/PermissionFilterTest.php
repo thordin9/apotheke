@@ -118,7 +118,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         'stocktake' => 'stocktake', 'stocktake/1' => 'stocktake', 'stocktake/1/cancel' => 'stocktake', 'stocktake/1/check' => 'stocktake',
         'stocktake/1/finish' => 'stocktake', 'stocktake/1/report' => 'stocktake',
         'import' => 'import', 'import/1' => 'import', 'import/1/preview' => 'import', 'import/1/commit' => 'import',
-        'backup/restore' => 'backup', 'backup/restore/confirm' => 'backup',
+        'backup/restore' => 'restore', 'backup/restore/confirm' => 'restore',
     ];
 
     /** State-changing routes for your own account: signed in with an account (`self`), whatever the role. */
@@ -308,7 +308,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         }
         ksort($seen);
         $this->assertSame([
-            'DELETE /api/v1/restores/([^/]+)' => 'backup',
+            'DELETE /api/v1/restores/([^/]+)' => 'restore',
             'DELETE /api/v1/session' => Permissions::PUBLIC,
             'GET /api/v1/backups' => 'backup',
             'GET /api/v1/backups/([^/]+)' => 'backup',
@@ -318,7 +318,7 @@ final class PermissionFilterTest extends CIUnitTestCase
             'GET /api/v1/jobs/([0-9]+)' => 'view',   // and the job type's permission, checked by JobsController
             'GET /api/v1/me' => Permissions::SELF,
             'GET /api/v1/openapi.json' => Permissions::PUBLIC,
-            'GET /api/v1/restores/([^/]+)' => 'backup',
+            'GET /api/v1/restores/([^/]+)' => 'restore',
             'GET /api/v1/roles' => 'users',
             'GET /api/v1/security' => 'users',
             'GET /api/v1/session' => Permissions::PUBLIC,
@@ -336,10 +336,10 @@ final class PermissionFilterTest extends CIUnitTestCase
             'GET /api/v1/users' => 'users',
             'POST /api/v1/imports' => 'import',
             'POST /api/v1/imports/([0-9]+)/commit' => 'import',
-            'POST /api/v1/restores' => 'backup',
-            'POST /api/v1/restores/([^/]+)/chunks/([0-9]+)' => 'backup',
-            'POST /api/v1/restores/([^/]+)/confirm' => 'backup',
-            'POST /api/v1/restores/([^/]+)/finish' => 'backup',
+            'POST /api/v1/restores' => 'restore',
+            'POST /api/v1/restores/([^/]+)/chunks/([0-9]+)' => 'restore',
+            'POST /api/v1/restores/([^/]+)/confirm' => 'restore',
+            'POST /api/v1/restores/([^/]+)/finish' => 'restore',
             'POST /api/v1/session' => Permissions::PUBLIC,
         ], $seen, 'a new /api route: add it here with the permission of the UI route it replaces');
     }
@@ -384,7 +384,7 @@ final class PermissionFilterTest extends CIUnitTestCase
             ['GET', '/logout', [], 'self'], ['POST', '/account', [], 'self'],
             ['POST', '/settings/users/3/role', [], 'users'], ['GET', '/settings/security', [], 'users'],
             ['POST', '/settings/autofill', [], 'settings'], ['GET', '/settings.json', [], 'settings'],
-            ['GET', '/backup.zip', [], 'backup'], ['POST', '/backup/restore', [], 'backup'],
+            ['GET', '/backup.zip', [], 'backup'], ['POST', '/backup/restore', [], 'restore'],
             ['POST', '/import/csv', [], 'import'], ['GET', '/export.csv', [], 'export'],
             ['GET', '/stocktake/4', [], 'view'], ['POST', '/stocktake/4', [], 'stocktake'],
             ['GET', '/labels', [], 'labels'], ['GET', '/item/9/label', [], 'labels'],

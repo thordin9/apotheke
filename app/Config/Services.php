@@ -1389,7 +1389,7 @@ class Services extends BaseService
     {
         return [
             \Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => 'import',
-            \Apotheke\Backup\Jobs\RestoreConfirmJob::TYPE => 'backup',
+            \Apotheke\Backup\Jobs\RestoreConfirmJob::TYPE => 'restore',
         ];
     }
 

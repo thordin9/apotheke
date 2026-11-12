@@ -66,8 +66,9 @@ final class BackupView
      * @param array{token:string,tables:array<string,int>,photos:int,created_at:string,driver:string,warnings:list<string>}|null $preview
      * @param bool $hosted the hosted database: no command-line restore hint
      * @param list<array{id:string,created_at:string,kind:string,size:int,by:?string}> $kept the kept backups, newest first
+     * @param bool $restore whether the user may restore (the restore permission): else no restore section
      */
-    public function page(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null, bool $hosted = false, array $kept = []): string
+    public function page(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null, bool $hosted = false, array $kept = [], bool $restore = true): string
     {
         $head = $this->page->start('Backup & restore', 'page-backup');
         $tok = self::h($this->page->csrf());
@@ -115,6 +116,7 @@ final class BackupView
     </ul>
   </section>
   <?php endif; ?>
+  <?php if ($restore): ?>
   <section class="panel" aria-labelledby="rs-title">
     <h2 id="rs-title"><?= Icons::svg('archive') ?> Restore from a backup</h2>
     <p class="hint">Choose an Apotheke backup zip. You'll see what it contains before anything changes.</p>
@@ -127,6 +129,7 @@ final class BackupView
     <p class="hint">Large backups can also be restored on the server: <code>php bin/restore.php backup.zip</code>.</p>
     <?php endif; ?>
   </section>
+  <?php endif; ?>
 </main>
 <?php if ($toast !== null): ?><div class="toast" role="status"><?= self::h($toast) ?></div><?php endif; ?>
 <?php
