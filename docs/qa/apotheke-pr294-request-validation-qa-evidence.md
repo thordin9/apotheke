@@ -1,6 +1,10 @@
 # PR 294 request validation — re-gate evidence
 
-No commit and no push. Head `fb17bae6baaf56be0acba8a9d0c5589d7b5f177c`. Main `91a0c4ae791a98bd25b73f41000a6c125c5635fc`. `git rev-list --left-right --count main...HEAD` is `0 25`. Previous pass `778b3abb`.
+No commit and no push. Approved head `dfd150912926af616900278d90e40b7f459d65a0` (parents `82431e44`, main `4786e44d54e36ef6b9c4de3cd8c2e387f0a43acc`), 0 behind. The targeted re-gate below was run at `fb17bae6baaf56be0acba8a9d0c5589d7b5f177c` on main `91a0c4ae`. Previous full pass `778b3abb`.
+
+## Merge-only read at dfd15091
+
+`git merge-tree` on the two parents reports no conflicts. `git diff 91a0c4ae fb17bae6` and `git diff 4786e44d dfd15091`, excluding `CHANGELOG.md`, `docs/HANDOFF.md` and `docs/qa/`, with index and @@ lines dropped, are equal under `cmp` (1617 lines). The `docs/HANDOFF.md` diffs are equal too. `CHANGELOG.md` from `## [3.38.0]` down and the preamble equal main, and the [Unreleased] Fixed block equals `fb17bae6`'s.
 
 ## Conflict resolution
 
@@ -18,7 +22,7 @@ No commit and no push. Head `fb17bae6baaf56be0acba8a9d0c5589d7b5f177c`. Main `91
 
 ## Changelog and versions
 
-Unreleased Changed is the #301 bullet. The 11 Fixed bullets each contain `([#294](https://github.com/thordin9/apotheke/pull/294))` once. `CHANGELOG.md` from `## [3.37.2]` matches `91a0c4ae` (182336 bytes). `README.md` and `VERSION` match main. VERSION is `3.37.2`.
+Unreleased Changed is the #301 bullet. The 11 Fixed bullets each contain `([#294](https://github.com/thordin9/apotheke/pull/294))` once. At `fb17bae6`, `CHANGELOG.md` from `## [3.37.2]` matched `91a0c4ae` (182336 bytes). At `dfd15091`, `README.md` and `VERSION` match main, and VERSION is `3.38.0`.
 
 ## Commands
 
