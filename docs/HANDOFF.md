@@ -56,7 +56,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- E1 (#300, draft): the edge deploy applies `edge/migrations/control/` to D1 `apotheke-api` before `wrangler deploy`. Schema SQL is in #299. The existing deploy token still needs *D1 > Edit*.
+- E1 (#300, ready for review): the edge deploy applies `edge/migrations/control/` to D1 `apotheke-api` before `wrangler deploy`. Schema SQL is in #299. Awaiting *Account > D1 > Edit* on the existing deploy token before merge.
 - For the review state of P4-5 piece 2a (#252, passed QA), piece 2b (`feat/p4-5-db-driver`) and the storage-factory routing (`feat/p4-5-r2-files`), see the open PRs on GitHub.
 - The account lifecycle rules for incomplete multipart uploads on `apotheke-api-storage` are reported applied by the PM (7 days for the bucket, 1 day under `installations/primary/`). The marked-upload sweep stays an uncalled helper.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.

@@ -670,8 +670,9 @@ deleted. Never paste a token, a secret value or a resource id into a pull reques
 *Account > Containers > Edit*, and *Account > D1 > Edit* for the control-plane migration step. Deploying a Worker
 with D1, R2 or Durable Object bindings still needs only *Editor* on that Worker
 ([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/#bindings)); applying
-`edge/migrations/control/` with `wrangler d1 migrations apply` needs *D1 > Edit*. The same GitHub secret
-`CLOUDFLARE_API_TOKEN` is used; no second deploy token is created.
+`edge/migrations/control/` with `wrangler d1 migrations apply` needs *Account > D1 > Edit*. That permission cannot
+be scoped to a single database, so a token with it can write every D1 database in the account. The same GitHub
+secret `CLOUDFLARE_API_TOKEN` is used; no second deploy token is created.
 
 - A per-Worker role can only name a Worker that already exists. If `apotheke-api` has never had a real deploy, the
   first one needs a one-time *Account > Workers Scripts > Edit* token; replace it with the per-Worker token right after.
@@ -682,8 +683,9 @@ with D1, R2 or Durable Object bindings still needs only *Editor* on that Worker
   only, with a TTL), never the CI token. Set it in the environment only:
   `read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN` and `export CLOUDFLARE_ACCOUNT_ID=<account-id>`.
 - The control-plane `wrangler d1 migrations apply` in the deploy job uses the existing `CLOUDFLARE_API_TOKEN`
-  secret, which therefore needs *D1 > Edit*. Creating databases (1.2) still uses the operator's short-lived
-  token, never the CI token.
+  secret, which therefore needs *Account > D1 > Edit*. That permission cannot be scoped to a single database, so
+  the token can write every D1 database in the account. Creating databases (1.2) still uses the operator's
+  short-lived token, never the CI token.
 
 Creating the resources (1.2, 1.3), in `edge/` with the pinned wrangler. Don't pass `--update-config`: ids stay out of
 the repository.
