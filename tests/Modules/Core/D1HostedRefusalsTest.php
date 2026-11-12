@@ -4,25 +4,21 @@ declare(strict_types=1);
 
 namespace Tests\Core;
 
-use Apotheke\Backup\Controllers\Api\RestoresController;
 use Apotheke\Backup\Controllers\BackupController;
 use Apotheke\BulkMerge\Controllers\BulkMergeController;
 use Apotheke\Catalog\Controllers\ListController;
-use Apotheke\Core\Database\Writes;
-use Apotheke\Core\Exceptions\PlainHandler;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\ImportExport\Controllers\Api\ImportsController;
 use Apotheke\ImportExport\Controllers\ImportController;
 use CodeIgniter\Controller;
-use CodeIgniter\HTTP\ResponseInterface;
 use CodeIgniter\Test\CIUnitTestCase;
 use Config\Services;
 use Tests\Support\TestDatabase;
 
 /**
- * What the hosted database (the D1 driver) refuses for now, end to end through the real controllers, services and
- * views over the bridge: backup restore answers 501 (on /api `hosted.unavailable`) before anything is
- * stored, and its page shows a notice instead of the actions. The default install keeps them.
+ * The hosted database (the D1 driver), end to end through the real controllers, services and views over the
+ * bridge: the pages that once showed a notice instead of their actions (CSV import, bulk editing, backup restore)
+ * now keep every action, and their first steps answer as on the default install.
  */
 final class D1HostedRefusalsTest extends CIUnitTestCase
 {
@@ -81,50 +77,9 @@ final class D1HostedRefusalsTest extends CIUnitTestCase
         return $c;
     }
 
-    private function refusal(string $what, callable $call): UserError
-    {
-        try {
-            $call();
-            $this->fail($what . ' must be refused on the hosted database');
-        } catch (UserError $e) {
-            $this->assertSame([501, $what . ' is not available on the hosted database yet.'], [$e->getCode(), $e->getMessage()]);
 
-            return $e;
-        }
-    }
 
-    /** @return array<string,mixed> the problem body /api sends for $e */
-    private function problem(UserError $e, string $uri): array
-    {
-        $r = (new PlainHandler())->render($e, Services::response(null, false), ['REQUEST_URI' => $uri]);
-        $this->assertSame(501, $r->getStatusCode());
-
-        return json_decode((string)$r->getBody(), true, 8, JSON_THROW_ON_ERROR);
-    }
-
-    private function rowCount(string $table): int
-    {
-        return (int)(Writes::rows($this->t?->db, 'SELECT COUNT(*) AS n FROM ' . $table)[0]['n'] ?? -1);
-    }
-
-    public function testTheRestoreApiRefusesEveryUploadStepUpFront(): void
-    {
-        $this->site('d1');
-        // Any use of the uploads would fail differently: nothing may be created, appended or finished.
-        Services::injectMock('restoreUploads', (new \ReflectionClass(\Apotheke\Backup\RestoreUploads::class))->newInstanceWithoutConstructor());
-        $steps = [
-            'create' => fn (RestoresController $c) => $c->create(),
-            'chunk' => fn (RestoresController $c) => $c->chunk('abc', '0'),
-            'finish' => fn (RestoresController $c) => $c->finish('abc'),
-            'confirm' => fn (RestoresController $c) => $c->confirm('abc'),
-        ];
-        foreach ($steps as $step => $run) {
-            $e = $this->refusal('Restoring a backup', fn () => $run($this->controller(RestoresController::class, 'POST', [], '{"size":1024,"confirm":true}')));
-            $this->assertSame('hosted.unavailable', $this->problem($e, '/api/v1/restores')['code'], $step);
-        }
-    }
-
-    public function testHostedPagesShowTheNoticeInsteadOfTheActions(): void
+    public function testHostedPagesKeepTheirActions(): void
     {
         $this->site('d1');
         // CSV import runs on the hosted database (D1HostedImportTest): the upload form and no notice.
@@ -132,15 +87,16 @@ final class D1HostedRefusalsTest extends CIUnitTestCase
         $this->assertStringContainsString('id="imp-upload"', $import);
         $this->assertStringNotContainsString(self::NOTICE, $import);
 
-        $backup = $this->controller(BackupController::class)->index();
-        $this->assertNotice($backup, 'restore-hosted', ['id="restore-form"', 'action="/backup/restore"']);
-        $this->assertStringContainsString('id="backup-dl"', (string)$backup->getBody(), 'downloading a backup stays');
-        foreach (['upload', 'confirm'] as $step) {
-            $r = $this->controller(BackupController::class, 'POST', ['token' => str_repeat('a', 32), 'confirm' => '1'])->{$step}();
-            $this->assertSame(501, $r->getStatusCode(), $step);
-            $this->assertStringContainsString('Restoring a backup is not available on the hosted database yet.', (string)$r->getBody(), $step);
-            $this->assertStringNotContainsString('id="restore-preview"', (string)$r->getBody(), $step);
+        // Restoring a backup runs on the hosted database (D1RestoreTest): the restore form, no notice and no
+        // command-line hint; an upload step answers as it does on PDO.
+        $backup = (string)$this->controller(BackupController::class)->index()->getBody();
+        foreach (['id="restore-form"', 'action="/backup/restore"', 'id="backup-dl"'] as $needle) {
+            $this->assertStringContainsString($needle, $backup);
         }
+        $this->assertStringNotContainsString('restore-hosted', $backup);
+        $this->assertStringNotContainsString('bin/restore.php', $backup);
+        $this->assertSame(422, $this->controller(BackupController::class, 'POST')->upload()->getStatusCode(), 'no file chosen');
+        $this->assertSame(410, $this->controller(BackupController::class, 'POST', ['token' => str_repeat('a', 32), 'confirm' => '1'])->confirm()->getStatusCode(), 'no such upload');
 
         // Bulk editing runs on the hosted database (D1HostedBulkTest): the list keeps every action and no notice.
         $list = (string)$this->controller(ListController::class, 'GET', [], '', ['select' => '1'])->index()->getBody();
@@ -172,16 +128,5 @@ final class D1HostedRefusalsTest extends CIUnitTestCase
         }
         $r = $this->controller(ImportsController::class, 'POST')->create();
         $this->assertSame(422, $r->getStatusCode(), 'no file: the usual validation answer');
-    }
-
-    /** @param list<string> $absent */
-    private function assertNotice(ResponseInterface $r, string $id, array $absent): void
-    {
-        $body = (string)$r->getBody();
-        $this->assertSame(200, $r->getStatusCode());
-        $this->assertStringContainsString('<p class="hint" id="' . $id . '" role="status">' . self::NOTICE . '</p>', $body);
-        foreach ($absent as $a) {
-            $this->assertStringNotContainsString($a, $body);
-        }
     }
 }

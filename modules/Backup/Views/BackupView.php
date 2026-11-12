@@ -49,7 +49,7 @@ final class BackupView
      *
      * @param array<string,int> $current
      * @param array{token:string,tables:array<string,int>,photos:int,created_at:string,driver:string,warnings:list<string>}|null $preview
-     * @param bool $hosted the hosted database: no restore, a notice instead
+     * @param bool $hosted the hosted database: no command-line restore hint
      */
     public function page(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null, bool $hosted = false): string
     {
@@ -92,15 +92,13 @@ final class BackupView
   </section>
   <section class="panel" aria-labelledby="rs-title">
     <h2 id="rs-title"><?= Icons::svg('archive') ?> Restore from a backup</h2>
-    <?php if ($hosted): ?>
-    <p class="hint" id="restore-hosted" role="status">Not available on hosted yet.</p>
-    <?php else: ?>
     <p class="hint">Choose an Apotheke backup zip. You'll see what it contains before anything changes.</p>
     <form method="post" action="/backup/restore" enctype="multipart/form-data" id="restore-form" class="restore-form">
       <input type="hidden" name="csrf" value="<?= $tok ?>">
       <label class="btn btn-block filepick"><input type="file" name="backup" accept=".zip,application/zip" required id="restore-file" class="file"> <span id="restore-name">Choose backup file…</span></label>
       <button class="btn btn-block" id="restore-check">Check backup</button>
     </form>
+    <?php if (!$hosted): ?>
     <p class="hint">Large backups can also be restored on the server: <code>php bin/restore.php backup.zip</code>.</p>
     <?php endif; ?>
   </section>

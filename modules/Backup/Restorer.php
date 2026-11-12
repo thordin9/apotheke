@@ -6,6 +6,7 @@ namespace Apotheke\Backup;
 
 use Apotheke\Catalog\Items\Attachments;
 use Apotheke\Core\Database\SqlExecutor;
+use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
@@ -152,7 +153,7 @@ final class Restorer
     ) {
     }
 
-    /** On the hosted database (the D1 driver) this is refused for now (Writes::unavailable()). */
+    /** Whether this is the hosted database (the D1 driver): its rows are staged and swapped in as one batch. */
     public function hosted(): bool
     {
         return Writes::onD1($this->db);
@@ -208,7 +209,6 @@ final class Restorer
      */
     public function restore(string $zipPath, bool $settings, ?string $run = null, ?LeaseHold $upload = null): array
     {
-        Writes::refuseOnD1($this->db, 'Restoring a backup');
         // One restore at a time, before any file or row changes. On explicit R2 the lease is that same
         // storage and is renewed before each later write. Local disk keeps the filesystem lock.
         // The database stage lock is a different lease; it does not keep this one.
@@ -429,7 +429,14 @@ final class Restorer
         $this->fence();
         $this->linkOriginals($links, $warnings);
         $cleared = false;
-        $owned = $this->catalogFence === null ? null : function (): void {
+        // Inside the settings and undo units: on the hosted database a step of that unit's batch, else the
+        // UPDATE in the unit's transaction (rejectStaleFence()).
+        $owned = $this->catalogFence === null ? null : function (?UnitOfWork $uow = null): void {
+            if ($uow !== null && $this->catalogFence !== null && Writes::onD1($this->db)) {
+                RestoreFence::assert($uow, $this->catalogFence);
+
+                return;
+            }
             $this->rejectStaleFence();
         };
         if (is_array($b['settings']) && !$settings) {
@@ -870,6 +877,19 @@ final class Restorer
             return;
         }
         if ($this->catalogFence === null) {
+            $this->deleteCreated($created);
+
+            return;
+        }
+        if (Writes::onD1($this->db)) {
+            // No row lock on the hosted database: the object lease is renewed first (no other restore can claim
+            // the fence while it is held), then the fence is checked as one batch, then the deletes run.
+            try {
+                $this->fence();
+                $this->rejectStaleFence();
+            } catch (Throwable) {
+                return;
+            }
             $this->deleteCreated($created);
 
             return;
