@@ -625,10 +625,12 @@ final class Imports
             }
             $existing = ($sim['items'][(int)$id] ?? null) ?? $this->items->get((int)$id);   // unknown id: a new item
         }
-        $name = Text::cleanLine($get('name'), 200);
+        $name = Text::cleanLine($get('name'), PHP_INT_MAX);
         if ($name === '') {
             throw new UserError('Name is empty.');
         }
+        ItemInput::limit('Name', $name, ItemInput::NAME_MAX);
+        ItemInput::limit('Notes', $get('notes'), ItemInput::NOTES_MAX);
         $qtyRaw = $get('quantity');
         $qty = $qtyRaw === '' ? ($existing !== null ? (int)$existing['quantity'] : 1) : filter_var($qtyRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 1000000]]);
         if ($qty === false) {
@@ -638,7 +640,7 @@ final class Imports
         $keep = static fn (string $k, mixed $fromExisting, callable $parse): mixed => isset($col[$k]) ? $parse($get($k)) : ($existing !== null ? $fromExisting : $parse(''));
         $in = [
             'name' => $name, 'quantity' => $qty,
-            'notes' => $keep('notes', (string)($existing['notes'] ?? ''), static fn (string $v): string => mb_substr($v, 0, 5000)),
+            'notes' => $keep('notes', (string)($existing['notes'] ?? ''), static fn (string $v): string => mb_substr($v, 0, ItemInput::NOTES_MAX)),
             'value_cents' => $keep('value', $existing['value_cents'] ?? null, static fn (string $v): ?int => ItemInput::money($v)),
             'purchase_date' => $keep('purchase_date', $existing['purchase_date'] ?? null, static fn (string $v): ?string => ItemInput::purchaseDate($v, $tomorrow)),
             'expires_on' => $keep('expires_on', $existing['expires_on'] ?? null, static fn (string $v): ?string => ItemInput::expiryDate($v)),

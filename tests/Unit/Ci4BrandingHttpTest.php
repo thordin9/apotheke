@@ -99,7 +99,7 @@ final class Ci4BrandingHttpTest extends TestCase
             '/brand/logo.svg' => [
                 'status' => 404,
                 'sha1' => 'da39a3ee5e6b4b0d3255bfef95601890afd80709',
-                'content-type' => 'text/html; charset=UTF-8',
+                'content-type' => null,
                 'cache-control' => null,
                 'content-length' => null,
                 'content-security-policy' => 'default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob: data:; style-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; form-action \'self\'; frame-ancestors \'self\'',
@@ -110,7 +110,7 @@ final class Ci4BrandingHttpTest extends TestCase
             '/brand/logo.png' => [
                 'status' => 404,
                 'sha1' => 'da39a3ee5e6b4b0d3255bfef95601890afd80709',
-                'content-type' => 'text/html; charset=UTF-8',
+                'content-type' => null,
                 'cache-control' => null,
                 'content-length' => null,
                 'content-security-policy' => 'default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob: data:; style-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; form-action \'self\'; frame-ancestors \'self\'',
@@ -121,7 +121,7 @@ final class Ci4BrandingHttpTest extends TestCase
             '/brand/icon-192.png' => [
                 'status' => 404,
                 'sha1' => 'da39a3ee5e6b4b0d3255bfef95601890afd80709',
-                'content-type' => 'text/html; charset=UTF-8',
+                'content-type' => null,
                 'cache-control' => null,
                 'content-length' => null,
                 'content-security-policy' => 'default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob: data:; style-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; form-action \'self\'; frame-ancestors \'self\'',
@@ -132,7 +132,7 @@ final class Ci4BrandingHttpTest extends TestCase
             '/brand/favicon.ico' => [
                 'status' => 404,
                 'sha1' => 'da39a3ee5e6b4b0d3255bfef95601890afd80709',
-                'content-type' => 'text/html; charset=UTF-8',
+                'content-type' => null,
                 'cache-control' => null,
                 'content-length' => null,
                 'content-security-policy' => 'default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob: data:; style-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; form-action \'self\'; frame-ancestors \'self\'',
@@ -143,7 +143,7 @@ final class Ci4BrandingHttpTest extends TestCase
             '/brand/evil.php' => [
                 'status' => 404,
                 'sha1' => 'da39a3ee5e6b4b0d3255bfef95601890afd80709',
-                'content-type' => 'text/html; charset=UTF-8',
+                'content-type' => null,
                 'cache-control' => null,
                 'content-length' => null,
                 'content-security-policy' => 'default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob: data:; style-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; form-action \'self\'; frame-ancestors \'self\'',
@@ -244,7 +244,7 @@ final class Ci4BrandingHttpTest extends TestCase
             '/brand/logo.png' => [
                 'status' => 404,
                 'sha1' => 'da39a3ee5e6b4b0d3255bfef95601890afd80709',
-                'content-type' => 'text/html; charset=UTF-8',
+                'content-type' => null,
                 'cache-control' => null,
                 'content-length' => null,
                 'content-security-policy' => 'default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob: data:; style-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; form-action \'self\'; frame-ancestors \'self\'',
@@ -255,7 +255,7 @@ final class Ci4BrandingHttpTest extends TestCase
             '/brand/icon-192.png' => [
                 'status' => 404,
                 'sha1' => 'da39a3ee5e6b4b0d3255bfef95601890afd80709',
-                'content-type' => 'text/html; charset=UTF-8',
+                'content-type' => null,
                 'cache-control' => null,
                 'content-length' => null,
                 'content-security-policy' => 'default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob: data:; style-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; form-action \'self\'; frame-ancestors \'self\'',
@@ -266,7 +266,7 @@ final class Ci4BrandingHttpTest extends TestCase
             '/brand/favicon.ico' => [
                 'status' => 404,
                 'sha1' => 'da39a3ee5e6b4b0d3255bfef95601890afd80709',
-                'content-type' => 'text/html; charset=UTF-8',
+                'content-type' => null,
                 'cache-control' => null,
                 'content-length' => null,
                 'content-security-policy' => 'default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob: data:; style-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; form-action \'self\'; frame-ancestors \'self\'',
@@ -277,7 +277,7 @@ final class Ci4BrandingHttpTest extends TestCase
             '/brand/evil.php' => [
                 'status' => 404,
                 'sha1' => 'da39a3ee5e6b4b0d3255bfef95601890afd80709',
-                'content-type' => 'text/html; charset=UTF-8',
+                'content-type' => null,
                 'cache-control' => null,
                 'content-length' => null,
                 'content-security-policy' => 'default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob: data:; style-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; form-action \'self\'; frame-ancestors \'self\'',
@@ -367,7 +367,7 @@ final class Ci4BrandingHttpTest extends TestCase
             '/brand/logo.svg' => [
                 'status' => 404,
                 'sha1' => 'da39a3ee5e6b4b0d3255bfef95601890afd80709',
-                'content-type' => 'text/html; charset=UTF-8',
+                'content-type' => null,
                 'cache-control' => null,
                 'content-length' => null,
                 'content-security-policy' => 'default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob: data:; style-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; form-action \'self\'; frame-ancestors \'self\'',
@@ -411,7 +411,7 @@ final class Ci4BrandingHttpTest extends TestCase
             '/brand/evil.php' => [
                 'status' => 404,
                 'sha1' => 'da39a3ee5e6b4b0d3255bfef95601890afd80709',
-                'content-type' => 'text/html; charset=UTF-8',
+                'content-type' => null,
                 'cache-control' => null,
                 'content-length' => null,
                 'content-security-policy' => 'default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob: data:; style-src \'self\'; script-src \'self\'; object-src \'none\'; base-uri \'self\'; form-action \'self\'; frame-ancestors \'self\'',
