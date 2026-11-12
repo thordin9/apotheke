@@ -35,7 +35,7 @@ test('the privacy page describes the sign-in session cookie', async ({ page }) =
     await expect(main).toContainText('Decline removes the consent cookie immediately and asks the server to end your session right away.');
     await expect(main).toContainText("If that request can't get through (for example, you're offline), the server ends the session the next time your browser contacts it without consent.");
     await expect(main).toContainText('Decline stores nothing');
-    await expect(main).toContainText('Accepting again needs a fresh sign-in.');
+    await expect(main).toContainText('Once the server has ended the session, accepting again needs a fresh sign-in.');
     await expect(main).toContainText('Signing out removes the session cookie.');
     await expect(main).toContainText('removes the consent cookie, apotheke_consent');
 });
