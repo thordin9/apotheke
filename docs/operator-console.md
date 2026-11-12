@@ -38,8 +38,8 @@ separate `installation_ext` table, since there is no other installations databas
 Migration `0002` registers the existing installation with the names it already has, so the same Durable Objects
 and R2 objects are used and no data moves:
 
-- id and `do_name` `primary` (`INSTALLATION_NAME` in `edge/src/installation.ts`, and the container's
-  `getByName("primary")` in `edge/src/index.ts`);
+- id and `do_name` `primary` (`INSTALLATION_NAME` in `edge/src/installation.ts`, also the routing fallback in
+  `edge/src/route.ts`);
 - `r2_prefix` `installations/primary/` (`PREFIX` in `edge/src/r2.ts`);
 - host `api.services.getapotheke.com` (`ALLOWED_HOSTS` in `edge/wrangler.jsonc`);
 - plan `internal` (no limits), installation status `active`, subscription status `active`, no period end.
@@ -47,3 +47,16 @@ and R2 objects are used and no data moves:
 The schema holds no secrets: `primary`'s `APP_KEY` and other Worker secrets are unchanged.
 `edge/tests/control-migrations.test.mjs` applies the migrations to an empty SQLite in file order and checks these
 values against the Worker source.
+
+## Routing
+
+`edge/src/route.ts` looks up the request host (lower case, no port) in `installation_routes` and forwards to the
+container named by the installation's `do_name`. A hit or a miss is cached in the Worker isolate for 30 seconds.
+
+- No row, no `DB` binding, or a failed lookup: the request goes to `primary`, as before routing existed. The app's
+  own `ALLOWED_HOSTS` check still applies.
+- Status `provisioning` answers 503, `suspended` 402, `deleting` and `deleted` 410, without starting a container.
+- Until per-installation storage is in place, an active route to any name other than `primary` answers 503, so no
+  second installation can start on `primary`'s storage.
+
+Limits are not read here. They come only from `plan_limits` rows, which the console edits; no tier is built in.
