@@ -325,14 +325,22 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	assert.equal(vars.CORS_ALLOWED_ORIGINS, "https://getapotheke.com");
 	let started;
 	const intercepted = [];
+	const waitUntil = [];
+	const timeouts = [];
+	let monitorCalls = 0;
 	const container = {
 		running: false,
 		start(opts) {
 			started = opts;
 			this.running = true;
 		},
-		setInactivityTimeout: async () => {},
-		monitor: () => new Promise(() => {}),
+		setInactivityTimeout: async (ms) => {
+			timeouts.push(ms);
+		},
+		monitor: () => {
+			monitorCalls += 1;
+			return new Promise(() => {});
+		},
 		getTcpPort: () => ({ fetch: async () => new Response("ok") }),
 		interceptOutboundHttp: async (host, fetcher) => {
 			intercepted.push([host, fetcher]);
@@ -342,7 +350,9 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	const r2bridge = { fetch: async () => new Response("r2-unbound", { status: 503 }) };
 	const ctx = {
 		container,
-		waitUntil() {},
+		waitUntil(p) {
+			waitUntil.push(p);
+		},
 		blockConcurrencyWhile: (f) => f(),
 		exports: { D1Outbound: () => bridge, R2Outbound: () => r2bridge },
 	};
@@ -374,6 +384,9 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	assert.equal(intercepted[0][1], bridge);
 	assert.equal(intercepted[1][1], r2bridge);
 	assert.equal((await r2bridge.fetch()).status, 503);
+	assert.deepEqual(timeouts, [Number(SLEEP_AFTER_MS)]);
+	assert.equal(monitorCalls, 0);
+	assert.equal(waitUntil.length, 0);
 });
 
 // d1.internal handler (edge/src/d1.ts): same JSON shape as D1HttpExecutor / tools/d1-harness.
