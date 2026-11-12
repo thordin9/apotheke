@@ -15,6 +15,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Fixed
 
 - **site:** drop `bluetooth=()` from `Permissions-Policy` on the landing Worker and `_headers`; it is not a recognised feature and logged a console warning on every page (L-1923) ([#285](https://github.com/thordin9/apotheke/pull/285))
+- **backup:** on the hosted database a backup reads each table in pages, records `"driver":"d1"`, and stops with a clear message, leaving no partial zip, when the temp disk has no room for the stored photos and files ([#287](https://github.com/thordin9/apotheke/pull/287))
 
 ## [3.36.6] - 2026-11-12
 
