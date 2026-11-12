@@ -138,7 +138,7 @@ export const PAGE_SECURITY = {
 };
 export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=(), accelerometer=(), gyroscope=(), magnetometer=(), payment=(), usb=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()";
 
-function expectedCache(path) {
+export function expectedCache(path) {
     if (path === '/assets/icons.svg' || path.startsWith('/assets/brand/') || path.startsWith('/assets/mascot/') || path.startsWith('/assets/shots/')) {
         return 'public, max-age=86400';
     }
@@ -153,9 +153,9 @@ function onSiteHost(host) {
     return host === 'getapotheke.com' || host === 'www.getapotheke.com';
 }
 
-function parsedUrl(url) {
+function parsedUrl(url, base = PAGE_BASE) {
     try {
-        return new URL(String(url).trim(), PAGE_BASE);
+        return new URL(String(url).trim(), base);
     } catch {
         return null;
     }
@@ -171,13 +171,14 @@ function hostFromUrl(url) {
     return urlHost(parsed);
 }
 
-function inheritsHost(url, parsed) {
-    try {
-        const other = new URL(String(url).trim(), 'https://other.example/');
-        return urlHost(parsed) !== urlHost(other) || parsed.protocol !== other.protocol;
-    } catch {
-        return true;
-    }
+function explicitHttps(url) {
+    return /^https:\/\//i.test(url);
+}
+
+function pageUrl(rel) {
+    if (rel === 'index.html') return PAGE_BASE;
+    if (rel.endsWith('/index.html')) return new URL(rel.slice(0, -'index.html'.length), PAGE_BASE).href;
+    return new URL(rel, PAGE_BASE).href;
 }
 
 function decodeHtmlEntities(text) {
@@ -565,14 +566,18 @@ function htmlUrls(html) {
 
 let spaMount = '/app';
 
-export function resolves(url) {
+export function resolves(url, from = PAGE_BASE) {
     const trimmed = String(url || '').trim();
-    const parsed = parsedUrl(trimmed);
+    const parsed = parsedUrl(trimmed, from);
     if (!parsed) return { ok: false, why: 'not a root-absolute path' };
     if (parsed.protocol === 'mailto:') return { ok: true };
     if (parsed.protocol === 'http:') return { ok: false, why: 'not https' };
     if (parsed.protocol !== 'https:') return { ok: false, why: 'not a root-absolute path' };
-    if (!inheritsHost(trimmed, parsed)) return { ok: true };
+    if (!onSiteHost(urlHost(parsed))) {
+        if (explicitHttps(trimmed)) return { ok: true };
+        return { ok: false, why: 'not a root-absolute path' };
+    }
+    if (explicitHttps(trimmed)) return { ok: true };
     const path = parsed.pathname;
     if (path === '') return { ok: true };
     const decision = appFallback(path, spaMount.endsWith('/') ? spaMount : spaMount + '/');
@@ -763,10 +768,10 @@ function run() {
         for (const rel of walk(dist).filter((name) => name.endsWith('.html') || name.endsWith('.css'))) {
             const body = readFileSync(join(dist, rel), 'utf8');
             checkOffSite(rel, body, rel.endsWith('.css'));
-            if (!rel.endsWith('.html')) continue;
-            const html = body;
-            for (const url of htmlUrls(html)) {
-                const result = resolves(url);
+            const from = pageUrl(rel);
+            const urls = rel.endsWith('.css') ? cssResourceUrls(body) : htmlUrls(body);
+            for (const url of urls) {
+                const result = resolves(url, from);
                 if (!result.ok) fail(rel + ' internal URL ' + url + ' ' + result.why);
             }
         }

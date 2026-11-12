@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { PAGE_SECURITY, PERMISSIONS_POLICY, connectSrcHas, headersFor, offSiteHosts, parseHeaders, resolves } from './check-dist.mjs';
+import { PAGE_SECURITY, PERMISSIONS_POLICY, connectSrcHas, expectedCache, headersFor, offSiteHosts, parseHeaders, resolves } from './check-dist.mjs';
 
 const rules = parseHeaders(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/_headers'), 'utf8'));
 const pages = ['/', '/privacy/', '/404.html', '/app/', '/app/index.html'];
@@ -125,4 +125,34 @@ test('resolves rejects http and allows https and mailto', () => {
     assert.equal(resolves('HTTP://cdn.example/a.png').ok, false);
     assert.equal(resolves('https://getapotheke.com/').ok, true);
     assert.equal(resolves('mailto:ops@example').ok, true);
+});
+
+test('a link to another host must name https', () => {
+    const from = 'https://getapotheke.com/privacy/';
+    for (const url of ['//cdn.example/x', '\\\\cdn.example/x', '/\\cdn.example/x']) {
+        assert.equal(resolves(url, from).ok, false, url);
+    }
+    assert.equal(resolves('https://cdn.example/x', from).ok, true);
+});
+
+test('relative links resolve from the page that contains them', () => {
+    const from = 'https://getapotheke.com/privacy/';
+    assert.equal(resolves('privacy/', from).ok, false);
+    assert.equal(resolves('./x', from).ok, false);
+    assert.equal(resolves('../x', from).ok, false);
+    assert.equal(resolves('../index.html', from).ok, true);
+    assert.equal(resolves('../privacy/', from).ok, true);
+});
+
+test('a look-alike host stays off-site', () => {
+    for (const host of ['getapotheke.com.example', 'getapotheke.co', 'xgetapotheke.com']) {
+        assert.deepEqual(offSiteHosts('<img src="https://' + host + '/a.png">', false), [host]);
+    }
+    assert.deepEqual(offSiteHosts('<img src="https://getapotheke.com/a.png">', false), []);
+    assert.deepEqual(offSiteHosts('<img src="https://www.getapotheke.com/a.png">', false), []);
+});
+
+test('a nested asset path is not an immutable cache', () => {
+    assert.equal(expectedCache('/assets/a/b-c.js'), 'no-cache');
+    assert.equal(expectedCache('/assets/index-Ab12Cd34.js'), 'public, max-age=31536000, immutable');
 });
