@@ -169,6 +169,10 @@ final class Ci4ApiHttpTest extends TestCase
         $this->assertSame(200, $r['status']);
         ApiContract::assertMatches('GET', '/api/v1/openapi.json', $r);
         $this->assertSame(json_decode((string)file_get_contents(ApiContract::SPEC), true), $r['json']);
+        // The version names the last phase the description covers, and the server is this one, relative.
+        preg_match_all('/\bP([0-9]+):/', (string)$r['json']['info']['description'], $phases);
+        $this->assertSame('1.0.0-p' . max(array_map('intval', $phases[1])), $r['json']['info']['version']);
+        $this->assertSame([['url' => '/', 'description' => "This server: the API is under /api/v1 on the app's own address"]], $r['json']['servers']);
     }
 
     public function testHstsWhenPublicUrlIsHttps(): void
