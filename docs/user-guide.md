@@ -445,6 +445,9 @@ Entries of deleted items are kept. With sign-in on, every entry also names the a
   backup cannot be made. The newest five are kept (`RESTORE_KEEP_BACKUPS`) and listed on the page to download; the
   history shows who restored. Downloading needs the Backup permission, restoring the Restore permission.
 
+On a hosted install that uses the d1 database, *Download backup* still works; *Restore* is not available yet and the
+page says so. Self-hosted installs (SQLite or PostgreSQL) restore as described above.
+
 ☰ → *Export CSV* (also in the footer) downloads the whole catalogue as UTF-8 CSV with these columns:
 `id, name, location, category, quantity, notes, image, created_at, updated_at, tags, value, currency, purchase_date,
 serial, min_qty, lent_to, lent_at, lent_due, expires_on, barcode`.

@@ -280,9 +280,10 @@ rollback from 3.0.x to 2.6.x never meets an unknown schema (PLAN §3.4, PM L-2).
 
 ## How the app runs SQL
 
-New SQL goes through one executor per request ([ADR-002](adr/002-edge-storage.md), decision 2). The existing call
-sites still use the connection through `Writes` and move onto the executor and units of work in the later P4-2
-parts (P4-2b); until then only the list binding below (`SearchIndex`, `Stocktakes::start()`, `ItemList`) is in use.
+New SQL goes through one executor per request ([ADR-002](adr/002-edge-storage.md), decision 2). Call sites use
+`Config\Services::sqlExecutor()` and units of work (`Services::unitsOfWork()`) for writes that belong together.
+Long id lists are bound as one list parameter (`Dialect::inList()`), including `SearchIndex`, `Stocktakes::start()`
+and `ItemList`.
 
 - `Core\Database\SqlExecutor` is the adapter: `run(statements)` sends a list of statements as one atomic batch,
   `query(sql, params)` reads, `dialect()` names the SQL dialect, and `connection()` is the CodeIgniter connection
@@ -298,8 +299,7 @@ parts (P4-2b); until then only the list binding below (`SearchIndex`, `Stocktake
   [PostgreSQL role](deployment-and-operations.md#postgresql-role)). On a server with translated messages a guard
   failure is an ordinary failure (code 0); it still rolls back the whole unit.
 
-Writes that belong together will run as a **unit of work** (`Services::unitsOfWork()->run($table, $fn, $key)`; P4-2b
-converts the call sites): `$fn` reads
+Writes that belong together run as a **unit of work** (`Services::unitsOfWork()->run($table, $fn, $key)`): `$fn` reads
 as usual and queues its writes on the `UnitOfWork` it is given (`hold()`, `insert()` returning a `Ref`, `update()`,
 `write(…, $expect, $fail)` and `assert($condition, …, $fail)`). The writes run in order when `$fn` returns, as one
 atomic unit; they are not visible to `$fn`'s own reads.
