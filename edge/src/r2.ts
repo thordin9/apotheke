@@ -294,7 +294,15 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 			|| url.searchParams.has("parts") !== (action === "complete")) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 		if (action === "part" && (!/^[1-9][0-9]{0,7}$/.test(url.searchParams.get("part") ?? "") || !/^(0|[1-9][0-9]{0,7})$/.test(url.searchParams.get("size") ?? ""))) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 	}
+	// The protocol answers every request with a JSON body, so it has no HEAD: a HEAD response carries no body on
+	// the wire and a client waiting for the advertised one hangs. Metadata is GET ?action=head (R2Bridge::metadata()).
+	if (request.method === "HEAD") return new Response(null, { status: 405, headers: { Allow: "GET, PUT, DELETE", "Cache-Control": "no-store" } });
+	if (action === "head" && request.method !== "GET") return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 	try {
+		if (request.method === "GET" && action === "head") {
+			const object = await bucket.head(path);
+			return json({ ok: true, found: Boolean(object), ...(object ? { etag: object.etag, modified: Math.floor((object.uploaded?.getTime() ?? 0) / 1000) } : {}) });
+		}
 		if (request.method === "GET" && action === "list") {
 			const prefix = url.searchParams.get("prefix") ?? "";
 			const limit = Number(url.searchParams.get("limit") ?? "100");
@@ -313,10 +321,6 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 			if (!object) return json({ ok: true, found: false });
 			const etag = object.etag;
 			return json({ ok: true, found: true, bytes: encodeBase64(await object.arrayBuffer()), etag });
-		}
-		if (request.method === "HEAD") {
-			const object = await bucket.head(path);
-			return json({ ok: true, found: Boolean(object), ...(object ? { etag: object.etag, modified: Math.floor((object.uploaded?.getTime() ?? 0) / 1000) } : {}) });
 		}
 		if (request.method === "DELETE") {
 			if (action === "abort") {

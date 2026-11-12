@@ -192,7 +192,7 @@ final class R2Storage implements Storage, VersionedStorage
         if (!$this->validKey($key)) {
             return false;
         }
-        $json = $this->bridge->request('HEAD', $key, allowMissing: true);
+        $json = $this->bridge->metadata($key);
 
         return $json !== null && self::found($json);
     }
@@ -202,7 +202,7 @@ final class R2Storage implements Storage, VersionedStorage
         if (!$this->validKey($key)) {
             return null;
         }
-        $json = $this->bridge->request('HEAD', $key, allowMissing: true);
+        $json = $this->bridge->metadata($key);
         if ($json === null || !self::found($json)) {
             return null;
         }

@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **storage:** storage mode starts and serves photos: the app boots with `DB_DRIVER=d1` (the D1 settings no longer name a class that is not loaded yet at boot), the entrypoint's `auth status` reads sign-in over the D1 bridge with the same answers and exit codes as on SQLite and PostgreSQL, and object metadata lookups are `GET ?action=head` with a JSON answer, so `/media` reads no longer fail after the bridge timeout; the Worker answers HEAD on `r2.internal` with 405
+
 ## [3.36.2] - 2026-11-12
 
 ### Fixed

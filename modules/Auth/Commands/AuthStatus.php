@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Apotheke\Auth\Commands;
 
 use Apotheke\Auth\Accounts;
+use Apotheke\Core\Database\D1Executor;
+use Apotheke\Core\Database\D1Pdo;
 use Closure;
 use PDO;
 use PDOException;
@@ -16,7 +18,8 @@ use RuntimeException;
  * 4 = APP_PASSWORD too short (the message on stderr, never the value), 1 = no
  * database connection. A missing SQLite file stays missing; connecting may
  * still create an empty DB_SCHEMA or switch an older SQLite file to WAL, as
- * legacy does.
+ * legacy does. With db.driver d1 (storage mode) the same answer is read over
+ * the D1 bridge (d1()).
  */
 final class AuthStatus
 {
@@ -53,6 +56,27 @@ final class AuthStatus
         fwrite($this->stdout, $on ? "on\n" : "off\n");
 
         return $on ? 0 : 3;
+    }
+
+    /**
+     * The connection for db.driver d1: the Installation's database over the D1 bridge. A probe query must
+     * answer first, else it is the "no database" exit with $failure (the sanitized connect line), as a
+     * refused PDO connection. The settings are then read through the PDO-shaped D1 adapter, so onAtStart()
+     * gives the same answer as on SQLite, and nothing is migrated.
+     *
+     * @return Closure():PDO
+     */
+    public static function d1(D1Executor $d1, string $failure): Closure
+    {
+        return static function () use ($d1, $failure): PDO {
+            try {
+                $d1->query('SELECT 1');
+            } catch (RuntimeException) {
+                throw new RuntimeException($failure);
+            }
+
+            return new D1Pdo($d1);
+        };
     }
 
     /**

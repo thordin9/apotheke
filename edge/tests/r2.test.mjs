@@ -4,6 +4,7 @@ import { handleR2Request, multipartMarkerKey, r2UnboundResponse, sweepExpiredMul
 import { register } from 'node:module';
 import { readFileSync } from 'node:fs';
 import net from 'node:net';
+import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
@@ -115,8 +116,9 @@ test('Worker alone prefixes reads, deletes, and scoped listings', async () => {
   bucket.objects.set('other/tenant/secret', new Uint8Array([99]));
   const read = await (await handleR2Request(request('GET', 'media/a'), bucket)).json();
   assert.deepEqual(read, { ok: true, found: true, bytes: 'AQL/', etag: 'etag-1' });
-  const head = await (await handleR2Request(request('HEAD', 'media/a'), bucket)).json();
+  const head = await (await handleR2Request(request('GET', 'media/a', { action: 'head' }), bucket)).json();
   assert.deepEqual(head, { ok: true, found: true, modified: 1740000000, etag: 'etag-1' });
+  assert.deepEqual(await (await handleR2Request(request('GET', 'media/none', { action: 'head' }), bucket)).json(), { ok: true, found: false });
   assert.deepEqual(await (await handleR2Request(request('GET', 'index', { action: 'list', prefix: 'media', limit: '1' }), bucket)).json(), { ok: true, objects: ['media/a'], cursor: '1' });
   const next = await handleR2Request(request('GET', 'index', { action: 'list', prefix: 'media', limit: '1', cursor: '1' }), bucket);
   assert.deepEqual(await next.json(), { ok: true, objects: ['media/b'], cursor: null });
@@ -142,7 +144,7 @@ test('manifest replacements require the exact observed ETag', async () => {
   const worker = new R2Outbound({}, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
   const path = 'backups/manifest.json';
   assert.equal((await worker.fetch(request('PUT', path, {}, 'one'))).status, 200);
-  const head = await (await worker.fetch(request('HEAD', path))).json();
+  const head = await (await worker.fetch(request('GET', path, { action: 'head' }))).json();
   assert.equal(head.etag, 'etag-1');
   const first = await (await worker.fetch(request('GET', path))).json();
   assert.deepEqual(Object.keys(first), ['ok', 'found', 'bytes', 'etag']);
@@ -250,6 +252,59 @@ test('real transport rejects a stale conditional write after the read response',
     assert.equal(await finalObject.text(), 'body-B');
   } finally {
     for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('metadata lookups have no HEAD: it is refused without a body, and action=head is GET only', async () => {
+  const bucket = new Bucket();
+  bucket.objects.set('installations/primary/media/a', new Uint8Array([1]));
+  const head = await handleR2Request(request('HEAD', 'media/a'), bucket);
+  assert.equal(head.status, 405);
+  assert.equal(head.headers.get('allow'), 'GET, PUT, DELETE');
+  assert.equal(head.body, null);
+  for (const method of ['PUT', 'DELETE']) assert.equal((await handleR2Request(request(method, 'media/a', { action: 'head' }), bucket)).status, 400, method);
+  assert.equal(bucket.objects.has('installations/primary/media/a'), true);
+});
+
+// Real HTTP on 127.0.0.1 (node:http, which sends no body for HEAD, as any HTTP server) between the Worker's
+// handler and the PHP bridge with curl: the in-process tests above read a body no HEAD response carries.
+test('PHP metadata lookups over real HTTP answer within the bridge timeout', { timeout: 30000 }, async () => {
+  const bucket = new Bucket();
+  bucket.objects.set('installations/primary/images/a.jpg', new Uint8Array([1, 2, 3]));
+  const worker = new R2Outbound({}, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
+  const seen = [];
+  const server = http.createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = Buffer.concat(chunks);
+    const url = new URL(req.url, 'http://r2.internal');
+    seen.push(`${req.method} ${url.pathname}${url.search}`);
+    const result = await worker.fetch(new Request(url, { method: req.method, ...(body.length ? { body, duplex: 'half' } : {}) }));
+    const payload = Buffer.from(await result.arrayBuffer());
+    res.writeHead(result.status, { ...Object.fromEntries(result.headers), 'content-length': String(payload.length) });
+    res.end(payload);
+  });
+  server.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const started = Date.now();
+    const { stdout } = await execFileAsync('php', [new URL('r2-metadata-client.php', import.meta.url).pathname, base, '3'], { timeout: 20000 });
+    assert.deepEqual(JSON.parse(stdout.trim()), { exists: true, modified: 1740000000, missing: false, missingModified: null });
+    assert.ok(Date.now() - started < 3000, 'no lookup waits for the bridge timeout');
+    assert.deepEqual(seen, ['GET /images/a.jpg?action=head', 'GET /images/a.jpg?action=head', 'GET /images/none.jpg?action=head', 'GET /images/none.jpg?action=head']);
+    const raw = await new Promise((resolve, reject) => {
+      http.request(`${base}/images/a.jpg`, { method: 'HEAD' }, (res) => {
+        let n = 0;
+        res.on('data', (c) => { n += c.length; });
+        res.on('end', () => resolve({ status: res.statusCode, bytes: n }));
+      }).on('error', reject).end();
+    });
+    assert.deepEqual(raw, { status: 405, bytes: 0 });
+    assert.equal(seen.at(-1), 'HEAD /images/a.jpg');
+  } finally {
+    server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }
 });
