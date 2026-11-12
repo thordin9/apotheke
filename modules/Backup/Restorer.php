@@ -80,6 +80,11 @@ final class Restorer
 
     public const FAILED = 'The backup could not be restored. Nothing was changed.';
 
+    /** The activity row of a restore: its action, and the name it shows in place of an item. */
+    public const RESTORED_ACTION = 'catalog_restored';
+
+    public const CATALOG = 'Whole catalog';
+
     public const BUSY = 'Another restore is running. Try again when it has finished.';
 
     /** N-459: why a lock file that is a link (or not a plain file) stops the restore. */
@@ -137,6 +142,7 @@ final class Restorer
      * @param RequestCleanup $cleanup removes the files of a restore stopped by a fatal error
      * @param ?SqlExecutor $staged the executor of a staged restore (batch-only databases), null for one transaction
      * @param int $dbMaxBytes a staged restore's database size limit (0: none)
+     * @param ?StoredBackups $stored where the backup made before each restore is kept (null: none is made)
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -150,7 +156,20 @@ final class Restorer
         private readonly RequestCleanup $cleanup,
         private readonly ?SqlExecutor $staged = null,
         private readonly int $dbMaxBytes = 0,
+        private readonly ?StoredBackups $stored = null,
     ) {
+    }
+
+    /** The account a restore runs for, for its activity row (null: the command line). */
+    private ?string $by = null;
+
+    /** @var array{id:string,created_at:string,kind:string,size:int,sha256:string,parts:int,by:?string}|null the backup made before the last restore */
+    private ?array $before = null;
+
+    /** @return array{id:string,created_at:string,kind:string,size:int,sha256:string,parts:int,by:?string}|null the backup made before the last restore */
+    public function backupBefore(): ?array
+    {
+        return $this->before;
     }
 
     /** Whether this is the hosted database (the D1 driver): its rows are staged and swapped in as one batch. */
@@ -203,12 +222,17 @@ final class Restorer
      * Replace all catalog data with the backup's (legacy backup_restore()).
      * $settings: may the backup's settings be restored too (the user may
      * change settings, or the command line)? $run: a staged restore's run id
-     * (the upload's id; RestoreStage::applied()), random when null.
+     * (the upload's id; RestoreStage::applied()), random when null. $by: the account it runs for (null: the command
+     * line). With $stored, the current catalog is backed up and kept first
+     * (backupBefore()); a backup that cannot be made stops the restore before anything changes. A restore that
+     * went in for an account adds one activity row: who replaced the catalog, and the backup kept before.
      *
      * @return array{tables:array<string,int>,photos:int,warnings:list<string>,token_cleared:bool}
      */
-    public function restore(string $zipPath, bool $settings, ?string $run = null, ?LeaseHold $upload = null): array
+    public function restore(string $zipPath, bool $settings, ?string $run = null, ?LeaseHold $upload = null, ?string $by = null): array
     {
+        $this->by = $by;
+        $this->before = null;
         // One restore at a time, before any file or row changes. On explicit R2 the lease is that same
         // storage and is renewed before each later write. Local disk keeps the filesystem lock.
         // The database stage lock is a different lease; it does not keep this one.
@@ -403,6 +427,9 @@ final class Restorer
         });
         $tmp = $this->backups->tmpDir();
         try {
+            if ($this->stored !== null) {
+                $this->before = $this->stored->store(StoredBackups::KIND_PRE_RESTORE, $this->by);
+            }
             try {
                 $this->fence();
                 $written = $this->restorePhotos($zip, $b['photoFiles'], $tmp, $warnings, $created);
@@ -455,7 +482,36 @@ final class Restorer
             $this->undo->prune(true, $owned);
         }
 
+        $this->logRestore($b['tables']);
+
         return ['tables' => $b['tables'], 'photos' => $written, 'warnings' => $warnings, 'token_cleared' => $cleared];
+    }
+
+    /**
+     * The activity row of a restore that went in for a signed-in account: after the swap (the history is one of the
+     * replaced tables), for the whole catalog (no item), with who restored and the backup kept before. Best effort:
+     * the restore stands.
+     *
+     * @param array<string,int> $tables
+     */
+    private function logRestore(array $tables): void
+    {
+        if ($this->by === null || !$this->backups->tableExists('activity')) {
+            return;   // the command line, or sign-in off: as before, no row
+        }
+        $details = ['items' => (int)($tables['items'] ?? 0)] + ($this->before !== null ? ['backup' => $this->before['id']] : []);
+        try {
+            Writes::check($this->db->table('activity')->insert([
+                'item_id' => null,
+                'item_name' => self::CATALOG,
+                'action' => self::RESTORED_ACTION,
+                'details' => json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                'created_at' => (new \Apotheke\Core\Libraries\Clock())->now(),
+                'actor' => $this->by,
+            ]), 'restore history');
+        } catch (Throwable) {
+            // The catalog is already replaced; a missing history row does not undo that.
+        }
     }
 
     /**

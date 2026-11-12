@@ -31,6 +31,11 @@ final class BackupView
         };
     }
 
+    private static function size(int $bytes): string
+    {
+        return $bytes >= 1048576 ? round($bytes / 1048576, 1) . ' MB' : max(1, (int)round($bytes / 1024)) . ' KB';
+    }
+
     private static function h(?string $s): string
     {
         return Page::e($s);
@@ -60,8 +65,9 @@ final class BackupView
      * @param array<string,int> $current
      * @param array{token:string,tables:array<string,int>,photos:int,created_at:string,driver:string,warnings:list<string>}|null $preview
      * @param bool $hosted the hosted database: no command-line restore hint
+     * @param list<array{id:string,created_at:string,kind:string,size:int,by:?string}> $kept the kept backups, newest first
      */
-    public function page(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null, bool $hosted = false): string
+    public function page(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null, bool $hosted = false, array $kept = []): string
     {
         $head = $this->page->start('Backup & restore', 'page-backup');
         $tok = self::h($this->page->csrf());
@@ -100,6 +106,15 @@ final class BackupView
     <?= self::tableRows($current) ?>
     <a class="btn btn-primary btn-block" href="/backup.zip" id="backup-dl" download><?= Icons::svg('archive') ?> Download backup (.zip)</a>
   </section>
+  <?php if ($kept !== []): ?>
+  <section class="panel" aria-labelledby="kb-title" id="kept-backups">
+    <h2 id="kb-title"><?= Icons::svg('archive') ?> Kept backups</h2>
+    <p class="hint">The whole catalog is backed up before each restore. Each backup is the whole installation's catalog; the newest are kept.</p>
+    <ul class="kept-list">
+      <?php foreach ($kept as $k): ?><li><a href="/api/v1/backups/<?= self::h($k['id']) ?>" download><?= self::h($this->activity->time($k['created_at'])) ?></a> <span class="hint">· before a restore<?= $k['by'] !== null ? ' by ' . self::h($k['by']) : '' ?> · <?= self::h(self::size($k['size'])) ?></span></li><?php endforeach; ?>
+    </ul>
+  </section>
+  <?php endif; ?>
   <section class="panel" aria-labelledby="rs-title">
     <h2 id="rs-title"><?= Icons::svg('archive') ?> Restore from a backup</h2>
     <p class="hint">Choose an Apotheke backup zip. You'll see what it contains before anything changes.</p>

@@ -118,8 +118,9 @@ final class RestoresController extends Controller
             @ignore_user_abort(true);
             @set_time_limit(300);
             $restorer = $this->restorer();
-            $done = $this->uploads()->confirm($id, static function (string $zip, ?\Apotheke\Core\Storage\LeaseHold $hold = null) use ($restorer, $settings, $id): array {
-                return $restorer->restore($zip, $settings, $id, $hold);
+            $by = $this->actor();
+            $done = $this->uploads()->confirm($id, static function (string $zip, ?\Apotheke\Core\Storage\LeaseHold $hold = null) use ($restorer, $settings, $id, $by): array {
+                return $restorer->restore($zip, $settings, $id, $hold, $by);
             });
 
             return ApiResponse::json($this->response, ['restored' => true, 'tables' => (object)$done['tables'], 'photos' => $done['photos'],
@@ -150,9 +151,7 @@ final class RestoresController extends Controller
                 ? $this->accepted($running->view())
                 : $this->confirmed($id, $settings);
         }
-        $user = service('currentUser')->resolve();
-        $actor = is_array($user) && $user['username'] !== '' ? $user['username'] : null;
-        $created = $queue->find($queue->enqueue(RestoreConfirmJob::TYPE, $payload, $actor, RestoreConfirmJob::ONCE));
+        $created = $queue->find($queue->enqueue(RestoreConfirmJob::TYPE, $payload, $this->actor(), RestoreConfirmJob::ONCE));
         if ($created === null) {
             throw new UserError('The restore could not be stored.', 500);
         }
@@ -176,8 +175,9 @@ final class RestoresController extends Controller
     private function confirmed(string $id, bool $settings): ResponseInterface
     {
         $restorer = $this->restorer();
-        $done = $this->uploads()->confirm($id, static function (string $zip, ?\Apotheke\Core\Storage\LeaseHold $hold = null) use ($restorer, $settings, $id): array {
-            return $restorer->restore($zip, $settings, $id, $hold);
+        $by = $this->actor();
+        $done = $this->uploads()->confirm($id, static function (string $zip, ?\Apotheke\Core\Storage\LeaseHold $hold = null) use ($restorer, $settings, $id, $by): array {
+            return $restorer->restore($zip, $settings, $id, $hold, $by);
         });
 
         return ApiResponse::json($this->response, ['restored' => true, 'tables' => (object)$done['tables'], 'photos' => $done['photos'],
@@ -249,6 +249,14 @@ final class RestoresController extends Controller
         } catch (UserError) {
             return false;
         }
+    }
+
+    /** The signed-in account's name (null: nobody, or the guest): the job's actor and the restore's activity row. */
+    private function actor(): ?string
+    {
+        $user = service('currentUser')->resolve();
+
+        return is_array($user) && empty($user['guest']) && ($user['username'] ?? '') !== '' ? (string)$user['username'] : null;
     }
 
     private function uploads(): RestoreUploads

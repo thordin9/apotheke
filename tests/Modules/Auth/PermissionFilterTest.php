@@ -310,6 +310,8 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->assertSame([
             'DELETE /api/v1/restores/([^/]+)' => 'backup',
             'DELETE /api/v1/session' => Permissions::PUBLIC,
+            'GET /api/v1/backups' => 'backup',
+            'GET /api/v1/backups/([^/]+)' => 'backup',
             'GET /api/v1/branding' => Permissions::PUBLIC,
             'GET /api/v1/imports/([0-9]+)' => 'import',
             'GET /api/v1/imports/([0-9]+)/preview' => 'import',

@@ -39,7 +39,10 @@ final class BackupController extends CatalogController
         $toast = $restored !== null ? ($restored === 'token-cleared'
             ? 'Backup restored. The AI autofill token was cleared because the service address changed: enter it again under AI autofill.' : 'Backup restored') : null;
 
-        return $this->html($this->pages()->page($this->backups()->counts(), null, null, $toast, $this->restorer()->hosted()));
+        /** @var \Apotheke\Backup\StoredBackups $stored */
+        $stored = service('storedBackups');
+
+        return $this->html($this->pages()->page($this->backups()->counts(), null, null, $toast, $this->restorer()->hosted(), $stored->all()));
     }
 
     /** GET /backup.zip: written to DATA_DIR/tmp, sent in chunks, then removed. */
@@ -119,7 +122,7 @@ final class BackupController extends CatalogController
         @set_time_limit(300);
         try {
             // N-443, stricter than legacy: the backup's settings only for a user who may change settings.
-            $restored = $restorer->restore($file, $this->may('settings'));
+            $restored = $restorer->restore($file, $this->may('settings'), null, null, $this->actor());
         } catch (UserError $e) {
             // As legacy: a restore refused while another runs (409, L-450) keeps its upload, so it
             // can be confirmed again; any other failure removes it now, not at the hourly sweep (N-567).
@@ -151,6 +154,14 @@ final class BackupController extends CatalogController
 
         return $this->response->setStatusCode($status)->setBody('')
             ->removeHeader('Cache-Control')->setHeader('Cache-Control', 'no-store');
+    }
+
+    /** The signed-in account's name, for the restore's activity row (null: nobody, or the guest). */
+    private function actor(): ?string
+    {
+        $user = service('currentUser')->resolve();
+
+        return is_array($user) && empty($user['guest']) && ($user['username'] ?? '') !== '' ? (string)$user['username'] : null;
     }
 
     /** Does the request's user have $permission? */

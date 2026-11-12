@@ -9,6 +9,7 @@ use Apotheke\Backup\RestoreFence;
 use Apotheke\Backup\RestoreMutation;
 use Apotheke\Backup\RestoreStage;
 use Apotheke\Backup\Restorer;
+use Apotheke\Backup\StoredBackups;
 use Apotheke\Core\Database\D1HttpExecutor;
 use Apotheke\Core\Database\SqlExecutor;
 use Apotheke\Core\Database\Dialect;
@@ -126,6 +127,27 @@ final class D1RestoreTest extends CIUnitTestCase
         $this->restorer($d, $r2)->restore($zip, true, 'run-d1');
         $this->assertSame($source, self::dump($d->db));
         $this->assertSame('Restored shed', $this->settings($d)->get('app_name'), 'settings, in the guarded settings unit');
+    }
+
+    /** On the hosted database the catalog before a restore is kept under backups/ in object storage, and restores. */
+    public function testAHostedRestoreKeepsTheCatalogBeforeItInObjectStorage(): void
+    {
+        [$zip] = $this->backupOf('sqlite');
+        [$d, $r2] = $this->hosted();
+        $before = self::dump($d->db);
+        $stored = new StoredBackups($r2->storage(), $this->backups($d, $r2), new Clock(), 5);
+        $restorer = $this->restorer($d, $r2, null, $stored);
+        $restorer->restore($zip, false, 'run-kept', null, 'ada');
+        $kept = $restorer->backupBefore();
+        $this->assertNotNull($kept);
+        $this->assertContains('backups/' . $kept['id'] . '/manifest.json', $r2->keys('backups/'));
+        $this->assertSame(1, (int)$d->db->query('SELECT COUNT(*) AS n FROM activity WHERE action = ? AND actor = ?', [Restorer::RESTORED_ACTION, 'ada'])->getRowArray()['n']);
+
+        $file = $this->files[] = sys_get_temp_dir() . '/apotheke-d1-kept-' . bin2hex(random_bytes(4)) . '.zip';
+        file_put_contents($file, implode('', iterator_to_array($stored->bytes($kept), false)));
+        $pdo = $this->databases[] = TestDatabase::create('sqlite');
+        $this->restorer($pdo, null)->restore($file, false);
+        $this->assertSame($before, self::dump($pdo->db), 'the catalog as it was before the restore');
     }
 
     /** A stop before the swap leaves the rows and the objects as they were; the copies, lock and fence go. */
@@ -293,7 +315,7 @@ final class D1RestoreTest extends CIUnitTestCase
     }
 
     /** A restorer for $d: on D1 with $r2 and the staged executor (or $exec), else on local disk. */
-    private function restorer(TestDatabase $d, ?MemoryR2 $r2, ?SqlExecutor $exec = null): Restorer
+    private function restorer(TestDatabase $d, ?MemoryR2 $r2, ?SqlExecutor $exec = null, ?StoredBackups $stored = null): Restorer
     {
         $undo = new UndoTokens($d->db, new Clock(), 600, static function (string $f): void {
         }, static function (string $f): void {
@@ -303,7 +325,7 @@ final class D1RestoreTest extends CIUnitTestCase
         $stores = $r2 === null ? [new LocalStorage($d->dataDir()), new LocalStorage($d->config->originalsDir(), 0640)] : [$r2->storage(), $r2->storage()->forOriginals()];
 
         return new Restorer($d->db, $this->backups($d, $r2), $this->settings($d), $undo, $known, $stores[0], $stores[1], 256, new RequestCleanup(),
-            $d->driver === 'd1' ? ($exec ?? $this->exec($d)) : null);
+            $d->driver === 'd1' ? ($exec ?? $this->exec($d)) : null, 0, $stored);
     }
 
     private static function jpeg(): string

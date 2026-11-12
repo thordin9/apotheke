@@ -105,6 +105,8 @@ final class Ci4BackupParityTest extends TestCase
         $this->assertSame(422, $l['confirm without the box']['status']);
         $this->assertSame([303, '/backup?restored=1'], [$l['confirm']['status'], $l['confirm']['location']]);
         $this->assertSame(['ok' => true, 'redirect' => '/backup?restored=token-cleared'], $l['confirm token cleared']['json']);
+        $restored = self::restoredRows($l['confirm']['tables']);
+        $this->assertSame([['Whole catalog', 'ada']], $restored, 'the restore adds one activity row naming who restored');
         $this->assertSame(self::catalog($l['before restore']['tables']), self::catalog($l['confirm']['tables']), 'the restore puts back what the backup holds');
         $this->assertSame(0, $l['confirm']['tables']['undo_tokens'], 'undo tokens are pruned');
         foreach (['confirm failing write', 'confirm broken rows'] as $case) {
@@ -547,8 +549,23 @@ final class Ci4BackupParityTest extends TestCase
     {
         // A restored sequence names the next id, the original the last one: equal in use, not in value.
         unset($state['settings'], $state['undo_tokens'], $state['waiting uploads'], $state['sequences']);
+        // The activity row the restore itself adds (restoredRows()) is not in the backup.
+        if (isset($state['activity']) && is_array($state['activity'])) {
+            $state['activity'] = array_values(array_filter($state['activity'], static fn (array $a): bool => $a['action'] !== 'catalog_restored'));
+        }
 
         return $state;
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     * @return list<array{0:mixed,1:mixed}> [item name, actor] of each row a restore added
+     */
+    private static function restoredRows(array $state): array
+    {
+        $rows = array_filter((array)($state['activity'] ?? []), static fn (array $a): bool => $a['action'] === 'catalog_restored');
+
+        return array_values(array_map(static fn (array $a): array => [$a['item_name'], $a['actor']], $rows));
     }
 
     /**
