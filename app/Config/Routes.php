@@ -184,7 +184,7 @@ $routes->match(['GET', 'HEAD'], 'backup.zip', $backup . '::download', ['permissi
 $routes->match(['GET', 'HEAD'], 'backup/restore/check', $backup . '::check', ['permission' => 'none']);
 // The FrankenPHP image's probe before it reads a body over 64 KiB (docker/frankenphp/Caddyfile, M-1420).
 $routes->match(['GET', 'HEAD'], 'upload/check', '\\Apotheke\\Core\\Controllers\\UploadCheckController::check', ['permission' => 'none']);
-// Restoring replaces the whole catalog for everyone: the restore permission (split from backup in 3.38).
+// Restoring replaces the whole catalog for everyone: the restore permission, split from backup.
 $routes->post('backup/restore', $backup . '::upload', ['permission' => 'restore']);
 $routes->post('backup/restore/confirm', $backup . '::confirm', ['permission' => 'restore']);
 

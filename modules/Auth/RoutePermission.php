@@ -54,7 +54,7 @@ final class RoutePermission
             return 'settings';
         }
         if (!$get && preg_match('#^/backup/restore(/|$)#', $path)) {
-            // Restoring replaces the whole catalog for everyone: its own permission since 3.38 (2.6.x: backup).
+            // Restoring replaces the whole catalog for everyone: its own permission (2.6.x: backup).
             return 'restore';
         }
         if (preg_match('#^/backup(/|\.zip$|$)#', $path)) {

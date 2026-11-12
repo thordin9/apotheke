@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **backup:** restore a backup on the hosted database; each restore first keeps a backup of the whole catalog (the newest `RESTORE_KEEP_BACKUPS`, default 5), listed on the backup page and by `GET /api/v1/backups`; restoring is a permission of its own (Restore), which every role with Backup keeps
+
 ### Performance
 
 - **d1:** fewer database round trips per request on the D1 driver: the request's settings, roles and account count are read in one batch and remembered until a write to their tables, independent list, item, stats and undo reads are batched (`Writes::rowsMany`), and the rate limiter, recent-views sweep and sign-in checks use fewer calls; SQLite and PostgreSQL read as before (signed-in list 45 to 12 calls, `/api/v1/me` 15 to 8, healthz 2 to 1) ([#293](https://github.com/thordin9/apotheke/pull/293))
