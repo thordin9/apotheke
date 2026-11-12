@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **docs:** update the hand-off and deploy runbook for the current release, sign-in, and hosted storage-mode flip ([#284](https://github.com/thordin9/apotheke/pull/284))
+
 ### Fixed
 
 - **frontend:** the privacy page describes the sign-in session cookie `__Host-apothekesid` ([#289](https://github.com/thordin9/apotheke/pull/289))
