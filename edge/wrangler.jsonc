@@ -43,7 +43,10 @@
 		"CORS_ALLOWED_ORIGINS": "https://getapotheke.com",
 		// No long-lived jobs:work in the container: on Cloudflare, jobs will run through a Cron Trigger or Queues,
 		// designed in P4 with the D1/R2 storage. The self-hosted images keep the worker on by default.
-		"APOTHEKE_JOBS_WORKER": "0"
+		"APOTHEKE_JOBS_WORKER": "0",
+		// FrankenPHP worker mode (QA-1854): "1" boots the app once per PHP thread instead of on every request
+		// (public/frankenphp-worker.php). Ships off: "1" is a later step, after an interleaved preview of the merged head.
+		"APOTHEKE_PHP_WORKER": "0"
 	},
 	// Secrets: set on the Worker with `wrangler secret put` (locally .dev.vars, git-ignored). Names only.
 	"secrets": { "required": ["APP_PASSWORD", "APP_KEY"] }

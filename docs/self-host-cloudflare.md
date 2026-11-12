@@ -172,7 +172,7 @@ To try it locally first: `cd edge/app && npx --no-install wrangler dev --config 
 ### Settings
 
 These `vars` in `edge/wrangler.jsonc` are not secrets. The Worker (`edge/src/index.ts`) passes `ALLOWED_HOSTS`,
-`COOKIE_DOMAIN`, `CORS_ALLOWED_ORIGINS` and `APOTHEKE_JOBS_WORKER` to the container; `SLEEP_AFTER_MS` is read by the Durable Object itself:
+`COOKIE_DOMAIN`, `CORS_ALLOWED_ORIGINS`, `APOTHEKE_JOBS_WORKER` and `APOTHEKE_PHP_WORKER` to the container; `SLEEP_AFTER_MS` is read by the Durable Object itself:
 
 * **`ALLOWED_HOSTS`**: the API's host names (`api.example.com`). Any other `Host` gets 421, health checks included
   ([Host names](deployment-and-operations.md#host-names)).
@@ -184,6 +184,9 @@ These `vars` in `edge/wrangler.jsonc` are not secrets. The Worker (`edge/src/ind
   runs only while requests keep it awake and starts with an empty `/data`, so a worker inside it would have no durable
   queue to work on. On Cloudflare, background jobs will run from a Cron Trigger or Queues, designed in P4 with the
   storage. The Docker images keep the worker on by default ([Background jobs](deployment-and-operations.md#background-jobs)).
+* **`APOTHEKE_PHP_WORKER: "0"`**: classic mode, as shipped. `"1"` turns on FrankenPHP worker mode, so the app boots
+  once per PHP thread instead of on every request; for `apotheke-api` that is a later step, after an interleaved
+  classic/worker preview of the merged head ([The FrankenPHP image](deployment-and-operations.md#the-frankenphp-image)).
 * `SLEEP_AFTER_MS`: idle time before the Durable Object lets the container sleep (`900000`, 15 minutes). It is read
   by the Durable Object (the container's inactivity timeout), not passed to the container.
 * **`CORS_ALLOWED_ORIGINS`**: when the front end and the API are on different hosts, the API must list the
