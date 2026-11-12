@@ -8,6 +8,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.38.2] - 2026-11-12
+
+### Fixed
+
+- **edge:** recycle FrankenPHP workers and test worker mode in CI ([#298](https://github.com/thordin9/apotheke/pull/298))
+
 ### Added
 
 - **edge:** each FrankenPHP worker recycles itself after `APOTHEKE_WORKER_MAX_REQUESTS` requests (default 1000, `0` for no cap), because FrankenPHP 1.13.4 rejects `max_requests`, and logs `apotheke: PHP worker started` on every boot; a rejected value (not a whole number, or 10 or more digits) logs a warning and uses 1000. The hosted container always uses 1000 (L-1979, N-2044) ([#298](https://github.com/thordin9/apotheke/pull/298))
@@ -1659,7 +1665,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.38.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.38.2...HEAD
+[3.38.2]: https://github.com/thordin9/apotheke/compare/v3.38.1...v3.38.2
 [3.38.1]: https://github.com/thordin9/apotheke/compare/v3.38.0...v3.38.1
 [3.38.0]: https://github.com/thordin9/apotheke/compare/v3.37.2...v3.38.0
 [3.37.2]: https://github.com/thordin9/apotheke/compare/v3.37.1...v3.37.2

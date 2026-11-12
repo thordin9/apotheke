@@ -77,7 +77,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 <!-- coverage:start -->
 | Area | Module suite | Root suite (with HTTP) | Combined |
 |---|---:|---:|---:|
-| Front controller, config & routes | 81.6 % | 87.1 % | 87.7 % |
+| Front controller, config & routes | 81.5 % | 87.0 % | 87.6 % |
 | Items, search, bulk, lending | 39.4 % | 75.9 % | 83.3 % |
 | Favourites, undo, history | 34.9 % | 65.7 % | 67.5 % |
 | Stocktake & labels | 47.6 % | 95.6 % | 96.0 % |
@@ -88,8 +88,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Settings & Control Panel | 53.5 % | 48.5 % | 69.1 % |
 | Backup & restore | 64.4 % | 63.9 % | 81.2 % |
 | Database & migrations | 80.5 % | 58.0 % | 82.5 % |
-| Core & dev server | 77.8 % | 60.1 % | 91.4 % |
-| **All PHP** (20057 lines) | **65.9 %** | **68.2 %** | **84.4 %** |
+| Core & dev server | 77.9 % | 59.9 % | 91.4 % |
+| **All PHP** (20073 lines) | **65.9 %** | **68.2 %** | **84.4 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
