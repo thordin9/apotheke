@@ -440,7 +440,7 @@ test.describe('page-view counting', () => {
         await settings.click();
         await page.getByRole('button', { name: 'Decline' }).click();
         await expect(page.locator('#consent')).toBeHidden();
-        expect(await context.cookies()).toEqual([]);
+        await expect.poll(async () => context.cookies()).toEqual([]);
         await expectNothingStored(page, context);
         await navigateInApp(page);
         await page.goto('/privacy/');
@@ -471,7 +471,7 @@ test('withdrawing on the sign-in page turns sign-in back off', async ({ browser 
 
     await page.getByRole('button', { name: 'Cookie settings' }).click();
     await page.getByRole('button', { name: 'Decline' }).click();
-    expect(await context.cookies()).toEqual([]);
+    await expect.poll(async () => context.cookies()).toEqual([]);
     await expect(page.locator('#sign-in-note')).toHaveText('Accept cookies to sign in.');
     await expect(page.locator('#sign-in-submit')).toBeDisabled();
     await expect(page.locator('#sign-in-user')).toBeDisabled();

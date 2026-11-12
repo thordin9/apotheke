@@ -3,7 +3,7 @@
 // so a visitor who has not accepted never downloads it and never sends a request.
 // It stores nothing: no cookies, localStorage, sessionStorage, IndexedDB or Cache storage.
 // Visits are counted from the browser's HTTP cache (If-Modified-Since on /cache and /collect).
-import { hasConsent } from './consent.js';
+import { consentStands } from './consent.js';
 
 export const ANALYTICS_SITE_ID = 'getapotheke.com';
 export const ANALYTICS_REPORTER_URL = 'https://analytics.services.webapp.gr/collect';
@@ -41,12 +41,12 @@ export function stopAnalytics() {
  * which would report every /app/* route as /app/.
  */
 export function trackPageview() {
-    if (!hasConsent()) return Promise.resolve(false);
+    if (!consentStands()) return Promise.resolve(false);
     // Read now, not after the import resolves, so a quick navigation is not counted twice.
     const url = location.origin + location.pathname + location.search;
     return load().then(
         (counterscale) => {
-            if (!hasConsent()) return false;
+            if (!consentStands()) return false;
             counterscale.trackPageview({ url });
             return true;
         },

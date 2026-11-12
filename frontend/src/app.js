@@ -1,6 +1,6 @@
 // In-app routes for /app/. Plain modules; the Svelte app replaces this in step S1.
 // Navigation uses the History API only. No localStorage, sessionStorage, IndexedDB or Cache storage.
-import { bindSignIn, enableLogin, fetchSession, hasConsent, loadApiBase, signedInLineAllowed } from './consent.js';
+import { bindSignIn, enableLogin, fetchSession, loadApiBase, signedInLineAllowed } from './consent.js';
 import { trackPageview } from './analytics.js';
 
 // The build writes APOTHEKE_SPA_BASE in here (default /app/). The page also carries
@@ -61,10 +61,11 @@ function renderHome(root) {
     const signInLink = link(base + '/sign-in', 'btn btn-primary', 'Sign in');
     actions.append(signInLink);
     root.append(h1, lead, actions);
-    if (hasConsent()) showSignedIn(actions, signInLink);
+    if (signedInLineAllowed({ signed_in: true })) showSignedIn(actions, signInLink);
 }
 
 async function showSignedIn(actions, signInLink) {
+    if (!signedInLineAllowed({ signed_in: true }) || !actions.isConnected) return;
     const session = await fetchSession(await loadApiBase());
     if (!signedInLineAllowed(session) || !actions.isConnected) return;
     signInLink.remove();
@@ -134,7 +135,7 @@ function renderSignIn(root) {
     button.textContent = 'Sign in';
     form.append(userLabel, user, userError, passLabel, pass, passError, button);
     root.append(h1, note, error, home, form);
-    if (hasConsent()) enableLogin(form);
+    if (signedInLineAllowed({ signed_in: true })) enableLogin(form);
 }
 
 function renderMissing(root) {

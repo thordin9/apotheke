@@ -43,13 +43,14 @@ async function hasConsentCookie(page: Page) {
     return cookies.some((cookie) => cookie.name === 'apotheke_consent' && cookie.value === 'v1');
 }
 
-test('Decline after consent sends one session read from the landing page and from privacy', async ({ page }) => {
-    for (const path of ['/', '/privacy/']) {
-        const gets: string[] = [];
-        await page.unroute(API_SESSION).catch(() => {});
-        await page.route(API_SESSION, (route) => {
-            if (route.request().method() === 'GET') gets.push(route.request().method());
-            if (route.request().method() === 'DELETE') {
+test('Decline after consent sends one sign-out from the app, and none before consent', async ({ page }) => {
+    const methods: string[] = [];
+    await page.route(API_SESSION, async (route) => {
+        const req = route.request();
+        if (req.method() === 'DELETE') {
+            const consented = await hasConsentCookie(page);
+            methods.push(consented ? 'delete-with-consent' : 'delete-without');
+            if (!consented) {
                 return route.fulfill({
                     status: 403,
                     contentType: 'application/problem+json',
@@ -57,39 +58,45 @@ test('Decline after consent sends one session read from the landing page and fro
                 });
             }
             return route.fulfill({ status: 204, body: '' });
+        }
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
         });
-        await page.goto(path);
-        await page.getByRole('button', { name: 'Decline' }).click();
-        await page.waitForTimeout(200);
-        expect(gets, path + ' before consent').toEqual([]);
-        await page.goto(path);
-        await page.getByRole('button', { name: 'Accept' }).click();
-        await page.getByRole('button', { name: 'Cookie settings' }).click();
-        await page.getByRole('button', { name: 'Decline' }).click();
-        await expect(page.locator('#consent')).toBeHidden();
-        await expect.poll(() => gets, path).toEqual(['GET']);
-    }
+    });
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await page.waitForTimeout(200);
+    expect(methods).toEqual([]);
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#signed-in')).toHaveText('Signed in as ada.');
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect(page.locator('#consent')).toBeHidden();
+    await expect.poll(() => methods).toEqual(['delete-with-consent']);
+    await expect.poll(async () => hasConsentCookie(page)).toBe(false);
 });
 
 test('Decline ends the session, and accepting again shows signed out', async ({ page }) => {
     let live = true;
-    const gets: string[] = [];
+    const deletes: string[] = [];
     await page.route(API_SESSION, async (route) => {
         const req = route.request();
         const consented = await hasConsentCookie(page);
-        if (req.method() === 'DELETE' && !consented) {
-            return route.fulfill({
-                status: 403,
-                contentType: 'application/problem+json',
-                body: JSON.stringify(problem(403, 'Forbidden', 'consent_required', 'Accept cookies, then try again.')),
-            });
-        }
-        if (req.method() === 'GET' && !consented) {
+        if (req.method() === 'DELETE') {
+            deletes.push(consented ? 'with' : 'without');
+            if (!consented) {
+                return route.fulfill({
+                    status: 403,
+                    contentType: 'application/problem+json',
+                    body: JSON.stringify(problem(403, 'Forbidden', 'consent_required', 'Accept cookies, then try again.')),
+                });
+            }
             live = false;
-            gets.push('end');
-            return route.fulfill({ status: 403, body: '' });
+            return route.fulfill({ status: 204, body: '' });
         }
-        if (req.method() === 'GET') gets.push(live ? 'in' : 'out');
         return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -102,18 +109,45 @@ test('Decline ends the session, and accepting again shows signed out', async ({ 
     await page.getByRole('button', { name: 'Cookie settings' }).click();
     await page.getByRole('button', { name: 'Decline' }).click();
     await expect(page.locator('#signed-in')).toHaveCount(0);
-    await expect.poll(() => gets.includes('end')).toBe(true);
+    await expect.poll(() => deletes).toEqual(['with']);
     await page.getByRole('button', { name: 'Cookie settings' }).click();
     await page.getByRole('button', { name: 'Accept' }).click();
     await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toBeVisible();
     await expect(page.locator('#signed-in')).toHaveCount(0);
-    expect(gets.filter((hit) => hit === 'end')).toHaveLength(1);
 });
 
-test('a failed session read on Decline still clears the signed-in line', async ({ page }) => {
+test('a refused sign-out is tried once more and no further', async ({ page }) => {
+    const methods: string[] = [];
     await page.route(API_SESSION, async (route) => {
-        const consented = await hasConsentCookie(page);
-        if (!consented) return route.fulfill({ status: 500, body: '' });
+        const req = route.request();
+        methods.push(req.method());
+        if (req.method() === 'DELETE') {
+            return route.fulfill({
+                status: 403,
+                contentType: 'application/problem+json',
+                body: JSON.stringify(problem(403, 'Forbidden', 'csrf.invalid', 'The request was refused: reload and try again.')),
+            });
+        }
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
+        });
+    });
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#signed-in')).toHaveText('Signed in as ada.');
+    const before = methods.length;
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect.poll(() => methods.slice(before)).toEqual(['DELETE', 'DELETE']);
+    await page.waitForTimeout(200);
+    expect(methods.slice(before)).toEqual(['DELETE', 'DELETE']);
+});
+
+test('a failed sign-out still clears the signed-in line', async ({ page }) => {
+    await page.route(API_SESSION, async (route) => {
+        if (route.request().method() === 'DELETE') return route.fulfill({ status: 500, body: '' });
         return route.fulfill({
             status: 200,
             contentType: 'application/json',

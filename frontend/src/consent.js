@@ -103,36 +103,83 @@ function disableLogin() {
     if (home) home.hidden = true;
 }
 
-/** A signed-in line is shown only while consent still stands. */
-export function signedInLineAllowed(session) {
-    return hasConsent() && !!(session && session.signed_in === true);
+/** Consent still stands when the cookie is present and Decline is not replacing it. */
+export function consentStands() {
+    return !endingConsent && hasConsent();
 }
 
+/** A signed-in line is shown only while consent still stands. */
+export function signedInLineAllowed(session) {
+    return consentStands() && !!(session && session.signed_in === true);
+}
+
+const SIGNOUT_WAIT_MS = 3000;
+
 /**
- * Decline stores nothing. If consent was given earlier, it is withdrawn and one
- * session read is sent so the API can end the sign-in. Failures are ignored.
- * Hiding the notice is the caller's job.
+ * Decline stores nothing. When consent was given, one sign-out is sent and the
+ * consent cookie is removed after that finishes, or after a short wait.
+ * The signed-in state is cleared at once. Hiding the notice is the caller's job.
  */
 export function declineConsent() {
     const hadConsent = hasConsent();
+    const token = csrfToken;
     sessionEpoch += 1;
     signedIn = false;
     csrfToken = '';
-    if (hadConsent) withdrawConsent();
     if (!hadConsent) return;
+    endingConsent = true;
     document.dispatchEvent(new Event('apotheke-signed-out'));
-    void endSessionOnDecline();
+    void signOutThenWithdraw(token);
 }
 
-async function endSessionOnDecline() {
+async function signOutThenWithdraw(token) {
+    let stop = false;
+    const timer = setTimeout(() => {
+        stop = true;
+    }, SIGNOUT_WAIT_MS);
     try {
-        const base = await loadApiBase();
-        await fetch(sessionUrl(base), {
-            credentials: 'include',
-            headers: { Accept: 'application/json' },
-        });
+        await Promise.race([
+            signOutRequest(token, () => stop),
+            new Promise((resolve) => setTimeout(resolve, SIGNOUT_WAIT_MS)),
+        ]);
     } catch {
-        // The notice is already gone. A failed read still leaves no local session.
+        // The notice is already gone. A failed sign-out still leaves no local session.
+    } finally {
+        clearTimeout(timer);
+        stop = true;
+        endingConsent = false;
+        if (hasConsent()) withdrawConsent();
+    }
+}
+
+async function deleteSession(url, token, stop) {
+    if (stop()) return null;
+    return fetch(url, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+            Accept: 'application/json',
+            'X-CSRF-Token': token,
+        },
+    });
+}
+
+async function signOutRequest(token, stop) {
+    const base = await loadApiBase();
+    const url = sessionUrl(base);
+    let res;
+    try {
+        res = await deleteSession(url, token, stop);
+    } catch {
+        return;
+    }
+    if (!res || stop() || res.status !== 403) return;
+    const problem = await readProblem(res);
+    if (problem.code !== 'csrf.invalid' || stop()) return;
+    try {
+        await deleteSession(url, token, stop);
+    } catch {
+        // One retry only.
     }
 }
 
@@ -186,6 +233,7 @@ export async function fetchSession(apiBase = '') {
 let csrfToken = '';
 let signedIn = false;
 let sessionEpoch = 0;
+let endingConsent = false;
 
 export function currentCsrfToken() {
     return csrfToken;

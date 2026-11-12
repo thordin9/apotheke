@@ -122,7 +122,53 @@ test('a signed-in line needs consent', () => {
     }
 });
 
-test('fetchSession drops a response that arrives after Decline, and Decline reads the session once', async () => {
+test('Decline signs out once while consent is still stored, and a refusal is retried once', async () => {
+    const previousFetch = globalThis.fetch;
+    const previousDoc = globalThis.document;
+    const previousLocation = globalThis.location;
+    const previousSecure = globalThis.isSecureContext;
+    let cookie = 'apotheke_consent=v1';
+    const methods = [];
+    const cookieAtDelete = [];
+    globalThis.isSecureContext = true;
+    globalThis.location = { hostname: '127.0.0.1', protocol: 'http:' };
+    globalThis.document = {
+        get cookie() { return cookie; },
+        set cookie(value) {
+            cookie = String(value).includes('Max-Age=0') ? '' : String(value);
+        },
+        getElementById() { return null; },
+        dispatchEvent() {},
+    };
+    globalThis.fetch = async (url, init) => {
+        const href = String(url);
+        const method = init && init.method ? init.method : 'GET';
+        if (href.includes('config.json')) {
+            return new Response(JSON.stringify({ apiBase: 'https://api.example/api/v1' }), { status: 200 });
+        }
+        methods.push(method);
+        if (method === 'DELETE') cookieAtDelete.push(cookie);
+        const deletes = methods.filter((item) => item === 'DELETE').length;
+        if (method === 'DELETE' && deletes === 1) {
+            return new Response(JSON.stringify({ code: 'csrf.invalid' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
+        return new Response('', { status: 204 });
+    };
+    try {
+        declineConsent();
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        assert.deepEqual(methods, ['DELETE', 'DELETE']);
+        assert.deepEqual(cookieAtDelete, ['apotheke_consent=v1', 'apotheke_consent=v1']);
+        assert.equal(cookie, '');
+    } finally {
+        globalThis.fetch = previousFetch;
+        globalThis.document = previousDoc;
+        globalThis.location = previousLocation;
+        globalThis.isSecureContext = previousSecure;
+    }
+});
+
+test('fetchSession drops a response that arrives after Decline', async () => {
     const previousFetch = globalThis.fetch;
     const previousDoc = globalThis.document;
     const previousLocation = globalThis.location;
