@@ -244,11 +244,14 @@ fail on every backend.
 
 ## Request state (FrankenPHP)
 
-The edge image runs FrankenPHP in **classic mode**. `docker/frankenphp/Caddyfile` has a plain `php_server` with no
-`worker` directive, so each request starts with fresh PHP state, as under php-fpm. Worker mode
-(`app/Config/WorkerMode.php` is in the tree) is a later optimisation, behind its own QA gate.
+The hosted container runs FrankenPHP in **worker mode** (QA-1854, #292): `edge/wrangler.jsonc` sets
+`APOTHEKE_PHP_WORKER=1`, the entrypoint picks `docker/frankenphp/php-worker.caddy`, and `public/frankenphp-worker.php`
+boots the app once per PHP thread and serves requests in a loop, with CodeIgniter's worker reset in between
+(`Config\WorkerMode::$persistentServices`, factories, session close, transaction cleanup). An answered error returns
+to the loop (`PlainHandler`) instead of exiting, so a 404 does not restart the worker. Self-hosted images stay in
+**classic mode** by default (`php-classic.caddy`: each request starts with fresh PHP state, as under php-fpm).
 
-The storage code is written for worker mode now, so that turning it on later changes nothing:
+The storage code is written for worker mode:
 
 - **Executor and bridge client:** built per request by `Config\Services` and never listed in
   `WorkerMode::$persistentServices`. They hold no static property, and no request or connection state survives the
