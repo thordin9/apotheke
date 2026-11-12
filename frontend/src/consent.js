@@ -7,6 +7,8 @@ import { stopAnalytics, trackPageview } from './analytics.js';
 
 export const CONSENT_NAME = 'apotheke_consent';
 export const CONSENT_VALUE = 'v1';
+/** Not consent. Kept until the session read has had a response, or until the one later try. */
+export const CONSENT_SIGNOUT = 'out';
 export const CONSENT_MAX_AGE = 15552000;
 export const CONSENT_PARENT = 'getapotheke.com';
 export const SESSION_PATH = '/api/v1/session';
@@ -41,6 +43,11 @@ export function consentCookie(hostname, { protocol = 'https:', secureContext = f
     return cookieString(CONSENT_VALUE, CONSENT_MAX_AGE, hostname, protocol, secureContext);
 }
 
+/** Same attributes as the consent cookie, with the sign-out value. */
+export function signOutPendingCookie(hostname, { protocol = 'https:', secureContext = false } = {}) {
+    return cookieString(CONSENT_SIGNOUT, CONSENT_MAX_AGE, hostname, protocol, secureContext);
+}
+
 /**
  * The cookie string that removes the consent cookie: the same Domain, Path, Secure and
  * SameSite it was set with, an empty value and Max-Age=0.
@@ -60,16 +67,25 @@ function cookieString(value, maxAge, hostname, protocol, secureContext) {
     return parts.join('; ');
 }
 
-/** Only the exact value v1 counts. */
-export function hasConsent(cookieHeader) {
+function cookieValue(cookieHeader, name) {
     const header = cookieHeader === undefined ? readCookieHeader() : String(cookieHeader);
     for (const part of header.split(';')) {
         const text = part.trim();
         const eq = text.indexOf('=');
         if (eq < 0) continue;
-        if (text.slice(0, eq) === CONSENT_NAME && text.slice(eq + 1) === CONSENT_VALUE) return true;
+        if (text.slice(0, eq) === name) return text.slice(eq + 1);
     }
-    return false;
+    return '';
+}
+
+/** Only the exact value v1 counts. */
+export function hasConsent(cookieHeader) {
+    return cookieValue(cookieHeader, CONSENT_NAME) === CONSENT_VALUE;
+}
+
+/** The sign-out value is not consent. */
+export function signOutPending(cookieHeader) {
+    return cookieValue(cookieHeader, CONSENT_NAME) === CONSENT_SIGNOUT;
 }
 
 export function acceptConsent() {
@@ -113,10 +129,24 @@ export function signedInLineAllowed(session) {
     return consentStands() && !!(session && session.signed_in === true);
 }
 
+function cookieContext() {
+    return {
+        protocol: location.protocol,
+        secureContext: typeof isSecureContext === 'boolean' ? isSecureContext : false,
+    };
+}
+
+/** Remember that a session read is still owed. Same cookie, not consent. */
+function markSignOutPending() {
+    document.cookie = signOutPendingCookie(location.hostname, cookieContext());
+    stopAnalytics();
+    disableLogin();
+}
+
 /**
- * Decline stores nothing. When consent was given, the consent cookie is removed
- * at once and one session read follows. Failures are ignored. The signed-in
- * state is cleared at once. Hiding the notice is the caller's job.
+ * Decline stores nothing new. When consent was given, the consent cookie becomes
+ * the sign-out value at once and one session read follows. A response clears
+ * that value. Hiding the notice is the caller's job.
  */
 export function declineConsent() {
     const hadConsent = hasConsent();
@@ -124,22 +154,56 @@ export function declineConsent() {
     signedIn = false;
     csrfToken = '';
     if (!hadConsent) return;
-    withdrawConsent();
+    markSignOutPending();
     document.dispatchEvent(new Event('apotheke-signed-out'));
-    void readSessionAfterDecline();
+    void startSignOutRead(false);
 }
 
-async function readSessionAfterDecline() {
+let signOutFlight = null;
+
+function startSignOutRead(clearOnFailure) {
+    if (!signOutFlight) {
+        signOutFlight = readSessionAfterDecline(clearOnFailure).finally(() => {
+            signOutFlight = null;
+        });
+    }
+    return signOutFlight;
+}
+
+async function acceptAfterSignOut() {
+    await startSignOutRead(true);
+    if (signOutPending()) withdrawConsent();
+    if (!hasConsent()) acceptConsent();
+    void loadApiBase();
+    const form = document.getElementById('sign-in');
+    if (form) enableLogin(form);
+    trackPageview();
+}
+
+async function readSessionAfterDecline(clearOnFailure) {
     try {
         const base = await loadApiBase();
+        if (!signOutPending()) return;
+        if (!base) {
+            if (clearOnFailure) withdrawConsent();
+            return;
+        }
         await fetch(sessionUrl(base), {
             credentials: 'include',
             keepalive: true,
             headers: { Accept: 'application/json' },
         });
+        if (signOutPending()) withdrawConsent();
     } catch {
-        // The notice is already gone. A failed read still leaves no local session.
+        if (clearOnFailure && signOutPending()) withdrawConsent();
     }
+}
+
+/** One later try when the sign-out value is still set. */
+export function retryPendingSignOut() {
+    if (!signOutPending()) return;
+    void loadApiBase();
+    void startSignOutRead(true);
 }
 
 let apiBasePromise = null;
@@ -424,7 +488,9 @@ function bindSettings(banner) {
         if (choice) {
             choice.textContent = hasConsent()
                 ? 'Your choice: accepted. Decline deletes the cookie and stops counting.'
-                : 'Your choice: not accepted. Nothing is stored or counted.';
+                : signOutPending()
+                    ? 'Your choice: declined. Nothing is stored or counted.'
+                    : 'Your choice: not accepted. Nothing is stored or counted.';
             choice.hidden = false;
         }
         show(banner);
@@ -448,6 +514,11 @@ function start() {
     }
     if (accept) {
         accept.addEventListener('click', () => {
+            if (signOutPending()) {
+                dismissNotice(banner);
+                void acceptAfterSignOut(banner);
+                return;
+            }
             const already = hasConsent();
             acceptConsent();
             dismissNotice(banner);
@@ -457,6 +528,11 @@ function start() {
             if (form) enableLogin(form);
             trackPageview();
         });
+    }
+    if (signOutPending()) {
+        retryPendingSignOut();
+        show(banner);
+        return;
     }
     if (hasConsent()) {
         void loadApiBase();
