@@ -12,6 +12,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** control-plane schema for the hosted operator console in `edge/migrations/control/` (installations, routes, plans and limits, manual subscriptions, usage counters, an append-only audit log), with `primary` seeded under its existing names on plan `internal`; see [docs/operator-console.md](docs/operator-console.md). Not applied by any deploy yet ([#299](https://github.com/thordin9/apotheke/pull/299))
 
+## [3.37.1] - 2026-11-12
+
 ### Fixed
 
 - **frontend:** the landing FAQ says a hosted Apotheke is available and that sign-up is invitation-only ([#288](https://github.com/thordin9/apotheke/pull/288))
@@ -1615,7 +1617,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.37.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.37.1...HEAD
+[3.37.1]: https://github.com/thordin9/apotheke/compare/v3.37.0...v3.37.1
 [3.37.0]: https://github.com/thordin9/apotheke/compare/v3.36.10...v3.37.0
 [3.36.10]: https://github.com/thordin9/apotheke/compare/v3.36.9...v3.36.10
 [3.36.9]: https://github.com/thordin9/apotheke/compare/v3.36.8...v3.36.9
