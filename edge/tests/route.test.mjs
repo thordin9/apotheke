@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
 const { default: publicWorker } = await import('../src/index.ts');
-const { clearRouteCache, normalizeHost, routeFor } = await import('../src/route.ts');
+const { cachedHosts, clearRouteCache, normalizeHost, ROUTE_CACHE_MAX, routeFor } = await import('../src/route.ts');
 
 /** The control migrations on a real SQLite behind D1's prepare().bind().first(). */
 function controlDb() {
@@ -94,4 +94,59 @@ test('E2: primary is never status-gated, whatever its row says', async () => {
 test('E2: hosts are normalised before the lookup', () => {
   assert.equal(normalizeHost('API.Services.getapotheke.com:8443'), 'api.services.getapotheke.com');
   assert.equal(normalizeHost('a.example.test.'), 'a.example.test');
+  assert.equal(normalizeHost('b.example.test..'), 'b.example.test');
+  assert.equal(normalizeHost('B.Example.Test..:443'), 'b.example.test');
+});
+
+test('E2: the route cache is capped: expired entries go first, then the oldest', async () => {
+  clearRouteCache();
+  const db = controlDb();
+  const t0 = 1_000_000;
+  for (let i = 0; i < ROUTE_CACHE_MAX; i++) await routeFor(`h${i}.example.test`, db, t0 + i);
+  assert.equal(cachedHosts().length, ROUTE_CACHE_MAX);
+  // Full and nothing expired: the oldest goes.
+  await routeFor('new1.example.test', db, t0 + ROUTE_CACHE_MAX);
+  assert.equal(cachedHosts().length, ROUTE_CACHE_MAX);
+  assert.equal(cachedHosts()[0], 'h1.example.test');
+  assert.equal(cachedHosts().at(-1), 'new1.example.test');
+  // 30 s on, the first 10 entries have expired: all of them go, and nothing newer.
+  await routeFor('new2.example.test', db, t0 + 30_000 + 10);
+  assert.equal(cachedHosts().length, ROUTE_CACHE_MAX - 9);
+  assert.equal(cachedHosts()[0], 'h11.example.test');
+  clearRouteCache();
+});
+
+test('E2: status pages are plain, fixed text that names nothing about the installation', async () => {
+  clearRouteCache();
+  const db = controlDb();
+  db.raw.exec(`INSERT INTO installations (id, do_name, r2_prefix, status, owner_contact, notes)
+      VALUES ('inst-hidden-id', 'tenant-hidden', 'installations/tenant-hidden/', 'suspended', 'owner@example.test', 'operator note');
+    INSERT INTO installation_routes (host, installation_id) VALUES ('hidden.example.test', 'inst-hidden-id');`);
+  const w = worker(db);
+  for (const [status, code, retry] of [['provisioning', 503, '30'], ['suspended', 402, null], ['deleting', 410, null], ['deleted', 410, null]]) {
+    clearRouteCache();
+    db.raw.exec(`UPDATE installations SET status = '${status}' WHERE id = 'inst-hidden-id'`);
+    const res = await w.go('https://hidden.example.test..:8443/items/1?q=x');
+    assert.equal(res.status, code, status);
+    assert.equal(res.headers.get('retry-after'), retry, status);
+    assert.equal(res.headers.get('content-type'), 'text/plain; charset=utf-8');
+    const body = await res.text();
+    for (const leak of ['inst-hidden-id', 'tenant-hidden', 'installations/', 'owner@', 'operator note', 'hidden.example', 'items', status]) {
+      assert.ok(!body.toLowerCase().includes(leak), `${status} body names ${leak}`);
+    }
+  }
+  assert.deepEqual(w.seen, []);
+});
+
+test('E2: X-Forwarded-Host is ignored; only the request URL host is routed', async () => {
+  clearRouteCache();
+  const db = controlDb();
+  db.raw.exec(`INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('b', 'tenant-b', 'installations/tenant-b/', 'suspended');
+    INSERT INTO installation_routes (host, installation_id) VALUES ('b.example.test', 'b');`);
+  const seen = [];
+  const env = { DB: db, APOTHEKE: { getByName: (n) => ({ fetch: async () => { seen.push(n); return new Response('app'); } }) } };
+  const spoofed = new Request('https://api.services.getapotheke.com/', { headers: { 'X-Forwarded-Host': 'b.example.test', Host: 'b.example.test' } });
+  assert.equal(await (await publicWorker.fetch(spoofed, env)).text(), 'app');
+  assert.deepEqual(seen, ['primary']);
+  assert.deepEqual(db.queries, [['api.services.getapotheke.com']]);
 });
