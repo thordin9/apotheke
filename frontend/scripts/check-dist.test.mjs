@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { PAGE_SECURITY, PERMISSIONS_POLICY, connectSrcHas, expectedCache, headersFor, offSiteHosts, parseHeaders, resolves } from './check-dist.mjs';
+import { PAGE_SECURITY, PERMISSIONS_POLICY, connectSrcHas, expectedCache, headersFor, offSiteHosts, pageUrl, parseHeaders, resolves } from './check-dist.mjs';
 
 const rules = parseHeaders(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/_headers'), 'utf8'));
 const pages = ['/', '/privacy/', '/404.html', '/app/', '/app/index.html'];
@@ -127,12 +127,40 @@ test('resolves rejects http and allows https and mailto', () => {
     assert.equal(resolves('mailto:ops@example').ok, true);
 });
 
+test('pageUrl is the public address of a built file', () => {
+    assert.equal(pageUrl('index.html'), 'https://getapotheke.com/');
+    assert.equal(pageUrl('privacy/index.html'), 'https://getapotheke.com/privacy/');
+    assert.equal(pageUrl('404.html'), 'https://getapotheke.com/404.html');
+});
+
 test('a link to another host must name https', () => {
-    const from = 'https://getapotheke.com/privacy/';
-    for (const url of ['//cdn.example/x', '\\\\cdn.example/x', '/\\cdn.example/x']) {
+    const from = pageUrl('privacy/index.html');
+    for (const url of [
+        '//getapotheke.com/privacy/',
+        '//www.getapotheke.com/privacy/',
+        '\\\\getapotheke.com/privacy/',
+        '/\\getapotheke.com/privacy/',
+        'https:\\\\getapotheke.com/privacy/',
+        '//getapotheke.com:8443/privacy/',
+        '//www.getapotheke.com:8443/privacy/',
+        '//getapotheke%2ecom/privacy/',
+        '//www%2egetapotheke.com/privacy/',
+        '//%67etapotheke.com/privacy/',
+        '//cdn.example/x',
+        '\\\\cdn.example/x',
+        '/\\cdn.example/x',
+    ]) {
         assert.equal(resolves(url, from).ok, false, url);
     }
     assert.equal(resolves('https://cdn.example/x', from).ok, true);
+    assert.equal(resolves('/privacy/', from).ok, true);
+    assert.equal(resolves('https://getapotheke.com/privacy/', from).ok, true);
+    assert.equal(resolves('https://getapotheke.com/missing-page', from).ok, false);
+});
+
+test('a stylesheet may use a data URL', () => {
+    assert.equal(resolves('data:image/svg+xml,x', pageUrl('assets/x.css')).ok, true);
+    assert.equal(resolves('data:image/svg+xml,x', pageUrl('index.html')).ok, false);
 });
 
 test('relative links resolve from the page that contains them', () => {

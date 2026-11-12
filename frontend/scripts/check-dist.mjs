@@ -162,7 +162,7 @@ function parsedUrl(url, base = PAGE_BASE) {
 }
 
 function urlHost(parsed) {
-    return parsed.host.toLowerCase().replace(/:\d+$/, '');
+    return parsed.host.toLowerCase();
 }
 
 function hostFromUrl(url) {
@@ -175,7 +175,23 @@ function explicitHttps(url) {
     return /^https:\/\//i.test(url);
 }
 
-function pageUrl(rel) {
+function rawAuthority(url) {
+    const lower = url.toLowerCase();
+    let rest = '';
+    if (lower.startsWith('https://')) rest = url.slice('https://'.length);
+    else if (lower.startsWith('http://')) rest = url.slice('http://'.length);
+    else if (url.startsWith('//')) rest = url.slice(2);
+    else return '';
+    const end = rest.search(/[/?#\\]/);
+    return end < 0 ? rest : rest.slice(0, end);
+}
+
+function disguisedOnSite(url) {
+    if (url.includes('\\') || url.startsWith('//')) return true;
+    return /%[0-9a-f]{2}/i.test(rawAuthority(url));
+}
+
+export function pageUrl(rel) {
     if (rel === 'index.html') return PAGE_BASE;
     if (rel.endsWith('/index.html')) return new URL(rel.slice(0, -'index.html'.length), PAGE_BASE).href;
     return new URL(rel, PAGE_BASE).href;
@@ -568,16 +584,17 @@ let spaMount = '/app';
 
 export function resolves(url, from = PAGE_BASE) {
     const trimmed = String(url || '').trim();
+    if (String(from).includes('.css') && trimmed.toLowerCase().startsWith('data:')) return { ok: true };
     const parsed = parsedUrl(trimmed, from);
     if (!parsed) return { ok: false, why: 'not a root-absolute path' };
     if (parsed.protocol === 'mailto:') return { ok: true };
     if (parsed.protocol === 'http:') return { ok: false, why: 'not https' };
     if (parsed.protocol !== 'https:') return { ok: false, why: 'not a root-absolute path' };
+    if (disguisedOnSite(trimmed)) return { ok: false, why: 'not a root-absolute path' };
     if (!onSiteHost(urlHost(parsed))) {
         if (explicitHttps(trimmed)) return { ok: true };
         return { ok: false, why: 'not a root-absolute path' };
     }
-    if (explicitHttps(trimmed)) return { ok: true };
     const path = parsed.pathname;
     if (path === '') return { ok: true };
     const decision = appFallback(path, spaMount.endsWith('/') ? spaMount : spaMount + '/');
