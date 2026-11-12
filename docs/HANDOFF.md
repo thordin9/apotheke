@@ -84,4 +84,5 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
   [tracked differences](history/handoff-log.md#tracked).
 - [Database](database.md), [Testing](testing.md), [Releasing](releasing.md), [API](api.md),
   [Deployment and operations](deployment-and-operations.md).
+- Open: [L-1987](qa/apotheke-l1987-hosted-container-early-exit.md), preview containers stopping with code 0 before the sleep timer.
 - CI4 Playwright: the `CI4_UNPORTED` skip list (`tests/visual/fixtures.ts`) is empty.
