@@ -10,6 +10,7 @@ require_once dirname(__DIR__) . '/lib.php';
  * Web requests get their consent, sign-in and CSRF answers first: a small body that fills no form fields (JSON,
  * text) is not "too large", and only a body past post_max_size is 413. A form write from another origin (Origin,
  * else Referer, against this host or the public base) is 403 with sign-in on; without either the CSRF token decides.
+ * After those checks, a form field sent as a list it does not take is a 422.
  */
 final class Ci4RequestValidationTest extends TestCase
 {
@@ -130,6 +131,40 @@ final class Ci4RequestValidationTest extends TestCase
         }
     }
 
+    public function testAFormFieldSentAsAListIsA422AndSelectsNothing(): void
+    {
+        [$c, $token, $id] = $this->signedIn();
+        [, , $other] = $this->signedIn();
+        $before = $this->item($other);
+        $count = $this->itemCount();
+        foreach (['csrf=' . $token . '&id[]=' . $other . '&name=Changed', 'csrf=' . $token . '&id=' . $other . '&name[]=Changed',
+            'csrf=' . $token . '&name[x]=New', 'csrf=' . $token . '&id=' . $other . '&name=Changed&notes[]=a&notes[]=b'] as $form) {
+            $r = $c->req('POST', '/save', [], [], [], $form);
+            $this->assertSame(422, $r['status'], $form);
+            $this->assertStringContainsString('Each field takes one value', $r['body'], $form);
+            $this->assertStringStartsWith('text/html', $r['headers']['content-type'] ?? '', $form);
+            $json = $c->req('POST', '/save', [], [], ['Accept: application/json', 'X-Requested-With: fetch'], $form);
+            $this->assertSame(422, $json['status'], $form);
+            $this->assertFalse($json['json']['ok'] ?? null, $form);
+            $this->assertStringStartsWith('Each field takes one value', (string)($json['json']['error'] ?? ''), $form);
+        }
+        $this->assertSame($before, $this->item($other), 'no item was changed');
+        $this->assertSame($count, $this->itemCount(), 'or created');
+        $this->assertSame(422, $c->req('POST', '/item/' . $id . '/fav', [], [], [], 'csrf=' . $token . '&on[]=1')['status']);
+        $this->assertSame(419, $c->req('POST', '/item/' . $id . '/fav', [], [], [], 'csrf[]=' . $token)['status'], 'a token sent as a list is no token');
+        $this->assertFalse($this->favourite($id));
+        // The fields the forms send as lists still work, and GET filters take lists as before.
+        $ask = $c->req('POST', '/bulk', [], [], [], 'csrf=' . $token . '&action=delete&ids[]=' . $id . '&ids[]=' . $other);
+        $this->assertSame(200, $ask['status'], 'delete asks first');
+        $this->assertSame($count, $this->itemCount());
+        $this->assertSame(200, $c->get('/?loc[]=1&cat[]=none')['status']);
+        // Signed out, cross-site, or without the token, those answers come first.
+        $out = self::$server->client();
+        $this->assertSame(303, $out->req('POST', '/save', [], [], [], 'name[]=x')['status']);
+        $this->assertSame(403, $c->req('POST', '/save', [], [], ['Origin: http://other.example'], 'csrf=' . $token . '&name[]=x')['status']);
+        $this->assertSame(419, $c->req('POST', '/save', [], [], [], 'csrf=wrong&name[]=x')['status']);
+    }
+
     /** @return array{0:Client,1:string,2:int} a signed-in client, its CSRF token and a new item's id */
     private function signedIn(?Server $server = null, ?string $dir = null): array
     {
@@ -143,6 +178,19 @@ final class Ci4RequestValidationTest extends TestCase
         $this->assertGreaterThan(0, $id);
 
         return [$c, $token, $id];
+    }
+
+    /** @return array<string,mixed> */
+    private function item(int $id): array
+    {
+        $row = testdb(self::$dir)->query('SELECT name, notes, serial, updated_at FROM items WHERE id = ' . $id)->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $row : [];
+    }
+
+    private function itemCount(): int
+    {
+        return (int)testdb(self::$dir)->query('SELECT COUNT(*) FROM items')->fetchColumn();
     }
 
     private function favourite(int $id): bool
