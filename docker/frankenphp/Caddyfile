@@ -35,9 +35,11 @@
 	persist_config off
 	skip_install_trust
 	frankenphp {
-		# PHP threads = requests served at once. The entrypoint checks the value (1-64, default 2).
-		num_threads {$FRANKENPHP_NUM_THREADS:2}
-		max_threads {$FRANKENPHP_NUM_THREADS:2}
+		# PHP threads = requests served at once. The entrypoint checks FRANKENPHP_NUM_THREADS (1-64, default 2) and
+		# sets these two from it: classic mode both are FRANKENPHP_NUM_THREADS; worker mode (APOTHEKE_PHP_WORKER=1)
+		# one regular thread, and the max adds the FRANKENPHP_NUM_THREADS worker threads (php-worker.caddy).
+		num_threads {$FRANKENPHP_REGULAR_THREADS:2}
+		max_threads {$FRANKENPHP_MAX_THREADS:2}
 	}
 	servers {
 		# HTTP/1.1 only, on both servers, as nginx (M-1454): no cleartext HTTP/2 (h2c), whose bodies have no
@@ -226,7 +228,9 @@ http:// {
 	# Existing files are served, everything else goes to the front controller (nginx: try_files $uri @app). PHP sees
 	# the public server's client address and port, as with nginx's fastcgi_params.
 	php_server {
-		try_files {path} index.php
+		# classic (each request starts fresh, as under php-fpm) or worker (APOTHEKE_PHP_WORKER=1, set by the
+		# entrypoint): docker/frankenphp/php-classic.caddy or php-worker.caddy
+		import php-{$APOTHEKE_PHP_MODE:classic}.caddy
 		env REMOTE_ADDR {http.request.header.X-Apotheke-Peer-Addr}
 		env REMOTE_PORT {http.request.header.X-Apotheke-Peer-Port}
 		env SERVER_PORT {$PORT:9091}
