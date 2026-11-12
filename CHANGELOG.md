@@ -16,6 +16,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Changed
 
 - **tests:** the Caddyfile validate test skips worker mode when `/var/www/app/public/frankenphp-worker.php` is missing, so a host `frankenphp` on `PATH` no longer fails it (N-1981); stale worker-mode comments fixed (N-1985) ([#298](https://github.com/thordin9/apotheke/pull/298))
+- **docs:** correct the v3.37.0 notes for hosted storage, backups, sign-in, worker mode and the SQL executor ([#301](https://github.com/thordin9/apotheke/pull/301))
 
 ## [3.37.2] - 2026-11-12
 
