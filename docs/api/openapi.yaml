@@ -649,9 +649,9 @@
           "tagline": {"type": "string"},
           "accent": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
           "theme_default": {"type": "string", "enum": ["auto", "light", "dark"]},
-          "logo_url": {"type": "string"},
-          "favicon_url": {"type": "string"},
-          "touch_icon_url": {"type": "string"}
+          "logo_url": {"type": "string", "description": "Absolute URL on the public base (public_url, else this request's allowed host)"},
+          "favicon_url": {"type": "string", "description": "Absolute URL on the public base (public_url, else this request's allowed host)"},
+          "touch_icon_url": {"type": "string", "description": "Absolute URL on the public base (public_url, else this request's allowed host)"}
         }
       }
     }

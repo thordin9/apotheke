@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core;
 
 use Apotheke\Core\Filters\PublicBaseFilter;
+use Apotheke\Core\Http\PublicBase;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
@@ -31,6 +32,25 @@ final class PublicBaseTest extends CIUnitTestCase
     private ?TestDatabase $database = null;
 
     private ?IncomingRequest $lastRequest = null;
+
+    /** @return iterable<string,array{0:string,1:string,2:string}> base, path, absolute URL */
+    public static function absolutes(): iterable
+    {
+        yield 'https, default port' => ['https://pantry.example/', '/brand/logo.svg?v=1', 'https://pantry.example/brand/logo.svg?v=1'];
+        yield 'explicit default port' => ['https://pantry.example:443', '/a.png', 'https://pantry.example/a.png'];
+        yield 'other port' => ['http://127.0.0.1:8080/', '/assets/icon.svg?v=2', 'http://127.0.0.1:8080/assets/icon.svg?v=2'];
+        yield 'base with a path: origin only' => ['https://pantry.example/app/', '/a.png', 'https://pantry.example/a.png'];
+        yield 'IPv6' => ['http://[::1]:8080/', '/a.png', 'http://[::1]:8080/a.png'];
+        yield 'already absolute' => ['https://pantry.example/', 'https://cdn.example/a.png', 'https://cdn.example/a.png'];
+        yield 'protocol-relative is left alone' => ['https://pantry.example/', '//cdn.example/a.png', '//cdn.example/a.png'];
+        yield 'no usable base' => ['', '/a.png', '/a.png'];
+    }
+
+    #[DataProvider('absolutes')]
+    public function testAbsoluteUsesTheOriginOfTheBase(string $base, string $path, string $want): void
+    {
+        $this->assertSame($want, PublicBase::absolute($base, $path));
+    }
 
     /** @return iterable<string,array{0:string}> */
     public static function drivers(): iterable

@@ -216,8 +216,10 @@ final class Ci4ApiUsersTest extends TestCase
             array_intersect_key($b, array_flip(['name', 'accent', 'theme_default'])));
         $login = $this->client()->get('/login');
         $this->assertSame(200, $login['status']);
+        $origin = $anon->base;
         foreach (['logo_url', 'favicon_url', 'touch_icon_url'] as $key) {
-            $this->assertStringContainsString('"' . htmlspecialchars($b[$key]) . '"', $login['body'], $key);
+            $this->assertStringStartsWith($origin . '/', $b[$key], $key . ': absolute, on this server');
+            $this->assertStringContainsString('"' . htmlspecialchars(substr($b[$key], strlen($origin))) . '"', $login['body'], $key);
         }
         $this->assertStringContainsString(htmlspecialchars($b['name'] . ', ' . $b['tagline']), $login['body']);
         $this->setting('app_name', 'Pantry');
@@ -227,6 +229,37 @@ final class Ci4ApiUsersTest extends TestCase
         $this->assertStringContainsString('Pantry', $this->client()->get('/manifest.webmanifest')['body']);
         $this->setting('app_name', 'Apotheke');
         $this->setting('accent', '#4f46e5');
+    }
+
+    /**
+     * The icon URLs are absolute on the public base: PUBLIC_URL when it is set, not the request's Host;
+     * without it, the request's Host when it passes ALLOWED_HOSTS. A forwarded host counts only with trust_proxy.
+     */
+    public function testBrandingUrlsAreAbsoluteOnThePublicBase(): void
+    {
+        foreach ([
+            [['PUBLIC_URL' => 'https://pantry.example'], 'X-Forwarded-Host: other.example', 'https://pantry.example/'],
+            [['PUBLIC_URL' => 'https://pantry.example:8443/'], 'X-Forwarded-Host: other.example', 'https://pantry.example:8443/'],
+            [['ALLOWED_HOSTS' => '127.0.0.1'], 'X-Forwarded-Host: other.example', null],
+        ] as [$env, $header, $want]) {
+            $dir = tmpdir('api-branding');
+            $server = new Server($dir, $env + ['APP_PASSWORD' => self::PASSWORD], 'ci4');
+            try {
+                $c = $server->client();
+                $r = $c->rest('GET', '/api/v1/branding', null, [$header]);
+                $this->assertSame(200, $r['status'], $r['body']);
+                ApiContract::assertMatches('GET', '/api/v1/branding', $r);
+                foreach (['logo_url', 'favicon_url', 'touch_icon_url'] as $key) {
+                    $this->assertStringStartsWith($want ?? $c->base . '/', $r['json'][$key], $key);
+                    $this->assertStringNotContainsString('other.example', $r['json'][$key], $key);
+                }
+            } finally {
+                $server->stop();
+                testdb_drop($dir);
+                rrmdir($dir);
+                @unlink($dir . '.server.log');
+            }
+        }
     }
 
     /**
