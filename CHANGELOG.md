@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** control-plane schema for the hosted operator console in `edge/migrations/control/` (installations, routes, plans and limits, manual subscriptions, usage counters, an append-only audit log), with `primary` seeded under its existing names on plan `internal`; see [docs/operator-console.md](docs/operator-console.md). Not applied by any deploy yet ([#299](https://github.com/thordin9/apotheke/pull/299))
+
 ### Changed
 
 - **edge:** FrankenPHP worker mode is on for the hosted container (`APOTHEKE_PHP_WORKER=1` in `edge/wrangler.jsonc`); in the interleaved classic/worker preview it was 11.7% faster at p50 on `/api/v1/me`. Setting `0` and deploying a release goes back to classic mode ([#297](https://github.com/thordin9/apotheke/pull/297))
