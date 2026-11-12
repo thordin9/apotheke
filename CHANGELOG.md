@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **frontend:** `/app/` shows a sign-in link, or the signed-in line when a session exists, and the sign-in button stays busy while the request is in flight
+
 ## [3.36.10] - 2026-11-12
 
 ### Fixed
