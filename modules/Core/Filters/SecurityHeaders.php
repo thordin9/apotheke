@@ -9,7 +9,10 @@ use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
 
-/** The four headers legacy sends after boot. Not applied to an originals 404. */
+/**
+ * The four headers legacy sends after boot. Not applied to an originals 404, nor to a problem+json
+ * answer, which carries the API's set (ApiSecurityPolicy; /upload/check's /api refusal).
+ */
 final class SecurityHeaders implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null): null
@@ -19,6 +22,9 @@ final class SecurityHeaders implements FilterInterface
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null): ResponseInterface
     {
+        if (str_starts_with($response->getHeaderLine('Content-Type'), 'application/problem+json')) {
+            return $response;
+        }
         foreach ((new SecurityPolicy())->headers() as $name => $value) {
             // A route that sets its own, stricter CSP keeps it (legacy brand_serve()).
             if ($name === 'Content-Security-Policy' && $response->hasHeader($name)) {

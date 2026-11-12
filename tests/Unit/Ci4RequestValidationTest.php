@@ -11,7 +11,9 @@ require_once dirname(__DIR__) . '/lib.php';
  * text) is not "too large", and only a body past post_max_size is 413. A form write from another origin (Origin,
  * else Referer, against this host or the public base) is 403 with sign-in on; without either the CSRF token decides.
  * After those checks, a form field sent as a list it does not take is a 422, and an item's name, notes, tags or
- * serial number past its limit is a 422 instead of being cut short.
+ * serial number past its limit is a 422 instead of being cut short. /upload/check (the FrankenPHP image's check
+ * before a body over 64 KiB) refuses a signed-out /api request with the API's problem+json: 413 for a declared
+ * length over 64 KiB, else 401.
  */
 final class Ci4RequestValidationTest extends TestCase
 {
@@ -190,6 +192,49 @@ final class Ci4RequestValidationTest extends TestCase
         $r = $c->post('/save', ['csrf' => $token, 'id' => $id, 'name' => '  ' . $name . '  ', 'notes' => str_repeat('x', 5000)]);
         $this->assertSame(303, $r['status']);
         $this->assertSame([$name, 5000], [$this->item($id)['name'], mb_strlen((string)$this->item($id)['notes'])]);
+    }
+
+    public function testTheUploadCheckAnswersASignedOutApiRequestWithProblemJson413(): void
+    {
+        $dir = tmpdir('request-validation-upload');
+        $server = new Server($dir, ['APP_PASSWORD' => self::PASSWORD, 'CORS_ALLOWED_ORIGINS' => 'https://app.example.test'], 'ci4');
+        try {
+            $c = $server->client();
+            foreach (['/api/v1/session', '/api/v1/imports?x=1', '/api', '//api/v1/session'] as $uri) {
+                $r = $c->get('/upload/check', ['X-Forwarded-Uri: ' . $uri, 'X-Forwarded-Method: POST', 'X-Apotheke-Body-Length: 65537', 'Origin: https://app.example.test']);
+                $this->assertSame(413, $r['status'], $uri);
+                $this->assertSame('application/problem+json', $r['headers']['content-type'] ?? null, $uri);
+                $this->assertSame(['type' => 'about:blank', 'title' => 'Content Too Large', 'status' => 413,
+                    'detail' => 'A request body over 64 KiB needs a signed-in session.', 'code' => 'upload.too_large'], $r['json'], $uri);
+                $this->assertSame('no-store', $r['headers']['cache-control'] ?? null, $uri);
+                $this->assertSame("default-src 'none'; frame-ancestors 'none'; sandbox", $r['headers']['content-security-policy'] ?? null, $uri);
+                $this->assertSame('https://app.example.test', $r['headers']['access-control-allow-origin'] ?? null, $uri);
+                $this->assertSame('true', $r['headers']['access-control-allow-credentials'] ?? null, $uri);
+                $this->assertSame('no-referrer', $r['headers']['referrer-policy'] ?? null, $uri . ': the API headers');
+                $this->assertArrayNotHasKey('x-frame-options', $r['headers'], $uri);
+            }
+            // Without a declared length over 64 KiB (chunked, or a DELETE without a body) it is the API's 401.
+            foreach (['', '65536', 'abc', '-1'] as $length) {
+                $r = $c->get('/upload/check', array_merge(['X-Forwarded-Uri: /api/v1/session', 'Origin: https://app.example.test'], $length === '' ? [] : ['X-Apotheke-Body-Length: ' . $length]));
+                $this->assertSame([401, 'application/problem+json', 'auth.required'], [$r['status'], $r['headers']['content-type'] ?? null, $r['json']['code'] ?? null], $length);
+                $this->assertSame('https://app.example.test', $r['headers']['access-control-allow-origin'] ?? null, $length);
+            }
+            $other = $c->get('/upload/check', ['X-Forwarded-Uri: /api/v1/session', 'X-Apotheke-Body-Length: 300000', 'Origin: https://other.example']);
+            $this->assertSame(413, $other['status']);
+            $this->assertArrayNotHasKey('access-control-allow-origin', $other['headers'], 'an origin not listed gets no CORS headers');
+            foreach (['', '/save', '/apix', '/backup/restore'] as $uri) {
+                $r = $c->get('/upload/check', array_merge(['X-Apotheke-Body-Length: 300000'], $uri === '' ? [] : ['X-Forwarded-Uri: ' . $uri]));
+                $this->assertSame([401, ''], [$r['status'], $r['body']], 'pages keep the bare 401: ' . $uri);
+            }
+            $token = $c->rest('GET', '/api/v1/session')['json']['csrf_token'];
+            $this->assertSame(200, $c->rest('POST', '/api/v1/session', ['username' => 'admin', 'password' => self::PASSWORD], ['X-CSRF-Token: ' . $token])['status']);
+            $this->assertSame(204, $c->get('/upload/check', ['X-Forwarded-Uri: /api/v1/imports', 'X-Apotheke-Body-Length: 300000'])['status'], 'signed in');
+        } finally {
+            $server->stop();
+            testdb_drop($dir);
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
+        }
     }
 
     /** @return array{0:Client,1:string,2:int} a signed-in client, its CSRF token and a new item's id */

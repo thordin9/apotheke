@@ -167,6 +167,14 @@
 			}
 			expression `{http.request.header.Content-Length}.matches("^[0-9]{1,15}$") && int({http.request.header.Content-Length}) > 23068672`
 		}
+		# Under /api the same refusal is the API's problem+json (docs/api.md)
+		@apitoolarge {
+			path /api /api/*
+			expression `{http.request.header.Content-Length}.matches("^[0-9]{1,15}$") && int({http.request.header.Content-Length}) > 23068672`
+		}
+		header @apitoolarge Content-Type application/problem+json
+		header @apitoolarge Cache-Control no-store
+		respond @apitoolarge `{"type":"about:blank","title":"Content Too Large","status":413,"detail":"Upload too large (max 22 MiB).","code":"upload.too_large"}` 413
 		respond @toolarge 413
 		@notrestore {
 			not {
@@ -188,7 +196,8 @@
 		respond @chunkednobody 411
 		# A body over 64 KiB (any method), or one without a declared length (chunked: no Content-Length on a method other
 		# than GET, HEAD or OPTIONS, which got their 411 above), only after the app said the client is signed in (or
-		# sign-in is off): 204 from /upload/check, else its 401 as is. Signed-out clients never need more (M-1420).
+		# sign-in is off): 204 from /upload/check, else its 401 as is (under /api, problem+json: 413 for a declared length
+		# over 64 KiB, else 401). Signed-out clients never need more (M-1420).
 		@largebody {
 			not {
 				method POST
@@ -199,6 +208,8 @@
 		forward_auth @largebody unix//run/apotheke-caddy/php.sock {
 			uri /upload/check
 			import php_hop
+			# the declared length (none when chunked), so the check can tell a large body from one without a length
+			header_up X-Apotheke-Body-Length {http.request.header.Content-Length}
 		}
 
 		# PHP, through the socket. Up to 64 KiB of the body is read here first, so a slow small body never reaches a
