@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **frontend:** the privacy page describes the sign-in session cookie `__Host-apothekesid` ([#289](https://github.com/thordin9/apotheke/pull/289))
+
 ## [3.36.6] - 2026-11-12
 
 ### Fixed
