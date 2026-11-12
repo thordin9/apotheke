@@ -95,6 +95,22 @@ final class Ci4RouteMethodTest extends TestCase
         $this->assertSame([404, 'not_found'], [$unknown['status'], $unknown['json']['code'] ?? null]);
     }
 
+    /** QA-1857: an unknown /api path, or one with a doubled slash, is the JSON 404 with the API headers. */
+    #[DataProvider('consent')]
+    public function testDoubledSlashApiPathsAreTheJson404(?string $consent): void
+    {
+        $c = $this->client($consent);
+        foreach (['/api/v1/x', '/api/nope', '//api/v1/x', '/api//v1', '/api//v1/session', '//api//v1/me', '/api/v1//session'] as $path) {
+            foreach (['GET', 'POST', 'DELETE'] as $method) {
+                $r = $c->rest($method, $path, $method === 'POST' ? ['a' => 1] : null);
+                $this->assertSame([404, 'not_found'], [$r['status'], $r['json']['code'] ?? null], $method . ' ' . $path . ': ' . substr($r['body'], 0, 200));
+                $this->assertSame('application/problem+json', $r['headers']['content-type'], $method . ' ' . $path);
+                $this->assertSame("default-src 'none'; frame-ancestors 'none'; sandbox", $r['headers']['content-security-policy'] ?? null, $method . ' ' . $path);
+                $this->assertSame([], self::setCookies($r), $method . ' ' . $path);
+            }
+        }
+    }
+
     /** Real routes still answer as before: / redirects a visitor, protected reads are 401 under /api. */
     public function testRealRoutesKeepTheirAnswers(): void
     {

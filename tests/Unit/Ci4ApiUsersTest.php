@@ -130,7 +130,7 @@ final class Ci4ApiUsersTest extends TestCase
         $this->assertSame(2, $roles['viewer']['users']);
         foreach (['POST', 'PATCH', 'PUT', 'DELETE'] as $method) {
             $w = $admin->rest($method, '/api/v1/roles', [], ['X-CSRF-Token: ' . $admin->rest('GET', '/api/v1/session')['json']['csrf_token']]);
-            $this->assertSame(404, $w['status'], $method . ' is not routed in this release');
+            $this->assertSame([405, 'GET, HEAD'], [$w['status'], $w['headers']['allow'] ?? null], $method . ' is not routed in this release');
         }
     }
 
