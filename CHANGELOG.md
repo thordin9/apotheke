@@ -10,8 +10,16 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Fixed
 
-- **edge:** after a start, the Worker sets the container inactivity timeout from `SLEEP_AFTER_MS` and does not hold `monitor()` or `waitUntil`, so that timeout can begin once the Durable Object goes idle ([#271](https://github.com/thordin9/apotheke/pull/271))
 - **edge:** after a container start times out, the next request checks readiness again instead of failing, a request the container cannot take answers 503 with `Retry-After`, every start path sets the inactivity timeout, and the readiness wait is 90 s so a first start with migrations fits ([#280](https://github.com/thordin9/apotheke/pull/280))
+
+### Fixed
+
+
+## [3.36.3] - 2026-11-12
+
+### Fixed
+
+- **edge:** after a start, the Worker sets the container inactivity timeout from `SLEEP_AFTER_MS` and does not hold `monitor()` or `waitUntil`, so that timeout can begin once the Durable Object goes idle ([#271](https://github.com/thordin9/apotheke/pull/271))
 
 ## [3.36.2] - 2026-11-12
 
@@ -1541,7 +1549,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.3...HEAD
+[3.36.3]: https://github.com/thordin9/apotheke/compare/v3.36.2...v3.36.3
 [3.36.2]: https://github.com/thordin9/apotheke/compare/v3.36.1...v3.36.2
 [3.36.1]: https://github.com/thordin9/apotheke/compare/v3.36.0...v3.36.1
 [3.36.0]: https://github.com/thordin9/apotheke/compare/v3.35.0...v3.36.0
