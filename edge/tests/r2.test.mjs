@@ -989,3 +989,4 @@ await import(new URL('./container-ready.test.mjs', import.meta.url).href);
 await import(new URL('./control-migrations.test.mjs', import.meta.url).href);
 await import(new URL('./route.test.mjs', import.meta.url).href);
 await import(new URL('./installation-isolation.test.mjs', import.meta.url).href);
+await import(new URL('./installation-secrets.test.mjs', import.meta.url).href);
