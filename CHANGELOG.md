@@ -13,6 +13,20 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **edge:** the Worker routes each request by host through the control plane's `installation_routes`; a missing row, an unbound `DB` or a failed lookup falls back to `primary` as before, and paused or removed installations get a status page without starting a container ([#302](https://github.com/thordin9/apotheke/pull/302))
 - **edge:** each installation's database object and R2 key prefix come from its own container object's name, passed as props to `d1.internal` and `r2.internal`; multipart markers and the unfinished-upload sweep are per installation. `primary` keeps its names, prefix and keys ([#303](https://github.com/thordin9/apotheke/pull/303))
 
+### Fixed
+
+- **core:** a small web POST whose body fills no form fields (JSON, text) gets the consent, sign-in or CSRF answer instead of `413`; only a body past `post_max_size` is `413` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **core:** a page or form write (any method but GET, HEAD and OPTIONS, outside `/api`) whose `Origin`, or `Referer` when there is no `Origin`, is not this host or the public base answers `403` with sign-in on as well as off; `X-Forwarded-Proto` counts with `trust_proxy`, and a request without either header goes on to the CSRF token check as before ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **core:** a page or form write that sends a field as a list (`id[]=`, `name[]=`) where the form takes one value answers `422` with the usual error page, or `{ok:false,error}` for fetch, after the sign-in, same-origin and CSRF checks, instead of reading it as `Array` or `1`; the list fields (`ids[]`, `perms[]`, `col[]`, `photos[]`, `files[]`) and GET filters are unchanged ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **catalog:** an item's name over 200 characters, notes over 5,000, tags over 2,000 or serial number over 100 answer `422` with the form and a message instead of being cut short; a CSV import row with a name or notes over the limit is a row error, so `POST /api/v1/imports/{id}/commit` answers `422` `validation.failed` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **api:** in the FrankenPHP image a signed-out request under `/api` with a declared body over 64 KiB answers `413` problem+json (`upload.too_large`), and one with a body but no length `401` problem+json (`auth.required`), with the API headers and, for a listed origin, the CORS headers, instead of a bare `401`; a body over 22 MiB under `/api` is `413` problem+json too ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **docker:** a missing file under `/assets/` is a `404` with `Cache-Control: no-store` in both images (nginx and FrankenPHP); only a served asset keeps the year-long `immutable` cache ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **api:** the OpenAPI document's `info.version` is `1.0.0-p3`, the last phase its description covers, and it has a relative `servers` entry (`/`) ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **core:** an answer without a body (`204`, `304`, or an empty error such as `/upload/check`'s `401`, a CORS preflight or a signed-out `/media` request) has no `Content-Type` instead of `text/html` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **media:** `/media` answers `304` for an `If-None-Match` list, a weak tag or `*`, sends `Accept-Ranges: bytes`, and answers a single byte range with `206` and `Content-Range` (or `416` with `Content-Range: bytes */<size>`), with `If-Range`, on local and R2 storage ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **catalog:** deleting an item's last photo by fetch answers `index` `0`, the photo the redirect shows, instead of `-1` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **api:** `POST /api/v1/session` with an empty body answers `422` `validation.failed` with both fields `Required.`, like `{}`, instead of `400`; a field sent as a number or a list is `Must be text.` instead of `Required.` ([#294](https://github.com/thordin9/apotheke/pull/294))
+
 ## [3.38.0] - 2026-11-12
 
 ### Added

@@ -40,15 +40,19 @@ final class SessionController extends AuthPages
         if (!$this->settings()->signInEnabled()) {
             return ApiResponse::problem($this->response, 409, 'auth.sign_in_off', 'Sign-in is turned off on this server.');
         }
+        $text = trim((string)$this->request->getBody());
         try {
-            $body = json_decode((string)$this->request->getBody(), true, 8, JSON_THROW_ON_ERROR);
+            // An empty body is checked like {}: both fields are missing.
+            $body = $text === '' ? [] : json_decode($text, true, 8, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return ApiResponse::problem($this->response, 400, 'bad_request', 'The body is not valid JSON.');
         }
         $body = is_array($body) ? $body : [];
         $errors = [];
         foreach (['username', 'password'] as $field) {
-            if (!is_string($body[$field] ?? null) || $body[$field] === '') {
+            if (isset($body[$field]) && !is_string($body[$field])) {
+                $errors[$field] = 'Must be text.';
+            } elseif (($body[$field] ?? '') === '') {
                 $errors[$field] = 'Required.';
             }
         }

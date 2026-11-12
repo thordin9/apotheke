@@ -16,6 +16,23 @@ final class ItemInput
 {
     public const BARCODE_MAX = 64;
 
+    /** The longest name, notes, tags and serial number an item keeps, in characters. */
+    public const NAME_MAX = 200;
+
+    public const NOTES_MAX = 5000;
+
+    public const TAGS_MAX = 2000;
+
+    public const SERIAL_MAX = 100;
+
+    /** A field past its limit is an error, not cut short. $value is as the field will be kept, before the cut. */
+    public static function limit(string $label, string $value, int $max): void
+    {
+        if (mb_strlen($value) > $max) {
+            throw new UserError($label . ' is too long (at most ' . number_format($max) . ' characters).', 422);
+        }
+    }
+
     /** "12.5", "1,234.50", "1.234,50", "€ 12" → cents; '' → null. */
     public static function money(string $s): ?int
     {
