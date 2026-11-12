@@ -35,7 +35,7 @@ test('primary is seeded with its existing DO name and R2 prefix, plan internal, 
     plan_id: 'internal', sub: 'active', period_end: null, host: 'api.services.getapotheke.com' }]);
   assert.ok(src('installation.ts').includes(`export const INSTALLATION_NAME = "${row[0].do_name}";`));
   assert.ok(src('r2.ts').includes(`const PREFIX = "${row[0].r2_prefix}";`));
-  assert.ok(src('index.ts').includes(`env.APOTHEKE.getByName("${row[0].do_name}")`));
+  assert.ok(src('route.ts').includes('const FALLBACK: Route = { doName: INSTALLATION_NAME, status: "active" };'));
   assert.ok(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8').includes(`"ALLOWED_HOSTS": "${row[0].host}"`));
   assert.equal(db.prepare('SELECT count(*) AS n FROM plan_limits').get().n, 0);
 });

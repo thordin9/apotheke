@@ -6,6 +6,7 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { d1UnboundResponse, type D1Env } from "./d1";
 import { installationStub, type InstallationEnv } from "./installation";
+import { routeFor, routeResponse } from "./route";
 import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env } from "./r2";
 
 export { Installation } from "./installation";
@@ -220,7 +221,8 @@ function toContainer(request: Request): Request {
 }
 
 export default {
-	async fetch(request, env): Promise<Response> {
-		return env.APOTHEKE.getByName("primary").fetch(request);
+	async fetch(request, env: Env & D1Env): Promise<Response> {
+		const route = await routeFor(new URL(request.url).host, env.DB);
+		return routeResponse(route) ?? env.APOTHEKE.getByName(route.doName).fetch(request);
 	},
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Env & D1Env>;
