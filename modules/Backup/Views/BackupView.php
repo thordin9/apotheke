@@ -68,8 +68,9 @@ final class BackupView
      * @param list<array{id:string,created_at:string,kind:string,size:int,by:?string}> $kept the kept backups, newest first
      * @param bool $restore whether the user may restore (the restore permission): else no restore section
      * @param bool $settings whether a restore puts back the backup's settings too (the settings permission)
+     * @param bool $download whether the user may download (the backup permission): else no download section
      */
-    public function page(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null, bool $hosted = false, array $kept = [], bool $restore = true, bool $settings = true): string
+    public function page(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null, bool $hosted = false, array $kept = [], bool $restore = true, bool $settings = true, bool $download = true): string
     {
         $head = $this->page->start('Backup & restore', 'page-backup');
         $tok = self::h($this->page->csrf());
@@ -103,12 +104,14 @@ final class BackupView
     </form>
   </section>
   <?php endif; ?>
+  <?php if ($download): ?>
   <section class="panel" aria-labelledby="bk-title">
     <h2 id="bk-title"><?= Icons::svg('download') ?> Download a backup</h2>
     <p class="hint">One zip file with the whole installation's catalog, not only yours: all items, locations, categories, tags<?= isset($current['activity']) ? ', history' : '' ?> and photos. It works with both SQLite and PostgreSQL installs.</p>
     <?= self::tableRows($current) ?>
     <a class="btn btn-primary btn-block" href="/backup.zip" id="backup-dl" download><?= Icons::svg('archive') ?> Download backup (.zip)</a>
   </section>
+  <?php endif; ?>
   <?php if ($kept !== []): ?>
   <section class="panel" aria-labelledby="kb-title" id="kept-backups">
     <h2 id="kb-title"><?= Icons::svg('archive') ?> Kept backups</h2>

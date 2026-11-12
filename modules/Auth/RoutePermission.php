@@ -53,6 +53,10 @@ final class RoutePermission
         if (preg_match('#^/settings(/|\.|$)#', $path)) {
             return 'settings';
         }
+        if ($get && preg_match('#^/backup/?$#', $path)) {
+            // The backup page shows the download for backup and the restore form for restore.
+            return Permissions::BACKUP_OR_RESTORE;
+        }
         if (!$get && preg_match('#^/backup/restore(/|$)#', $path)) {
             // Restoring replaces the whole catalog for everyone: its own permission (2.6.x: backup).
             return 'restore';

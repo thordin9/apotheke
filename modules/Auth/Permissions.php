@@ -22,6 +22,9 @@ final class Permissions
     /** A routed request whose route records no permission: refused to everyone, the admin included. */
     public const UNMAPPED = 'unmapped';
 
+    /** The backup page: backup or restore (it shows only what the account may do). */
+    public const BACKUP_OR_RESTORE = 'backup-or-restore';
+
     /** @var array<string,array{0:string,1:string}> key => [name, description] */
     public const ALL = [
         'view'      => ['View', 'look at items, locations, history and photos'],

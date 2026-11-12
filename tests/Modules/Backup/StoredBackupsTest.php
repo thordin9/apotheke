@@ -268,6 +268,58 @@ final class StoredBackupsTest extends CIUnitTestCase
         $this->assertSame('["view","backup"]', (string)$db->table('roles')->select('perms')->where('role_key', 'keeper')->get()->getRowArray()['perms'], 'roles are not restored');
     }
 
+    /** @return iterable<string,array{string,?int,bool,bool}> stored perms => filter status (null: through), download shown, restore shown */
+    public static function pageRoles(): iterable
+    {
+        yield 'backup only' => ['["view","backup-only"]', null, true, false];
+        yield 'restore only' => ['["view","restore-only"]', null, false, true];
+        yield 'both' => ['["view","backup"]', null, true, true];
+        yield 'neither' => ['["view"]', 403, false, false];
+    }
+
+    /** The backup page opens with backup or restore and shows only what the role may do; the API keeps its own gates. */
+    #[DataProvider('pageRoles')]
+    public function testTheBackupPageShowsWhatTheRoleMayDo(string $perms, ?int $status, bool $download, bool $restore): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->database->db->table('roles')->insert(['role_key' => 'desk', 'name' => 'Desk', 'builtin' => 0, 'perms' => $perms, 'created_at' => '2026-01-01 00:00:00']);
+        $this->wire();
+        $this->account('ada', 'admin');
+        $this->settings()->store(['auth_enabled' => true, 'auth_guest_disabled' => false]);
+        $stored = $this->stored(new LocalStorage($this->database->dataDir()), 5);
+        Services::injectMock('storedBackups', $stored);
+        $stored->store(StoredBackups::KIND_PRE_RESTORE, 'ada');
+        $this->signInAs($this->account('desk-user', 'desk'));
+
+        $this->assertSame($status, $this->filter('backup')?->getStatusCode());
+        $this->assertSame($download ? null : 403, $this->filter('backup.zip')?->getStatusCode(), 'the download');
+        $this->assertSame($download ? null : 403, $this->filter('api/v1/backups')?->getStatusCode(), 'the kept list');
+        $this->assertSame($restore ? null : 403, $this->filter('backup/restore', 'POST')?->getStatusCode(), 'the restore');
+        $this->assertSame($restore ? null : 403, $this->filter('api/v1/restores', 'POST')?->getStatusCode(), 'the chunked restore');
+        if ($status !== null) {
+            return;
+        }
+        $c = new \Apotheke\Backup\Controllers\BackupController();
+        $c->initController(Services::request(null, false), Services::response(null, false), Services::logger());
+        $html = (string)$c->index()->getBody();
+        $this->assertSame($download, str_contains($html, 'id="backup-dl"'), 'the download button');
+        $this->assertSame($download, str_contains($html, 'id="kept-backups"'), 'the kept backups');
+        $this->assertSame($restore, str_contains($html, 'id="rs-title"'), 'the restore form');
+    }
+
+    public function testTheBackupPageAsksForEitherPermission(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->wire();
+        $this->account('ada', 'admin');
+        $this->settings()->store(['auth_enabled' => true, 'auth_guest_disabled' => false]);
+        $this->assertContains($this->filter('backup')?->getStatusCode(), [303, 401], 'the guest signs in first');
+        $this->database->db->table('roles')->where('role_key', 'viewer')->update(['perms' => '["view"]']);
+        $this->signInAs($this->account('vic', 'viewer'));
+        $body = (string)$this->filter('backup', 'GET', ['HTTP_X_REQUESTED_WITH' => 'fetch'])?->getBody();
+        $this->assertStringContainsString('it needs the “Backup” or the “Restore” permission', $body);
+    }
+
     /** The list and the download: the backup permission. Everyone else gets 403; the guest and nobody are refused. */
     public function testTheListAndDownloadNeedTheBackupPermission(): void
     {
@@ -320,10 +372,14 @@ final class StoredBackupsTest extends CIUnitTestCase
         return $c;
     }
 
-    private function filter(string $route, string $method = 'GET'): ?\CodeIgniter\HTTP\ResponseInterface
+    /** @param array<string,string> $server */
+    private function filter(string $route, string $method = 'GET', array $server = []): ?\CodeIgniter\HTTP\ResponseInterface
     {
         $config = clone config(\Config\App::class);
         $request = (new \CodeIgniter\HTTP\IncomingRequest($config, new \CodeIgniter\HTTP\SiteURI($config, $route), null, new \CodeIgniter\HTTP\UserAgent()))->withMethod($method);
+        foreach ($server as $k => $v) {
+            $request->setGlobal('server', [$k => $v] + (array)$request->getServer());
+        }
 
         return (new \Apotheke\Auth\Filters\PermissionFilter())->before($request);
     }

@@ -42,7 +42,10 @@ final class BackupController extends CatalogController
         /** @var \Apotheke\Backup\StoredBackups $stored */
         $stored = service('storedBackups');
 
-        return $this->html($this->pages()->page($this->backups()->counts(), null, null, $toast, $this->restorer()->hosted(), $stored->all(), $this->may('restore')));
+        $download = $this->may('backup');
+
+        return $this->html($this->pages()->page($this->backups()->counts(), null, null, $toast, $this->restorer()->hosted(), $download ? $stored->all() : [],
+            $this->may('restore'), true, $download));
     }
 
     /** GET /backup.zip: written to DATA_DIR/tmp, sent in chunks, then removed. */

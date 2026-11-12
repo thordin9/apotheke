@@ -179,7 +179,8 @@ $routes->match(['GET', 'HEAD'], 'export.csv', $import . '::export', ['permission
 // route_perm()), except the restore probe nginx asks before a large upload: legacy answers
 // it before its permission check (204, 401 or 403) and never starts a session.
 $backup = '\\Apotheke\\Backup\\Controllers\\BackupController';
-$routes->match(['GET', 'HEAD'], 'backup', $backup . '::index', ['permission' => 'backup']);
+// The page opens with backup or restore and shows only what the account may do.
+$routes->match(['GET', 'HEAD'], 'backup', $backup . '::index', ['permission' => \Apotheke\Auth\Permissions::BACKUP_OR_RESTORE]);
 $routes->match(['GET', 'HEAD'], 'backup.zip', $backup . '::download', ['permission' => 'backup']);
 $routes->match(['GET', 'HEAD'], 'backup/restore/check', $backup . '::check', ['permission' => 'none']);
 // The FrankenPHP image's probe before it reads a body over 64 KiB (docker/frankenphp/Caddyfile, M-1420).
