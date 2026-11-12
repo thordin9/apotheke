@@ -603,9 +603,8 @@ function htmlUrls(html) {
 let spaMount = '/app';
 
 export function resolves(url, from = PAGE_BASE) {
-    const raw = String(url || '');
-    if (hasAsciiBreak(raw)) return { ok: false, why: 'not a root-absolute path' };
-    const trimmed = raw.trim();
+    const trimmed = String(url || '').trim();
+    if (hasAsciiBreak(trimmed)) return { ok: false, why: 'contains a tab or line break' };
     if (sourceIsCss(from) && trimmed.toLowerCase().startsWith('data:')) return { ok: true };
     const parsed = parsedUrl(trimmed, from);
     if (!parsed) return { ok: false, why: 'not a root-absolute path' };

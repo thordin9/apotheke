@@ -165,6 +165,12 @@ test('a link to another host must name https', () => {
     }
     assert.equal(resolves('https://cdn.example/x', from).ok, true);
     assert.equal(resolves('/privacy/', from).ok, true);
+    assert.equal(resolves('\t/privacy/', from).ok, true);
+    assert.equal(resolves('  /privacy/\n', from).ok, true);
+    const interior = resolves('/\tprivacy/', from);
+    assert.equal(interior.ok, false);
+    assert.equal(interior.why, 'contains a tab or line break');
+    assert.equal(resolves('/\t/getapotheke.com/privacy/', from).why, 'contains a tab or line break');
     assert.equal(resolves('https://getapotheke.com/privacy/', from).ok, true);
     assert.equal(resolves('https://GETAPOTHEKE.com/', from).ok, true);
     assert.equal(resolves('https://getapotheke.com:8443/', from).ok, true);
