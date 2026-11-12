@@ -22,6 +22,17 @@ test('header Sign in stays header ink and underlines on hover', async ({ browser
     await context.close();
 });
 
+test('the privacy page describes the sign-in session cookie', async ({ page }) => {
+    await page.goto('/privacy/');
+    await page.getByRole('button', { name: 'Decline' }).click();
+    const main = page.locator('#main');
+    await expect(main).toContainText('__Host-apothekesid');
+    await expect(main).toContainText('host-only on api.services.getapotheke.com');
+    await expect(main).toContainText('up to 30 days');
+    await expect(main).toContainText('Declining on this site removes the consent cookie.');
+    await expect(main).toContainText('Signing out ends the session.');
+});
+
 test('header and hero CTAs point at the app', async ({ page }) => {
     for (const path of ['/', '/privacy/']) {
         await page.goto(path);
