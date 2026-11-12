@@ -7,7 +7,17 @@ namespace Tests\Auth;
 use Apotheke\Auth\Permissions;
 use Apotheke\Auth\RoleAdmin;
 use Apotheke\Auth\RoleRepository;
+use Apotheke\Auth\UserRepository;
 use Apotheke\Backup\Jobs\RestoreConfirmJob;
+use Apotheke\Core\Libraries\Clock;
+use Apotheke\Core\Security\CommandLine;
+use Apotheke\Core\Storage\LocalStorage;
+use Apotheke\Migrations\FreshInstallRoles;
+use Apotheke\Migrations\PdoMigrationRunner;
+use Apotheke\Settings\LocalBrandStore;
+use Apotheke\Settings\SettingsRepository;
+use Apotheke\Settings\SettingsSchema;
+use Apotheke\Settings\SettingsService;
 use CodeIgniter\Test\CIUnitTestCase;
 use Config\Services;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -105,6 +115,10 @@ final class RestorePermissionTest extends CIUnitTestCase
         $this->database = TestDatabase::create('sqlite');
         $db = $this->database->db;
         $db->table('roles')->insert(['role_key' => 'keeper', 'name' => 'Keeper', 'builtin' => 0, 'perms' => '["view","backup"]', 'created_at' => '2026-01-01 00:00:00']);
+        // An installation from before the split: 2.6.x's built-in roles.
+        foreach (['editor', 'viewer'] as $key) {
+            $db->table('roles')->where('role_key', $key)->update(['perms' => (string)json_encode(\ROLE_DEFAULTS[$key][1])]);
+        }
         $roles = new RoleRepository($db);
         $this->assertTrue($roles->has('keeper', 'backup'));
         $this->assertTrue($roles->has('keeper', 'restore'));
@@ -141,6 +155,82 @@ final class RestorePermissionTest extends CIUnitTestCase
         $this->assertSame([true, true], $may('editor'));
         $this->assertSame([true, false], $may('viewer'));
         $this->assertSame([false, false], $may('guest'));
+    }
+
+    public function testAFreshInstallStartsWithTheNewDefaults(): void
+    {
+        foreach (FreshInstallRoles::PERMS as $key => $stored) {
+            $this->assertSame(Permissions::stored(Permissions::ROLE_DEFAULTS[$key][1]), $stored, $key . ': the stored form of ROLE_DEFAULTS');
+        }
+        $this->database = TestDatabase::create('sqlite');
+        $roles = new RoleRepository($this->database->db);
+        $may = static fn (string $r): array => [$roles->has($r, 'backup'), $roles->has($r, 'restore')];
+        $this->assertSame([true, true], $may('editor'));
+        $this->assertSame([true, false], $may('viewer'));
+        $this->assertSame([false, false], $may('guest'));
+        $this->assertSame([true, true], $may('admin'));
+        $this->assertSame((string)json_encode(['view']), self::perms($this->database->db, 'guest'));
+        $this->assertSame((string)json_encode(\ROLE_DEFAULTS['admin'][1]), self::perms($this->database->db, 'admin'), 'admin keeps 2.6.x\'s row');
+    }
+
+    public function testAnUpgradeKeepsTheRolesItHas(): void
+    {
+        $this->assertFalse(FreshInstallRoles::applies(false, ['0022', '0035']), 'an install with migrations already');
+        $this->assertFalse(FreshInstallRoles::applies(true, ['0029']), 'the roles table was not made in this run');
+        $this->assertTrue(FreshInstallRoles::applies(true, ['0001', '0022']));
+
+        // A database migrated up to 0021 gets 0022 later: 2.6.x's defaults, as on 2.6.x.
+        $this->database = TestDatabase::create('sqlite', false);
+        $pdo = $this->database->pdo();
+        $dir = sys_get_temp_dir() . '/apotheke-mig-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        $all = (new PdoMigrationRunner(PdoMigrationRunner::repoRoot() . '/migrations'))->available();
+        foreach ($all as $ver => $file) {
+            if ($ver < '0022') {
+                copy($file, $dir . '/' . basename($file));
+            }
+        }
+        try {
+            (new PdoMigrationRunner($dir))->migrate($pdo, 'sqlite');
+            $this->assertNotSame([], (new PdoMigrationRunner($dir))->applied($pdo, 'sqlite'));
+            (new PdoMigrationRunner(PdoMigrationRunner::repoRoot() . '/migrations'))->migrate($pdo, 'sqlite');
+        } finally {
+            foreach ((array)glob($dir . '/*.php') as $f) {
+                unlink((string)$f);
+            }
+            rmdir($dir);
+        }
+        $roles = new RoleRepository($this->database->db);
+        $this->assertFalse($roles->has('editor', 'backup'));
+        $this->assertFalse($roles->has('viewer', 'backup'));
+        $this->assertSame((string)json_encode(\ROLE_DEFAULTS['viewer'][1]), self::perms($this->database->db, 'viewer'));
+    }
+
+    /** The role editor's save keeps download and restore apart. */
+    public function testTheRoleEditorSavesBackupAndRestoreApart(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $db = $this->database->db;
+        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($this->database->dataDir())), new Clock(),
+            $this->database->config->values(), static fn (string $m): null => null, new CommandLine());
+        $admin = new RoleAdmin(new RoleRepository($db), new UserRepository($db), $settings, new Clock());
+        $key = $admin->create('Desk', ['view']);
+        $cases = [
+            'neither' => [['view'], '["view"]'],
+            'backup' => [['view', 'backup'], '["view","backup-only"]'],
+            'restore' => [['view', 'restore'], '["view","restore-only"]'],
+            'both' => [['view', 'backup', 'restore'], '["view","backup"]'],
+        ];
+        foreach (['editor', $key] as $role) {
+            foreach ($cases as $label => [$perms, $stored]) {
+                $admin->update($role, null, array_reverse($perms));
+                $this->assertSame($stored, self::perms($db, $role), $role . ' ' . $label);
+                $this->assertSame($perms, (new RoleRepository($db))->all()[$role]['perms'], $role . ' ' . $label);
+            }
+        }
+        // The guest never gets either.
+        $admin->update('guest', null, ['view', 'backup', 'restore']);
+        $this->assertSame('["view"]', self::perms($db, 'guest'));
     }
 
     private static function perms(\CodeIgniter\Database\BaseConnection $db, string $key): string

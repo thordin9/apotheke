@@ -414,7 +414,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->database = TestDatabase::create($driver);
         $roles = new RoleRepository($this->db());
         $this->assertSame(['admin', 'editor', 'viewer', 'guest'], array_keys($roles->all()));
-        $this->assertSame(['view', 'export', 'labels'], $roles->all()['viewer']['perms']);
+        $this->assertSame(['view', 'export', 'labels', 'backup'], $roles->all()['viewer']['perms'], 'a new install: viewers download backups');
         $this->db()->table('roles')->insert(['role_key' => 'desk', 'name' => 'Help desk', 'perms' => json_encode(['bogus', 'settings', 'view', 'view']), 'builtin' => 0, 'created_at' => '2026-01-01 00:00:00']);
         $this->db()->table('roles')->where('role_key', 'admin')->update(['perms' => '[]']);
         $this->assertSame(['view', 'settings'], $roles->all()['desk']['perms'], 'known permissions, legacy order');

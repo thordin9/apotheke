@@ -76,8 +76,9 @@ import, export, stocktake, labels, settings, users, backup, restore). Built-in: 
 deleted), editor, viewer and guest (anonymous visitors while guest browsing is on; never settings/users/backup/restore).
 `backup` downloads a backup of the whole catalog and lists and downloads the kept ones; `restore` replaces the whole
 catalog. The `perms` column keeps `backup` for a role with both (so a role that had `backup` before the split may restore),
-`backup-only` and `restore-only` for a role with one of them. *Reset built-in roles* gives editor both and viewer
-`backup`.
+`backup-only` and `restore-only` for a role with one of them. A new installation starts with editor having both and
+viewer `backup` (applied by the migration runner when it creates the roles table on an empty database); an existing
+installation keeps its rows, and an admin grants them in the role editor or with *Reset built-in roles*.
 `route_perm()` names the permission every route needs, handlers check finer cases (`require_perm('move')` when the
 location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, a forbidden JSON request
 `{"ok":false,"error":…}` with 403, an anonymous visitor is sent to `/login` (JSON: 401). `<body>` carries

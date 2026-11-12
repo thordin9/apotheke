@@ -274,6 +274,7 @@ final class StoredBackupsTest extends CIUnitTestCase
         $this->database = TestDatabase::create('sqlite');
         $this->wire();
         $ada = $this->account('ada', 'admin');
+        $this->database->db->table('roles')->insert(['role_key' => 'desk', 'name' => 'Desk', 'builtin' => 0, 'perms' => '["view","restore-only"]', 'created_at' => '2026-01-01 00:00:00']);
         $this->settings()->store(['auth_enabled' => true, 'auth_guest_disabled' => false]);
         $routes = ['api/v1/backups', 'api/v1/backups/20261112-100000-abcdef'];
         foreach ($routes as $route) {
@@ -285,9 +286,11 @@ final class StoredBackupsTest extends CIUnitTestCase
                 $this->assertSame(403, $this->filter($route)?->getStatusCode(), $role . ' ' . $route);
             }
         }
-        $this->signInAs($ada);
-        foreach ($routes as $route) {
-            $this->assertNull($this->filter($route), 'admin ' . $route);
+        foreach (['ada' => 'admin', 'u-editor' => 'editor', 'u-viewer' => 'viewer'] as $name => $role) {
+            $this->signInAs($role === 'admin' ? $ada : $this->account($name, $role));
+            foreach ($routes as $route) {
+                $this->assertNull($this->filter($route), $role . ' ' . $route);
+            }
         }
 
         // Through the controller: the list, then one download, then an unknown id.
@@ -306,8 +309,8 @@ final class StoredBackupsTest extends CIUnitTestCase
         $this->assertSame(404, $this->controller()->show('../x')->getStatusCode());
     }
 
-    /** The roles that may not download or list kept backups. */
-    private const ROLES_WITHOUT_BACKUP = ['editor', 'viewer'];
+    /** The roles that may not download or list kept backups (a custom role without backup; editors and viewers may on a new install). */
+    private const ROLES_WITHOUT_BACKUP = ['desk'];
 
     private function controller(): BackupsController
     {

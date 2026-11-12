@@ -83,6 +83,15 @@ final class D1RestoreTest extends CIUnitTestCase
         }
     }
 
+    /** A new hosted installation starts with the built-in roles' new defaults, as a new PDO one does. */
+    public function testAFreshHostedInstallStartsWithTheNewRoleDefaults(): void
+    {
+        $this->databases[] = $d = TestDatabase::create('d1');
+        $roles = new \Apotheke\Auth\RoleRepository($d->db);
+        $this->assertSame([true, true, true, false, false, false], [$roles->has('editor', 'backup'), $roles->has('editor', 'restore'),
+            $roles->has('viewer', 'backup'), $roles->has('viewer', 'restore'), $roles->has('guest', 'backup'), $roles->has('guest', 'restore')]);
+    }
+
     public function testThePreviewOfAHostedRestoreReadsTheBackupAndChangesNothing(): void
     {
         [$zip, $source] = $this->backupOf('sqlite');

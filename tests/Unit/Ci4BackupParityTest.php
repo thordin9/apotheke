@@ -347,6 +347,8 @@ final class Ci4BackupParityTest extends TestCase
         $user = $pdo->prepare('INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)');
         // A keeper may look and back up or restore, but is not an admin.
         $pdo->exec("INSERT INTO roles (role_key, name, perms, builtin, created_at) VALUES ('keeper', 'Keeper', '[\"view\",\"backup\"]', 0, '2026-01-01 00:00:00')");
+        // The viewer as an install from before the split has it (no backup); a new install's viewer may download.
+        $pdo->exec("UPDATE roles SET perms = '[\"view\",\"export\",\"labels\"]' WHERE role_key = 'viewer'");
         foreach ([['ada', 'admin'], ['vera', 'viewer'], ['kim', 'keeper']] as [$name, $role]) {
             $user->execute([$name, $name, password_hash('long-enough', PASSWORD_DEFAULT), $role, 'active', '2026-01-01 00:00:00']);
         }

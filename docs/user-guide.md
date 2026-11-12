@@ -500,8 +500,8 @@ Then add an account for each person under **Add a user** and pick a role:
 
 | Role | May (default permissions) |
 |---|---|
-| **Viewer** | view, export CSV, print labels |
-| **Editor** | also add, edit, delete, move, bulk actions, lend, import, stocktake |
+| **Viewer** | view, export CSV, print labels; on a new installation also download backups |
+| **Editor** | also add, edit, delete, move, bulk actions, lend, import, stocktake; on a new installation also download and restore backups |
 | **Admin** | everything, including settings, users and backup & restore — always, it cannot be changed |
 | **Guest** | what visitors who are *not* signed in may do while guest browsing is on: view |
 
@@ -511,8 +511,10 @@ Editor, Viewer and Guest, or add your own (e.g. “Lender”: view + lend). Dele
 role you choose. Guests can never get Settings, Users, Backup or Restore.
 
 *Backup* downloads a backup of the whole catalog and the kept ones; *Restore* replaces the whole catalog with a
-backup, for everyone. Every role that had Backup before Restore existed has both. *Reset built-in roles* gives
-Editor both and Viewer Backup.
+backup, for everyone. The two can be given separately. Every role that had Backup before Restore existed has both.
+A new installation starts with Editor having both and Viewer having Backup. An existing installation keeps its roles
+as they are: to let editors and viewers download or restore there, tick Backup and Restore in the role editor, or use
+*Reset built-in roles* (which also resets the other built-in permissions).
 
 The permissions are checked by the server on every page and action (a refused page says which permission it needs);
 the buttons a role can't use are hidden. Moving an item (changing its location in the form, a bulk move, stocktake
