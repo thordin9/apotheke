@@ -10,6 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Fixed
 
+- **site:** drop `bluetooth=()` from `Permissions-Policy` on the landing Worker and `_headers`; it is not a recognised feature and logged a console warning on every page (L-1923) ([#285](https://github.com/thordin9/apotheke/pull/285))
 - **core:** session hardening: sign-out (`POST /logout`, `DELETE /api/v1/session`) removes the session on the server, file or database row, and the answer expires the session cookie (`Max-Age=0`, an `Expires` in the past, the same name and attributes) without issuing a new session id; a session cookie sent without cookie consent ends that session the same way, and the consent notice form takes `consent=decline`, which expires the consent cookie and ends the session ([#291](https://github.com/thordin9/apotheke/pull/291))
 - **api:** `GET /api/v1/branding` answers absolute icon URLs (`logo_url`, `favicon_url`, `touch_icon_url`) on the public base: `public_url` when set, else the request's allowed host with `trust_proxy` ([#291](https://github.com/thordin9/apotheke/pull/291))
 - **core:** a path no route serves answers `404` instead of a redirect to `/login`, and a route asked with a method it does not take answers `405` with an `Allow` header instead of `403`, with or without cookie consent; under `/api` both are problem+json (`not_found`, `method_not_allowed`), as is a path with a doubled slash such as `//api/v1/x` or `/api//v1`, and `/` still sends a visitor to `/login` ([#291](https://github.com/thordin9/apotheke/pull/291))
