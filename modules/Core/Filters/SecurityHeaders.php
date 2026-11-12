@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Filters;
 
+use Apotheke\Core\Http\EmptyBody;
 use Apotheke\Core\Http\SecurityPolicy;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
 
-/** The four headers legacy sends after boot. Not applied to an originals 404. */
+/**
+ * The four headers legacy sends after boot. Not applied to an originals 404, nor to a problem+json
+ * answer, which carries the API's set (ApiSecurityPolicy; /upload/check's /api refusal). An empty
+ * 204, 304 or error answer has no Content-Type (EmptyBody).
+ */
 final class SecurityHeaders implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null): null
@@ -19,6 +24,9 @@ final class SecurityHeaders implements FilterInterface
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null): ResponseInterface
     {
+        if (str_starts_with($response->getHeaderLine('Content-Type'), 'application/problem+json')) {
+            return $response;
+        }
         foreach ((new SecurityPolicy())->headers() as $name => $value) {
             // A route that sets its own, stricter CSP keeps it (legacy brand_serve()).
             if ($name === 'Content-Security-Policy' && $response->hasHeader($name)) {
@@ -26,6 +34,7 @@ final class SecurityHeaders implements FilterInterface
             }
             $response->setHeader($name, $value);
         }
+        EmptyBody::untype($response);
 
         return $response;
     }

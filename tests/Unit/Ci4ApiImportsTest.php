@@ -165,6 +165,24 @@ final class Ci4ApiImportsTest extends TestCase
         ApiContract::assertMatches('GET', '/api/v1/imports/' . $id . '/preview', $preview);
     }
 
+    public function testAnOverLongNameOrNotesIsARowErrorNotCutShort(): void
+    {
+        $admin = $this->signedIn('admin');
+        $csv = "Name;Notes\n" . str_repeat('n', 201) . ";\nShort;" . str_repeat('x', 5001) . "\n" . str_repeat('é', 200) . ";" . str_repeat('x', 5000) . "\n";
+        $up = $admin->req('POST', '/api/v1/imports', [], ['file' => ['name' => 'long.csv', 'type' => 'text/csv', 'data' => $csv]], $this->writeHeaders($admin));
+        $this->assertSame(201, $up['status'], $up['body']);
+        $id = $up['json']['id'];
+        $before = $this->counts();
+        $preview = $admin->rest('GET', '/api/v1/imports/' . $id . '/preview?create=1');
+        $this->assertSame(200, $preview['status'], $preview['body']);
+        $this->assertSame(['error', 'error', 'new'], array_column($preview['json']['data'], 'state'));
+        $this->assertSame(['Name is too long (at most 200 characters).', 'Notes is too long (at most 5,000 characters).', ''], array_column($preview['json']['data'], 'error'));
+        $commit = $admin->rest('POST', '/api/v1/imports/' . $id . '/commit', ['create' => true], $this->writeHeaders($admin));
+        $this->assertSame([422, 'application/problem+json', 'validation.failed'], [$commit['status'], $commit['headers']['content-type'] ?? null, $commit['json']['code'] ?? null], $commit['body']);
+        ApiContract::assertMatches('POST', '/api/v1/imports/' . $id . '/commit', $commit);
+        $this->assertSame($before, $this->counts(), 'nothing was imported');
+    }
+
     /** @return array<string,int> */
     private function counts(): array
     {
