@@ -107,10 +107,10 @@ the same bar offers **Home** (`/`). **Privacy** (`/privacy/`) stays in the foote
 on every page, including `© 2026 Stathis Papandreou`.
 
 `src/app.js` is a plain module with a History API router: `/app/` (what Apotheke
-is, and a sign-in link, or the signed-in state when a session exists), `/app/sign-in`, and a not-found view for any other
-`/app/*` path. That view sets `noindex` and links back to the app and the home
-page. Links inside the app do not reload the page. The router does not use web
-storage.
+is, and a sign-in link, or the signed-in state when a session exists),
+`/app/sign-in`, and a not-found view for any other `/app/*` path. That view sets
+`noindex` and links back to the app and the home page. Links inside the app do
+not reload the page. The router does not use web storage.
 
 Sign-in stays disabled until cookies are accepted, and asks for nothing until
 then. After Accept it reads `apiBase` from `/config.json` and requests `GET`
