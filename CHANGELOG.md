@@ -25,6 +25,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **core:** an answer without a body (`204`, `304`, or an empty error such as `/upload/check`'s `401`, a CORS preflight or a signed-out `/media` request) has no `Content-Type` instead of `text/html`
 - **media:** `/media` answers `304` for an `If-None-Match` list, a weak tag or `*`, sends `Accept-Ranges: bytes`, and answers a single byte range with `206` and `Content-Range` (or `416` with `Content-Range: bytes */<size>`), with `If-Range`, on local and R2 storage
 - **catalog:** deleting an item's last photo by fetch answers `index` `0`, the photo the redirect shows, instead of `-1`
+- **api:** `POST /api/v1/session` with an empty body answers `422` `validation.failed` with both fields `Required.`, like `{}`, instead of `400`; a field sent as a number or a list is `Must be text.` instead of `Required.`
 
 ## [3.36.6] - 2026-11-12
 
