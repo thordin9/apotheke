@@ -924,3 +924,4 @@ test('P4-5: the public Worker only forwards to the container and never serves th
 
 await import(new URL('./installation.test.mjs', import.meta.url).href);
 await import(new URL('./container-forward.test.mjs', import.meta.url).href);
+await import(new URL('./container-ready.test.mjs', import.meta.url).href);
