@@ -10,7 +10,8 @@ require_once dirname(__DIR__) . '/lib.php';
  * Web requests get their consent, sign-in and CSRF answers first: a small body that fills no form fields (JSON,
  * text) is not "too large", and only a body past post_max_size is 413. A form write from another origin (Origin,
  * else Referer, against this host or the public base) is 403 with sign-in on; without either the CSRF token decides.
- * After those checks, a form field sent as a list it does not take is a 422.
+ * After those checks, a form field sent as a list it does not take is a 422, and an item's name, notes, tags or
+ * serial number past its limit is a 422 instead of being cut short.
  */
 final class Ci4RequestValidationTest extends TestCase
 {
@@ -163,6 +164,32 @@ final class Ci4RequestValidationTest extends TestCase
         $this->assertSame(303, $out->req('POST', '/save', [], [], [], 'name[]=x')['status']);
         $this->assertSame(403, $c->req('POST', '/save', [], [], ['Origin: http://other.example'], 'csrf=' . $token . '&name[]=x')['status']);
         $this->assertSame(419, $c->req('POST', '/save', [], [], [], 'csrf=wrong&name[]=x')['status']);
+    }
+
+    public function testAnOverLongNameOrNotesIsA422AndNotCutShort(): void
+    {
+        [$c, $token, $id] = $this->signedIn();
+        $before = $this->item($id);
+        $count = $this->itemCount();
+        foreach ([['name' => str_repeat('n', 201)], ['name' => str_repeat('é', 201)], ['name' => 'Ok', 'notes' => str_repeat('x', 5001)],
+            ['name' => 'Ok', 'tags' => str_repeat('t', 2001)], ['name' => 'Ok', 'serial' => str_repeat('s', 101)]] as $fields) {
+            foreach ([0, $id] as $target) {
+                $r = $c->post('/save', ['csrf' => $token, 'id' => $target] + $fields);
+                $label = implode(',', array_keys($fields)) . ' ' . $target;
+                $this->assertSame(422, $r['status'], $label);
+                $this->assertMatchesRegularExpression('/(Name|Notes|Tags|Serial number) is too long \(at most [0-9,]+ characters\)\./', $r['body'], $label);
+                $this->assertStringContainsString('<form', $r['body'], $label . ': the form again');
+            }
+        }
+        $this->assertSame($before, $this->item($id));
+        $this->assertSame($count, $this->itemCount());
+        $json = $c->post('/save', ['csrf' => $token, 'name' => str_repeat('n', 201)], [], ['Accept: application/json', 'X-Requested-With: fetch']);
+        $this->assertSame(422, $json['status']);
+        // At the limits, and with the spaces a name loses, the values are kept whole.
+        $name = str_repeat('é', 199) . 'z';
+        $r = $c->post('/save', ['csrf' => $token, 'id' => $id, 'name' => '  ' . $name . '  ', 'notes' => str_repeat('x', 5000)]);
+        $this->assertSame(303, $r['status']);
+        $this->assertSame([$name, 5000], [$this->item($id)['name'], mb_strlen((string)$this->item($id)['notes'])]);
     }
 
     /** @return array{0:Client,1:string,2:int} a signed-in client, its CSRF token and a new item's id */

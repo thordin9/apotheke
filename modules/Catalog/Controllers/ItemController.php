@@ -104,15 +104,21 @@ final class ItemController extends CatalogController
             throw new UserError('Item not found.', 404);
         }
         $qty = filter_var($post['quantity'] ?? 1, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 1000000]]);
+        $long = [
+            'Name' => [Text::cleanLine(self::str($post['name'] ?? ''), PHP_INT_MAX), ItemInput::NAME_MAX],
+            'Notes' => [trim(str_replace("\r\n", "\n", self::str($post['notes'] ?? ''))), ItemInput::NOTES_MAX],
+            'Tags' => [self::str($post['tags'] ?? ''), ItemInput::TAGS_MAX],
+            'Serial number' => [Text::cleanLine(self::str($post['serial'] ?? ''), PHP_INT_MAX), ItemInput::SERIAL_MAX],
+        ];
         $vals = [
-            'name' => Text::cleanLine(self::str($post['name'] ?? ''), 200),
+            'name' => Text::cleanLine(self::str($post['name'] ?? ''), ItemInput::NAME_MAX),
             'quantity' => $qty === false ? 1 : $qty,
-            'notes' => mb_substr(trim(str_replace("\r\n", "\n", self::str($post['notes'] ?? ''))), 0, 5000),
-            'tags' => mb_substr(self::str($post['tags'] ?? ''), 0, 2000),
+            'notes' => mb_substr(trim(str_replace("\r\n", "\n", self::str($post['notes'] ?? ''))), 0, ItemInput::NOTES_MAX),
+            'tags' => mb_substr(self::str($post['tags'] ?? ''), 0, ItemInput::TAGS_MAX),
             'value' => Text::cleanLine(self::str($post['value'] ?? ''), 32),
             'purchase_date' => Text::cleanLine(self::str($post['purchase_date'] ?? ''), 10),
             'expires_on' => Text::cleanLine(self::str($post['expires_on'] ?? ''), 10),
-            'serial' => Text::cleanLine(self::str($post['serial'] ?? ''), 100),
+            'serial' => Text::cleanLine(self::str($post['serial'] ?? ''), ItemInput::SERIAL_MAX),
             'barcode' => ItemInput::barcode(self::str($post['barcode'] ?? '')),
             'min_qty' => Text::cleanLine(self::str($post['min_qty'] ?? ''), 12),
         ];
@@ -143,6 +149,9 @@ final class ItemController extends CatalogController
         try {
             if ($vals['name'] === '') {
                 throw new UserError('Please give the item a name.');
+            }
+            foreach ($long as $label => [$value, $max]) {
+                ItemInput::limit($label, $value, $max);
             }
             if ($qty === false) {
                 throw new UserError('Quantity must be a whole number between 0 and 1,000,000.');
