@@ -228,6 +228,46 @@ final class DockerfileTest extends TestCase
         );
     }
 
+    /**
+     * QA-1854: FrankenPHP worker mode only when APOTHEKE_PHP_WORKER is on (the hosted Worker sets it); classic mode
+     * stays the default of both images, and the nginx image has no worker mode.
+     */
+    public function testFrankenphpWorkerModeIsOptIn(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $sh = (string)file_get_contents("$root/docker/frankenphp/entrypoint.sh");
+        $this->assertStringContainsString('case "${APOTHEKE_PHP_WORKER:-0}" in', $sh);
+        $this->assertStringContainsString('  1|true|yes) APOTHEKE_PHP_MODE=worker FRANKENPHP_REGULAR_THREADS=1 FRANKENPHP_MAX_THREADS=$((FRANKENPHP_NUM_THREADS + 1)) ;;', $sh);
+        $this->assertStringContainsString('  0|false|no) APOTHEKE_PHP_MODE=classic FRANKENPHP_REGULAR_THREADS=$FRANKENPHP_NUM_THREADS FRANKENPHP_MAX_THREADS=$FRANKENPHP_NUM_THREADS ;;', $sh);
+        $this->assertStringContainsString('APOTHEKE_PHP_WORKER must be 1, true, yes, 0, false, no or empty" >&2; exit 64', $sh);
+        $this->assertLessThan(strpos($sh, 'frankenphp validate --config'), strpos($sh, 'export APOTHEKE_PHP_MODE'), 'mode set before validate');
+        $this->assertStringNotContainsString('APOTHEKE_PHP_WORKER', (string)file_get_contents("$root/docker/entrypoint.sh"));
+        $caddy = (string)file_get_contents("$root/docker/frankenphp/Caddyfile");
+        $this->assertStringContainsString('import php-{$APOTHEKE_PHP_MODE:classic}.caddy', $caddy);
+        $this->assertStringContainsString('num_threads {$FRANKENPHP_REGULAR_THREADS:2}', $caddy);
+        $this->assertStringContainsString('max_threads {$FRANKENPHP_MAX_THREADS:2}', $caddy);
+        $this->assertStringNotContainsString('worker', (string)file_get_contents("$root/docker/frankenphp/php-classic.caddy"));
+        $this->assertStringContainsString("try_files {path} index.php\n", (string)file_get_contents("$root/docker/frankenphp/php-classic.caddy"));
+        $worker = (string)file_get_contents("$root/docker/frankenphp/php-worker.caddy");
+        $this->assertStringContainsString("try_files {path} frankenphp-worker.php\n", $worker);
+        $this->assertStringContainsString("file /var/www/app/public/frankenphp-worker.php\n", $worker);
+        $this->assertStringContainsString('num {$FRANKENPHP_NUM_THREADS:2}', $worker);
+        $docker = (string)file_get_contents("$root/Dockerfile.frankenphp");
+        $this->assertStringContainsString("COPY docker/frankenphp/Caddyfile docker/frankenphp/php-classic.caddy docker/frankenphp/php-worker.caddy /etc/apotheke/\n", $docker);
+        $this->assertStringContainsString('APOTHEKE_PHP_MODE=worker FRANKENPHP_REGULAR_THREADS=1 FRANKENPHP_MAX_THREADS=3', $docker, 'the image validates both modes');
+        // the public server never runs this file as a URL: only /index.php passes @otherphp
+        $this->assertStringContainsString("not path /index.php\n", $caddy);
+        $script = (string)file_get_contents("$root/public/frankenphp-worker.php");
+        $this->assertStringContainsString("define('APOTHEKE_PHP_WORKER', true);", $script);
+        $this->assertStringContainsString('->matches($path)', $script, 'camera originals stay a 404, as in index.php');
+        $this->assertStringContainsString("\$_SERVER['SCRIPT_NAME'] = '';", $script);
+        $this->assertStringContainsString('Services::resetForWorkerMode($workerConfig);', $script);
+        // hosted only: the Worker var turns it on, and the container default (no var) is classic
+        $this->assertStringContainsString('"APOTHEKE_PHP_WORKER": "1"', (string)file_get_contents("$root/edge/wrangler.jsonc"));
+        $this->assertStringContainsString('APOTHEKE_PHP_WORKER: this.env.APOTHEKE_PHP_WORKER ?? "0",', (string)file_get_contents("$root/edge/src/index.ts"));
+        $this->assertStringNotContainsString('APOTHEKE_PHP_WORKER', (string)file_get_contents("$root/docker-compose.yml"));
+    }
+
     /** Runs frankenphp validate when the binary is on PATH; skipped otherwise. */
     public function testFrankenphpValidatesTheCaddyfileWithAndWithoutTheEdgeClientIpFlag(): void
     {
@@ -236,13 +276,17 @@ final class DockerfileTest extends TestCase
             $this->markTestSkipped('frankenphp is not on PATH');
         }
         $caddy = dirname(__DIR__, 2) . '/docker/frankenphp/Caddyfile';
-        foreach (['1', '0', null] as $flag) {
+        foreach ([['1', null], ['0', null], [null, null], ['1', 'worker'], [null, 'classic']] as [$flag, $mode]) {
             $env = [
                 'PORT' => '9091',
                 'FRANKENPHP_NUM_THREADS' => '2',
                 'PATH' => (string)getenv('PATH'),
                 'HOME' => (string)getenv('HOME'),
             ];
+            if ($mode !== null) {
+                // as the entrypoint sets them (QA-1854)
+                $env += ['APOTHEKE_PHP_MODE' => $mode, 'FRANKENPHP_REGULAR_THREADS' => $mode === 'worker' ? '1' : '2', 'FRANKENPHP_MAX_THREADS' => $mode === 'worker' ? '3' : '2'];
+            }
             if ($flag !== null) {
                 $env['APOTHEKE_EDGE_CLIENT_IP'] = $flag;
             }
@@ -259,7 +303,7 @@ final class DockerfileTest extends TestCase
             fclose($pipes[1]);
             fclose($pipes[2]);
             $code = proc_close($proc);
-            $this->assertSame(0, $code, 'validate failed for APOTHEKE_EDGE_CLIENT_IP=' . ($flag ?? '(unset)') . "\n" . $stdout . $stderr);
+            $this->assertSame(0, $code, 'validate failed for APOTHEKE_EDGE_CLIENT_IP=' . ($flag ?? '(unset)') . ', mode ' . ($mode ?? '(unset)') . "\n" . $stdout . $stderr);
         }
     }
 
