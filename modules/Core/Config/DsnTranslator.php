@@ -9,8 +9,14 @@ use RuntimeException;
 /** Turns a PDO DSN into the CodeIgniter driver settings. A bad DSN fails at boot. */
 final class DsnTranslator
 {
+    /**
+     * The container's bridge to the Installation object. Owned here because startup.php loads this class before
+     * Composer's autoloader, so it may name no other class; D1HttpExecutor::DEFAULT_BASE has the same value.
+     */
+    public const D1_BASE = 'http://d1.internal';
+
     /** db.driver d1: the container's bridge to the Installation object (config_dsn() agrees). */
-    public const D1_DSN = 'd1:http://d1.internal';
+    public const D1_DSN = 'd1:' . self::D1_BASE;
 
     /**
      * @param array<string,mixed> $db
@@ -38,7 +44,7 @@ final class DsnTranslator
             return [
                 'DSN' => '',
                 'DBDriver' => 'Apotheke\\Core\\Database\\D1',
-                'hostname' => \Apotheke\Core\Database\D1HttpExecutor::DEFAULT_BASE,
+                'hostname' => self::D1_BASE,
                 'database' => '',
                 'DBDebug' => false,
             ];

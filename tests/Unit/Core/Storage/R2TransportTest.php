@@ -31,6 +31,11 @@ const server = http.createServer((request, response) => {
   const url = new URL(request.url, "http://loopback");
   if (url.pathname === "/redirect") return response.writeHead(302, { Location: "/secret" }).end();
   if (url.pathname === "/secret") return response.end(JSON.stringify({ ok: true, found: true, bytes: "c2VjcmV0" }));
+  if (url.pathname.startsWith("/meta/")) {
+    // As the Worker once did: metadata as JSON for HEAD too. node:http, like any HTTP server, sends no HEAD body.
+    const meta = JSON.stringify({ ok: true, found: url.pathname === "/meta/a.jpg", ...(url.pathname === "/meta/a.jpg" ? { etag: "e1", modified: 1740000000 } : {}) });
+    if (request.method === "HEAD" || url.searchParams.get("action") === "head") return response.writeHead(200, { "Content-Type": "application/json", "Content-Length": String(Buffer.byteLength(meta)) }).end(meta);
+  }
   if (url.searchParams.get("action") === "begin") return response.end(JSON.stringify({ ok: true, upload_id: "local_session-1" }));
   if (url.searchParams.get("action") === "part") {
     const buffers = [];
@@ -88,6 +93,24 @@ JS);
     {
         $method = new \ReflectionMethod(R2Bridge::class, 'http');
         return $method->invoke(new R2Bridge(self::$base, timeout: 3), 'GET', self::$base . $url, null);
+    }
+
+    /** exists() and modifiedAt() over real HTTP: a HEAD answer has no body, so they must not wait for one. */
+    public function testMetadataLookupsReadAJsonBodyOverRealHttp(): void
+    {
+        $storage = new R2Storage(new R2Bridge(self::$base, timeout: 2));
+        $started = microtime(true);
+        $this->assertTrue($storage->exists('meta/a.jpg'));
+        $this->assertSame(1740000000, $storage->modifiedAt('meta/a.jpg'));
+        $this->assertFalse($storage->exists('meta/none.jpg'));
+        $this->assertNull($storage->modifiedAt('meta/none.jpg'));
+        $this->assertLessThan(2.0, microtime(true) - $started, 'no lookup waits for the bridge timeout');
+        try {
+            (new R2Bridge(self::$base, timeout: 2))->request('HEAD', 'meta/a.jpg');
+            $this->fail('HEAD has no body to read');
+        } catch (\LogicException $e) {
+            $this->assertSame('A HEAD response has no body; use metadata().', $e->getMessage());
+        }
     }
 
     public function testNativeCurlDoesNotFollowRedirectResponses(): void

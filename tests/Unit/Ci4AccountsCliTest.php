@@ -287,6 +287,23 @@ final class Ci4AccountsCliTest extends TestCase
         }
     }
 
+    /**
+     * Storage mode (DB_DRIVER=d1, set by the Worker): `auth status` asks the D1 bridge, not PDO, so the
+     * entrypoint's check still means something there. With no bridge to reach (no Worker here) it is
+     * the sanitized "no database" line and exit 1, never a PDO-only refusal; nothing is written locally.
+     * AuthStatusD1Test covers the on, off and short APP_PASSWORD answers over the bridge.
+     */
+    public function testAuthStatusInStorageModeAsksTheD1Bridge(): void
+    {
+        [, $dir] = $this->twins('acli-status-d1');
+        $d1 = ['DB_DRIVER' => 'd1', 'STORAGE_BACKEND' => 'r2', 'APP_PASSWORD' => 'long-enough'];
+        foreach ([true, false] as $ci4) {
+            $r = $this->cli($dir, ['auth', 'status'], $ci4, null, $d1);
+            $this->assertSame([1, '', "Could not connect to the database (d1 – d1.internal).\n"], [$r['exit'], $r['stdout'], $r['stderr']], $ci4 ? 'bin/settings.php' : 'spark');
+        }
+        $this->assertFileDoesNotExist($dir . '/catalog.sqlite');
+    }
+
     /** A spark-only check: apotheke:accounts answers unknown forms and auth status like bin/settings.php's dispatcher would not reach it. */
     public function testSparkEntryPoint(): void
     {

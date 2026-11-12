@@ -872,7 +872,8 @@ class Services extends BaseService
     /**
      * `auth status` for the Docker entrypoint: its own connection with a 5 s
      * connect timeout (each try of the entrypoint's wait), and never
-     * apothekeDb(), which migrates. A missing SQLite file is not created.
+     * apothekeDb(), which migrates. A missing SQLite file is not created. With
+     * db.driver d1 it reads the same settings over the D1 bridge (AuthStatus::d1()).
      *
      * @param resource $out
      * @param resource $err
@@ -883,6 +884,12 @@ class Services extends BaseService
         $db = $config->database();
         $db['connect_timeout'] = 5;
         $password = $config->values()['app_password'] ?? '';
+        if (($db['driver'] ?? '') === 'd1') {
+            // Storage mode: the Installation's database over the D1 bridge, with the same 5 s per try.
+            $d1 = new \Apotheke\Core\Database\D1HttpExecutor(\Apotheke\Core\Database\D1HttpExecutor::DEFAULT_BASE, null, 5);
+
+            return new \Apotheke\Auth\Commands\AuthStatus(\Apotheke\Auth\Commands\AuthStatus::d1($d1, \Apotheke\Migrations\PdoMigrationRunner::connectFailure($db)), is_string($password) ? $password : '', $out, $err);
+        }
 
         return new \Apotheke\Auth\Commands\AuthStatus(static function () use ($db): ?\PDO {
             if (($db['driver'] ?? '') === 'sqlite' && !is_file((string)($db['sqlite_path'] ?? ''))) {

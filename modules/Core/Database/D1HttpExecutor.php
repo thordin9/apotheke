@@ -32,13 +32,18 @@ final class D1HttpExecutor implements SqlExecutor, D1Executor
      *                     local harness). Never a public URL with credentials.
      * @param null|callable(string,string,string):string $transport
      *        (method, url, jsonBody) → raw response body; null uses file_get_contents
+     * @param int $timeout seconds for one request of the default transport (auth status uses a short one)
      */
     public function __construct(
         private readonly string $base = self::DEFAULT_BASE,
         private readonly mixed $transport = null,
+        private readonly int $timeout = 60,
     ) {
         if (preg_match('#^https?://[A-Za-z0-9._-]+(?::\d+)?$#', $this->base) !== 1) {
             throw new RuntimeException('D1 HTTP base must be an http(s) host with no path or userinfo.');
+        }
+        if ($this->timeout < 1) {
+            throw new RuntimeException('D1 HTTP timeout must be at least one second.');
         }
     }
 
@@ -132,7 +137,7 @@ final class D1HttpExecutor implements SqlExecutor, D1Executor
                 'content' => $json,
                 'ignore_errors' => true,
                 'follow_location' => 0, // L-1785: never follow redirects
-                'timeout' => 60,
+                'timeout' => $this->timeout,
             ],
         ]);
         $out = @file_get_contents($url, false, $ctx);
