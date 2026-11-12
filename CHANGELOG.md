@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **docs:** update the hand-off and deploy runbook for the current release, sign-in, and hosted storage-mode flip ([#284](https://github.com/thordin9/apotheke/pull/284))
+
 ### Fixed
 
 - **frontend:** sign-in uses the API base from `/config.json`, and a failed sign-in shows the API's detail, field errors, one CSRF retry and the rate-limit wait ([#286](https://github.com/thordin9/apotheke/pull/286))
