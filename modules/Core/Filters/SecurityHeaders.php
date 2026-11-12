@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Filters;
 
+use Apotheke\Core\Http\EmptyBody;
 use Apotheke\Core\Http\SecurityPolicy;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
@@ -11,7 +12,8 @@ use CodeIgniter\HTTP\ResponseInterface;
 
 /**
  * The four headers legacy sends after boot. Not applied to an originals 404, nor to a problem+json
- * answer, which carries the API's set (ApiSecurityPolicy; /upload/check's /api refusal).
+ * answer, which carries the API's set (ApiSecurityPolicy; /upload/check's /api refusal). An empty
+ * 204, 304 or error answer has no Content-Type (EmptyBody).
  */
 final class SecurityHeaders implements FilterInterface
 {
@@ -32,6 +34,7 @@ final class SecurityHeaders implements FilterInterface
             }
             $response->setHeader($name, $value);
         }
+        EmptyBody::untype($response);
 
         return $response;
     }

@@ -22,6 +22,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **api:** in the FrankenPHP image a signed-out request under `/api` with a declared body over 64 KiB answers `413` problem+json (`upload.too_large`), and one with a body but no length `401` problem+json (`auth.required`), with the API headers and, for a listed origin, the CORS headers, instead of a bare `401`; a body over 22 MiB under `/api` is `413` problem+json too
 - **docker:** a missing file under `/assets/` is a `404` with `Cache-Control: no-store` in both images (nginx and FrankenPHP); only a served asset keeps the year-long `immutable` cache
 - **api:** the OpenAPI document's `info.version` is `1.0.0-p3`, the last phase its description covers, and it has a relative `servers` entry (`/`)
+- **core:** an answer without a body (`204`, `304`, or an empty error such as `/upload/check`'s `401`, a CORS preflight or a signed-out `/media` request) has no `Content-Type` instead of `text/html`
 - **media:** `/media` answers `304` for an `If-None-Match` list, a weak tag or `*`, sends `Accept-Ranges: bytes`, and answers a single byte range with `206` and `Content-Range` (or `416` with `Content-Range: bytes */<size>`), with `If-Range`, on local and R2 storage
 
 ## [3.36.6] - 2026-11-12

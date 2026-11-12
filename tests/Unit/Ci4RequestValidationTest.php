@@ -13,7 +13,7 @@ require_once dirname(__DIR__) . '/lib.php';
  * After those checks, a form field sent as a list it does not take is a 422, and an item's name, notes, tags or
  * serial number past its limit is a 422 instead of being cut short. /upload/check (the FrankenPHP image's check
  * before a body over 64 KiB) refuses a signed-out /api request with the API's problem+json: 413 for a declared
- * length over 64 KiB, else 401.
+ * length over 64 KiB, else 401. An empty 204, 304 or error answer carries no Content-Type.
  */
 final class Ci4RequestValidationTest extends TestCase
 {
@@ -235,6 +235,30 @@ final class Ci4RequestValidationTest extends TestCase
             rrmdir($dir);
             @unlink($dir . '.server.log');
         }
+    }
+
+    public function testAnEmptyAnswerHasNoContentType(): void
+    {
+        $c = self::$server->client();
+        $empty = [
+            'CORS preflight' => $c->req('OPTIONS', '/api/v1/session', [], [], ['Origin: http://app.example.test']),
+            'upload check' => $c->get('/upload/check'),
+            'signed-out photo' => $c->get('/media/full/' . str_repeat('a', 32) . '.jpg'),
+        ];
+        [$in, , $id] = $this->signedIn();
+        $empty['missing photo'] = $in->get('/media/full/' . str_repeat('b', 32) . '.jpg');
+        $token = $in->rest('GET', '/api/v1/session')['json']['csrf_token'];
+        $empty['API sign-out'] = $in->rest('DELETE', '/api/v1/session', null, ['X-CSRF-Token: ' . $token]);
+        foreach ($empty as $label => $r) {
+            $this->assertContains($r['status'], [204, 401, 404], $label);
+            $this->assertSame('', $r['body'], $label);
+            $this->assertArrayNotHasKey('content-type', $r['headers'], $label);
+            $this->assertSame('nosniff', $r['headers']['x-content-type-options'] ?? null, $label);
+        }
+        // Answers with a body, and redirects, keep theirs.
+        $this->assertStringStartsWith('text/html', $c->get('/robots.txt')['headers']['content-type'] ?? '');
+        $this->assertStringStartsWith('text/html', $c->get('/')['headers']['content-type'] ?? '');
+        $this->assertSame('application/problem+json', self::$server->client()->get('/api/v1/me')['headers']['content-type'] ?? null);
     }
 
     /** @return array{0:Client,1:string,2:int} a signed-in client, its CSRF token and a new item's id */
