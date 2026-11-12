@@ -83,7 +83,7 @@ runs it on every frontend pull request and on pushes to `main`. It checks:
 * the shared header and identical footers: marketing pages offer Open the app and Sign in, no header links to
   Privacy, the app nav offers Home only, and the footer has Privacy and `© 2026 Stathis Papandreou`;
 * the app shell's canonical URL uses the SPA base;
-* the Content-Security-Policy on the landing paths and on `/app/` matches the policies in `public/_headers`;
+* the Content-Security-Policy on the landing paths and on `/app/` matches the policies in `public/_headers`: the landing policy does not include the API host; the `/app/*` policy detaches that header and adds the API host to `img-src` and `connect-src` (and `check-dist` expects the app policy and the Worker to match);
 * every page sets `Strict-Transport-Security: max-age=31536000`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and the Permissions-Policy from
   `public/_headers`;
@@ -114,11 +114,13 @@ storage.
 
 Sign-in stays disabled until cookies are accepted, and asks for nothing until
 then. After Accept it reads `apiBase` from `/config.json` and requests `GET`
-`apiBase + '/session'` on the API origin. A missing
-or unusable token shows "Sign-in is coming soon." with a link home, and the form
-stays disabled. The consent cookie is unchanged: nothing is stored before Accept,
-Decline stores nothing, and `Path=/` shares `apotheke_consent=v1` across `/` and
-`/app/`.
+`apiBase + '/session'` on the API origin. When that returns a usable token the
+form is enabled ("You can sign in."). If `config.json` or the session request is
+missing or unusable, it shows "Sign-in is coming soon." with a link home, and
+the form stays disabled. Nothing is stored before Accept. Decline on this site
+currently only hides the notice and, if consent had already been given, expires
+the consent cookie; it does not yet end an API session. `Path=/` shares
+`apotheke_consent=v1` across `/` and `/app/`.
 
 `/privacy/` names the operator shown in the footer. The imprint page
 is not part of this site.

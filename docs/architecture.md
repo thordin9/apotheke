@@ -110,13 +110,13 @@ import, export, stocktake, labels, settings, users, backup; `self` for /account,
   failed rolls back. Bulk actions and duplicating reuse the item save inside one transaction.
 * The activity log entry is written in the same transaction as the change it records.
 * New SQL runs through one executor per request, `Core\Database\SqlExecutor` (`Services::sqlExecutor()`); on Docker
-  that is `ConnectionExecutor`, the request's connection. The existing call sites move onto it, and onto units of
-  work (`Services::unitsOfWork()`) for writes that belong together, in the later P4-2 parts (P4-2b); no call site
-  uses either yet. Long id lists are already bound as one list parameter (`Dialect::inList()`). See
+  that is `ConnectionExecutor`, the request's connection. Call sites use that executor and units of work
+  (`Services::unitsOfWork()`) for writes that belong together. Long id lists are already bound as one list parameter
+  (`Dialect::inList()`). See
   [How the app runs SQL](database.md#how-the-app-runs-sql).
-* On Cloudflare (P4, in progress) writes become units of work that run as one batch on D1 or a Durable Object's
-  SQLite, and files move to R2 behind `Core\Storage`; Docker keeps PDO and `DATA_DIR` unchanged
-  ([ADR-002](adr/002-edge-storage.md)).
+* On Cloudflare, hosted writes that have been converted run as units of work in one batch on D1 (the Installation
+  Durable Object's SQLite), and files go to R2 behind `Core\Storage`. Docker keeps PDO and `DATA_DIR` unchanged
+  ([ADR-002](adr/002-edge-storage.md)). Restoring a backup on d1 is not available yet.
 
 More in [Database](database.md).
 
