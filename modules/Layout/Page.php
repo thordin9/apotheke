@@ -106,10 +106,20 @@ final class Page
             . $this->consentNotice();
     }
 
+    /** The notice's title, first sentence and buttons: the same words as the site's (frontend/src/partials/header.html). */
+    public const CONSENT_TITLE = 'Cookies';
+
+    public const CONSENT_LEAD = 'This site stores nothing until you accept.';
+
+    public const CONSENT_DECLINE = 'Decline';
+
+    public const CONSENT_ACCEPT = 'Accept';
+
     /**
-     * The cookie-consent notice, on every page until the request carries consent. Accept (app.js) sets the
-     * consent cookie and reloads; without JavaScript the form posts to /consent (ConsentController), which sets
-     * it and comes back here. No cookie is set before that.
+     * The cookie-consent notice, on every page until the request carries consent, with the site's words and
+     * two buttons of the same weight. Accept (app.js) sets the consent cookie and reloads; Decline hides the
+     * notice and posts consent=decline. Without JavaScript the form posts either to /consent
+     * (ConsentController), which comes back here. No cookie is set before Accept.
      */
     public function consentNotice(): string
     {
@@ -117,11 +127,13 @@ final class Page
             return '';
         }
 
-        return '<div class="consent" id="consent" role="region" aria-label="Cookies"><p>This app uses cookies only to keep you signed in and to protect '
-            . 'your changes. Nothing is stored in your browser until you accept.</p>'
-            . '<form method="post" action="/consent"><input type="hidden" name="return" value="' . self::e(Theme::safeBack($this->requestUri)) . '">'
-            . '<button type="submit" class="btn btn-primary" id="consent-accept" data-consent="' . self::e(\Config\Consent::CURRENT) . '" data-domain="'
-            . self::e($this->consentDomain) . "\" name=\"consent\" value=\"accept\">Accept cookies</button></form></div>\n";
+        return '<div class="consent" id="consent" role="region" aria-labelledby="consent-title"><div class="consent-copy">'
+            . '<p id="consent-title" class="consent-title">' . self::CONSENT_TITLE . '</p>'
+            . '<p>' . self::CONSENT_LEAD . ' Accept keeps one cookie for 180 days; signing in adds a session cookie.</p></div>'
+            . '<form method="post" action="/consent" class="consent-actions"><input type="hidden" name="return" value="' . self::e(Theme::safeBack($this->requestUri)) . '">'
+            . '<button type="submit" class="btn" id="consent-decline" name="consent" value="decline">' . self::CONSENT_DECLINE . '</button>'
+            . '<button type="submit" class="btn" id="consent-accept" data-consent="' . self::e(\Config\Consent::CURRENT) . '" data-domain="'
+            . self::e($this->consentDomain) . '" name="consent" value="accept">' . self::CONSENT_ACCEPT . "</button></form></div>\n";
     }
 
     /** Legacy page_end(): the Undo bar, then the end of the document. */

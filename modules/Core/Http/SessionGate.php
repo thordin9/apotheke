@@ -65,8 +65,21 @@ final class SessionGate
     /** A stamp younger than this is kept, so a busy page does not rewrite the file. */
     public const TOUCH_SECONDS = 60;
 
+    /** Whether this request loaded a live session (resume()); SessionCookie resets it per request. */
+    private static bool $loaded = false;
+
     public function __construct(private readonly int $now)
     {
+    }
+
+    public static function loaded(): bool
+    {
+        return self::$loaded;
+    }
+
+    public static function reset(): void
+    {
+        self::$loaded = false;
     }
 
     /**
@@ -107,6 +120,7 @@ final class SessionGate
         $this->stampSignIn();
         $this->stamp();
         session_write_close();
+        self::$loaded = true;
 
         return true;
     }
@@ -138,17 +152,79 @@ final class SessionGate
     }
 
     /**
-     * Legacy logout(): empty the session and give it a new id; the old file is
-     * removed, so a copied cookie no longer signs in.
+     * Legacy logout(): end the session. It is emptied and removed from the
+     * store (file or row), no new id is issued, and the response expires the
+     * session cookie(s) the request carried.
+     *
+     * @param list<string> $names the session cookie names the request carried
      */
-    public function signOut(): void
+    public function signOut(array $names = []): void
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {
             session_start();
         }
         $_SESSION = [];
-        session_regenerate_id(true);
-        session_write_close();
+        session_destroy();
+        self::expireCookies(array_values(array_unique([...$names, session_name()])));
+    }
+
+    /**
+     * The session cookie names $cookies holds (the HTTPS name, the plain name, or both).
+     *
+     * @param array<array-key,mixed> $cookies
+     * @return list<string>
+     */
+    public static function carried(array $cookies): array
+    {
+        return array_values(array_filter(
+            [self::SECURE_COOKIE, self::COOKIE],
+            static fn (string $n): bool => is_string($cookies[$n] ?? null),
+        ));
+    }
+
+    /**
+     * Expire $names in the response: an empty value, Max-Age=0 and an Expires
+     * in the past, with the attributes the session cookie is set with (path,
+     * Secure, HttpOnly, SameSite). A __Host- name is always Secure.
+     *
+     * @param list<string> $names
+     */
+    public static function expireCookies(array $names): void
+    {
+        if (headers_sent()) {
+            return;
+        }
+        $params = session_get_cookie_params();
+        // session_start() resends the cookie when it has a lifetime; only the expiry may leave.
+        $lines = headers_list();
+        $others = array_filter($lines, static function (string $h) use ($names): bool {
+            foreach ($names as $name) {
+                if (stripos($h, 'set-cookie: ' . $name . '=') === 0) {
+                    return false;
+                }
+            }
+
+            return stripos($h, 'set-cookie:') === 0;
+        });
+        header_remove('Set-Cookie');
+        foreach ($others as $h) {
+            header($h, false);
+        }
+        foreach (array_unique($names) as $name) {
+            setcookie($name, '', [
+                'expires' => 1,
+                'path' => '/',
+                'secure' => $name === self::SECURE_COOKIE || (bool)$params['secure'],
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
+        }
+    }
+
+    /** A Set-Cookie line (without the header name) that expires a session cookie. */
+    public static function isExpiry(string $line): bool
+    {
+        return preg_match('/^(__Host-)?apothekesid=deleted; expires=[^;]+; Max-Age=0; path=\/(; secure)?; HttpOnly; SameSite=Lax$/D', $line) === 1;
     }
 
     /**
