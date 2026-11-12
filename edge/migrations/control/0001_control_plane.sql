@@ -2,7 +2,7 @@
 -- installations. Additive only: later migrations add tables or columns, never drop or rename.
 
 CREATE TABLE plans (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL PRIMARY KEY,
   name TEXT NOT NULL,
   active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
@@ -20,10 +20,12 @@ CREATE TABLE plan_limits (
 );
 
 -- do_name is the name given to idFromName (Installation, EU jurisdiction) and getByName (ApothekeContainer);
--- r2_prefix is installations/<do_name>/. Neither ever changes for an installation (a trigger refuses it).
+-- r2_prefix is installations/<do_name>/. Neither ever changes for an installation (triggers refuse it, including
+-- through REPLACE, which deletes and re-inserts without firing UPDATE triggers). do_name is ^[a-z0-9]+(-[a-z0-9]+)*$.
 CREATE TABLE installations (
-  id TEXT PRIMARY KEY,
-  do_name TEXT NOT NULL UNIQUE CHECK (do_name <> '' AND do_name NOT GLOB '*[^a-z0-9-]*'),
+  id TEXT NOT NULL PRIMARY KEY,
+  do_name TEXT NOT NULL UNIQUE CHECK (length(do_name) BETWEEN 1 AND 63 AND do_name NOT GLOB '*[^a-z0-9-]*'
+    AND do_name NOT GLOB '-*' AND do_name NOT GLOB '*-' AND do_name NOT GLOB '*--*'),
   r2_prefix TEXT NOT NULL UNIQUE CHECK (r2_prefix = 'installations/' || do_name || '/'),
   status TEXT NOT NULL CHECK (status IN ('provisioning', 'active', 'suspended', 'deleting', 'deleted')),
   owner_contact TEXT,
@@ -34,10 +36,15 @@ CREATE TABLE installations (
 CREATE TRIGGER installations_names_fixed BEFORE UPDATE OF do_name, r2_prefix ON installations
 WHEN NEW.do_name IS NOT OLD.do_name OR NEW.r2_prefix IS NOT OLD.r2_prefix
 BEGIN SELECT RAISE(ABORT, 'do_name and r2_prefix never change'); END;
+CREATE TRIGGER installations_no_replace BEFORE INSERT ON installations
+WHEN EXISTS (SELECT 1 FROM installations WHERE id = NEW.id OR do_name = NEW.do_name OR r2_prefix = NEW.r2_prefix)
+BEGIN SELECT RAISE(ABORT, 'installation already exists'); END;
 
--- Host (lower case, no port, no trailing dot) to installation. More than one host may point at one installation.
+-- Host (lower case, no port, no empty label, no label starting or ending with '-') to installation. More than one host may point at one installation.
 CREATE TABLE installation_routes (
-  host TEXT PRIMARY KEY CHECK (host <> '' AND host NOT GLOB '*[^a-z0-9.-]*' AND host NOT GLOB '.*' AND host NOT GLOB '*.'),
+  host TEXT NOT NULL PRIMARY KEY CHECK (length(host) BETWEEN 1 AND 253 AND host NOT GLOB '*[^a-z0-9.-]*'
+    AND host NOT GLOB '.*' AND host NOT GLOB '*.' AND host NOT GLOB '*..*'
+    AND host NOT GLOB '-*' AND host NOT GLOB '*-' AND host NOT GLOB '*.-*' AND host NOT GLOB '*-.*'),
   installation_id TEXT NOT NULL REFERENCES installations (id),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
@@ -45,7 +52,7 @@ CREATE INDEX installation_routes_installation ON installation_routes (installati
 
 -- Set by hand in the console; no billing provider.
 CREATE TABLE subscriptions (
-  installation_id TEXT PRIMARY KEY REFERENCES installations (id),
+  installation_id TEXT NOT NULL PRIMARY KEY REFERENCES installations (id),
   plan_id TEXT NOT NULL REFERENCES plans (id),
   status TEXT NOT NULL CHECK (status IN ('trial', 'active', 'past_due', 'cancelled')),
   trial_end TEXT,
@@ -64,7 +71,7 @@ CREATE TABLE usage_counters (
 
 -- Append-only: control-plane fields only, never tenant content.
 CREATE TABLE operator_audit (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL PRIMARY KEY,
   at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
   operator TEXT NOT NULL,
   action TEXT NOT NULL,
