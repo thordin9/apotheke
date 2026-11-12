@@ -136,7 +136,7 @@ export const PAGE_SECURITY = {
     'referrer-policy': 'strict-origin-when-cross-origin',
     'x-frame-options': 'DENY',
 };
-export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=(), accelerometer=(), gyroscope=(), magnetometer=(), payment=(), usb=(), bluetooth=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()";
+export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=(), accelerometer=(), gyroscope=(), magnetometer=(), payment=(), usb=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()";
 
 function expectedCache(path) {
     if (path === '/assets/icons.svg' || path.startsWith('/assets/brand/') || path.startsWith('/assets/mascot/') || path.startsWith('/assets/shots/')) {
