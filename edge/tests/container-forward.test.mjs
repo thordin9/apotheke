@@ -11,11 +11,14 @@ function containerEnv(over = {}) {
 
 function readyContainer(handler) {
   const calls = [];
+  const waitUntil = [];
+  const timeouts = [];
+  let monitorCalls = 0;
   const container = {
     running: true,
     start() { throw new Error('already running'); },
-    setInactivityTimeout: async () => {},
-    monitor: () => new Promise(() => {}),
+    setInactivityTimeout: async (ms) => { timeouts.push(ms); },
+    monitor: () => { monitorCalls += 1; return new Promise(() => {}); },
     interceptOutboundHttp: async () => {},
     getTcpPort: (port) => {
       assert.equal(port, 9091);
@@ -27,8 +30,8 @@ function readyContainer(handler) {
       };
     },
   };
-  const ctx = { container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
-  return { ctx, calls, box: new ApothekeContainer(ctx, containerEnv()) };
+  const ctx = { container, waitUntil(p) { waitUntil.push(p); }, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
+  return { ctx, calls, waitUntil, timeouts, monitor: () => monitorCalls, box: new ApothekeContainer(ctx, containerEnv()) };
 }
 
 test('the container fetch is http, keeps path and query, and uses redirect:manual', async () => {
@@ -112,11 +115,14 @@ test('a missing cf-connecting-ip drops a client-supplied X-Apotheke-Client-IP', 
 
 function coldContainer(handler, envOver = {}) {
   const calls = [];
+  const waitUntil = [];
+  const timeouts = [];
+  let monitorCalls = 0;
   const container = {
     running: false,
     start(opts) { this.started = opts; this.running = true; },
-    setInactivityTimeout: async () => {},
-    monitor: () => new Promise(() => {}),
+    setInactivityTimeout: async (ms) => { timeouts.push(ms); },
+    monitor: () => { monitorCalls += 1; return new Promise(() => {}); },
     interceptOutboundHttp: async () => {},
     getTcpPort: (port) => {
       assert.equal(port, 9091);
@@ -137,8 +143,8 @@ function coldContainer(handler, envOver = {}) {
       };
     },
   };
-  const ctx = { container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
-  return { ctx, calls, container, box: new ApothekeContainer(ctx, containerEnv(envOver)) };
+  const ctx = { container, waitUntil(p) { waitUntil.push(p); }, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
+  return { ctx, calls, container, waitUntil, timeouts, monitor: () => monitorCalls, box: new ApothekeContainer(ctx, containerEnv(envOver)) };
 }
 
 test('the readiness probe uses the first ALLOWED_HOSTS entry, not Host container', async () => {
@@ -186,4 +192,49 @@ test('firstAllowedHost takes the first configured name', () => {
   assert.equal(firstAllowedHost('*, api.example.test'), 'api.example.test');
   assert.equal(firstAllowedHost(''), undefined);
   assert.equal(firstAllowedHost('  , * '), undefined);
+});
+
+test('a cold start sets the inactivity timeout and does not hold monitor or waitUntil', async () => {
+  const { box, waitUntil, timeouts, monitor } = coldContainer(() => new Response('ok', { status: 200 }), {
+    SLEEP_AFTER_MS: '120000',
+  });
+  assert.equal((await box.fetch(new Request('https://api.example.test/items'))).status, 200);
+  assert.deepEqual(timeouts, [120000]);
+  assert.equal(monitor(), 0);
+  assert.equal(waitUntil.length, 0);
+});
+
+test('an unset SLEEP_AFTER_MS uses a 15 minute inactivity timeout', async () => {
+  const { box, timeouts, monitor, waitUntil } = coldContainer(() => new Response('ok', { status: 200 }));
+  assert.equal((await box.fetch(new Request('https://api.example.test/items'))).status, 200);
+  assert.deepEqual(timeouts, [15 * 60 * 1000]);
+  assert.equal(monitor(), 0);
+  assert.equal(waitUntil.length, 0);
+});
+
+test('the readiness probe and a later request do not call monitor or waitUntil', async () => {
+  const { box, calls, waitUntil, timeouts, monitor } = coldContainer(() => new Response('ok', { status: 200 }), {
+    ALLOWED_HOSTS: 'api.example.test',
+    SLEEP_AFTER_MS: '120000',
+  });
+  assert.equal((await box.fetch(new Request('https://api.example.test/login'))).status, 200);
+  assert.equal(calls[0].url, 'http://api.example.test/healthz');
+  assert.equal((await box.fetch(new Request('https://api.example.test/items'))).status, 200);
+  assert.equal(calls[calls.length - 1].url, 'http://api.example.test/items');
+  // The timeout is set on start, not renewed by the probe or the second request.
+  // A later user request is still forwarded; the platform resets the timeout when the DO is active.
+  assert.deepEqual(timeouts, [120000]);
+  assert.equal(monitor(), 0);
+  assert.equal(waitUntil.length, 0);
+});
+
+test('a warm Durable Object sets the inactivity timeout in the constructor and does not hold monitor', async () => {
+  const { box, waitUntil, timeouts, monitor } = readyContainer(() => new Response('ok', { status: 200 }));
+  assert.deepEqual(timeouts, [15 * 60 * 1000]);
+  assert.equal(monitor(), 0);
+  assert.equal(waitUntil.length, 0);
+  assert.equal((await box.fetch(new Request('https://api.example.test/items'))).status, 200);
+  assert.deepEqual(timeouts, [15 * 60 * 1000]);
+  assert.equal(monitor(), 0);
+  assert.equal(waitUntil.length, 0);
 });
