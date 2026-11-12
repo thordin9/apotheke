@@ -18,7 +18,8 @@ use Config\App;
 use Config\Services;
 
 /**
- * An empty POST that still has a Content-Length is the body PHP dropped.
+ * A POST past post_max_size is the body PHP dropped (PostTooLarge); a smaller body
+ * goes on to the consent, sign-in and CSRF checks.
  * A returned response skips global after filters, so the security headers are set here.
  */
 final class PostTooLargeFilter implements FilterInterface
@@ -34,7 +35,7 @@ final class PostTooLargeFilter implements FilterInterface
         $length = (int)($server['CONTENT_LENGTH'] ?? 0);
         if (ApiResponse::isApi(LegacyPathRouter::requestPath($request))) {
             // A JSON body never fills $_POST, so /api goes by the declared length (API plan §2.3).
-            $limit = ini_parse_quantity((string)ini_get('post_max_size'));
+            $limit = PostTooLarge::limit();
             if ($limit <= 0 || $length <= $limit) {
                 return null;
             }

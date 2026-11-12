@@ -109,6 +109,12 @@ final class Ci4ApiSessionTest extends TestCase
         $broken = $c->req('POST', '/api/v1/session', [], [], array_merge($token, ['Origin: ' . $c->base, 'Content-Type: application/json']), '{"username":');
         $this->assertSame([400, 'bad_request'], [$broken['status'], $broken['json']['code'] ?? null]);
         ApiContract::assertMatches('POST', '/api/v1/session', $broken);
+        $empty = $c->req('POST', '/api/v1/session', [], [], array_merge($token, ['Origin: ' . $c->base, 'Content-Type: application/json']), '');
+        $this->assertSame([422, 'validation.failed', ['username' => 'Required.', 'password' => 'Required.']],
+            [$empty['status'], $empty['json']['code'] ?? null, $empty['json']['errors'] ?? null], 'an empty body is checked like {}');
+        $typed = $c->rest('POST', '/api/v1/session', ['username' => 123, 'password' => ['x']], $token);
+        $this->assertSame([422, ['username' => 'Must be text.', 'password' => 'Must be text.']], [$typed['status'], $typed['json']['errors'] ?? null]);
+        ApiContract::assertMatches('POST', '/api/v1/session', $empty);
         $noToken = $c->rest('POST', '/api/v1/session', ['username' => 'admin', 'password' => self::PASSWORD]);
         $this->assertSame([403, 'csrf.invalid'], [$noToken['status'], $noToken['json']['code']], 'sign-in needs the token too');
     }

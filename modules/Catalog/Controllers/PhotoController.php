@@ -57,7 +57,8 @@ final class PhotoController extends CatalogController
         $iid = $this->item((int)$id);
         $idx = $this->photos()->action($iid, (int)$pid, $action);
         if ($this->wantsJson()) {
-            return $this->json(['ok' => true, 'index' => $idx, 'count' => count($this->photos()->list($iid))]);
+            // The photo to show next, as the redirect's ?p= (never -1 after the last one is deleted).
+            return $this->json(['ok' => true, 'index' => max(0, $idx), 'count' => count($this->photos()->list($iid))]);
         }
 
         return $this->redirectTo('/item/' . $iid . '?p=' . max(0, $idx) . '#photos');

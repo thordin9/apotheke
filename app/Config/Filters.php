@@ -52,6 +52,8 @@ class Filters extends BaseFilters
         'sameorigin' => \Apotheke\Core\Filters\SameOriginFilter::class,
         // Legacy check_csrf() (session token). CI4's cookie CSRF ('csrf') stays off.
         'sessioncsrf' => \Apotheke\Core\Filters\CsrfFilter::class,
+        // A form write takes one value per field, but for its list fields (FormFields): 422 otherwise.
+        'formfields' => \Apotheke\Core\Filters\FormFieldsFilter::class,
         // Legacy route_perm()/user_can(): every request, routed or not, before CSRF (PLAN PR 7).
         'permission' => \Apotheke\Auth\Filters\PermissionFilter::class,
         // Runs Core\Http\RequestCleanup at the end of every request (an unfinished upload's files).
@@ -111,6 +113,7 @@ class Filters extends BaseFilters
             // /login, /register and /logout check the token themselves, after their own redirects (Auth).
             // /api has its own, stricter check ('apicsrf' below). /consent has no session yet: strictly same-origin.
             'sessioncsrf' => ['except' => ['login', 'register', 'logout', 'consent', 'api', 'api/*']],
+            'formfields' => ['except' => ['api', 'api/*']],
         ],
         'after' => [
             'securityheaders',
