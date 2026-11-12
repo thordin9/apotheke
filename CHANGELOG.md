@@ -13,6 +13,30 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **backup:** restore a backup on the hosted database; each restore first keeps a backup of the whole catalog (the newest `RESTORE_KEEP_BACKUPS`, default 5), listed on the backup page and by `GET /api/v1/backups`; restoring is a permission of its own (Restore), which every role with Backup keeps ([#305](https://github.com/thordin9/apotheke/pull/305))
 - **auth:** new installations give editors the Backup and Restore permissions and viewers Backup; existing installations keep their roles, and an admin grants these to editors and viewers in the role editor or with *Reset built-in roles* ([#305](https://github.com/thordin9/apotheke/pull/305))
 
+### Fixed
+
+- **core:** a small web POST whose body fills no form fields (JSON, text) gets the consent, sign-in or CSRF answer instead of `413`; only a body past `post_max_size` is `413` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **core:** a page or form write (any method but GET, HEAD and OPTIONS, outside `/api`) whose `Origin`, or `Referer` when there is no `Origin`, is not this host or the public base answers `403` with sign-in on as well as off; `X-Forwarded-Proto` counts with `trust_proxy`, and a request without either header goes on to the CSRF token check as before ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **core:** a page or form write that sends a field as a list (`id[]=`, `name[]=`) where the form takes one value answers `422` with the usual error page, or `{ok:false,error}` for fetch, after the sign-in, same-origin and CSRF checks, instead of reading it as `Array` or `1`; the list fields (`ids[]`, `perms[]`, `col[]`, `photos[]`, `files[]`) and GET filters are unchanged ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **catalog:** an item's name over 200 characters, notes over 5,000, tags over 2,000 or serial number over 100 answer `422` with the form and a message instead of being cut short; a CSV import row with a name or notes over the limit is a row error, so `POST /api/v1/imports/{id}/commit` answers `422` `validation.failed` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **api:** in the FrankenPHP image a signed-out request under `/api` with a declared body over 64 KiB answers `413` problem+json (`upload.too_large`), and one with a body but no length `401` problem+json (`auth.required`), with the API headers and, for a listed origin, the CORS headers, instead of a bare `401`; a body over 22 MiB under `/api` is `413` problem+json too ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **docker:** a missing file under `/assets/` is a `404` with `Cache-Control: no-store` in both images (nginx and FrankenPHP); only a served asset keeps the year-long `immutable` cache ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **api:** the OpenAPI document's `info.version` is `1.0.0-p3`, the last phase its description covers, and it has a relative `servers` entry (`/`) ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **core:** an answer without a body (`204`, `304`, or an empty error such as `/upload/check`'s `401`, a CORS preflight or a signed-out `/media` request) has no `Content-Type` instead of `text/html` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **media:** `/media` answers `304` for an `If-None-Match` list, a weak tag or `*`, sends `Accept-Ranges: bytes`, and answers a single byte range with `206` and `Content-Range` (or `416` with `Content-Range: bytes */<size>`), with `If-Range`, on local and R2 storage ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **catalog:** deleting an item's last photo by fetch answers `index` `0`, the photo the redirect shows, instead of `-1` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **api:** `POST /api/v1/session` with an empty body answers `422` `validation.failed` with both fields `Required.`, like `{}`, instead of `400`; a field sent as a number or a list is `Must be text.` instead of `Required.` ([#294](https://github.com/thordin9/apotheke/pull/294))
+
+## [3.38.0] - 2026-11-12
+
+### Added
+
+- **edge:** control-plane schema for the hosted operator console in `edge/migrations/control/` (installations, routes, plans and limits, manual subscriptions, usage counters, an append-only audit log), with `primary` seeded under its existing names on plan `internal`; see [docs/operator-console.md](docs/operator-console.md). Not applied by any deploy yet ([#299](https://github.com/thordin9/apotheke/pull/299))
+
+### Maintenance
+
+- docs: correct v3.37.0 storage, backup and sign-in notes ([#301](https://github.com/thordin9/apotheke/pull/301))
+
 ### Changed
 
 - **docs:** correct the v3.37.0 notes for hosted storage, backups, sign-in, worker mode and the SQL executor ([#301](https://github.com/thordin9/apotheke/pull/301))
@@ -1629,7 +1653,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.37.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.38.0...HEAD
+[3.38.0]: https://github.com/thordin9/apotheke/compare/v3.37.2...v3.38.0
 [3.37.2]: https://github.com/thordin9/apotheke/compare/v3.37.1...v3.37.2
 [3.37.1]: https://github.com/thordin9/apotheke/compare/v3.37.0...v3.37.1
 [3.37.0]: https://github.com/thordin9/apotheke/compare/v3.36.10...v3.37.0

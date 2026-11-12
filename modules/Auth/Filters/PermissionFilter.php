@@ -8,6 +8,7 @@ use Apotheke\Auth\PermissionCheck;
 use Apotheke\Auth\Permissions;
 use Apotheke\Auth\RoutePermission;
 use Apotheke\Core\Http\ApiResponse;
+use Apotheke\Core\Http\EmptyBody;
 use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Http\SecurityPolicy;
 use Apotheke\Core\Http\WantsJson;
@@ -92,7 +93,10 @@ final class PermissionFilter implements FilterInterface
                 return $this->json($response, 401, ['ok' => false, 'error' => 'Not signed in', 'redirect' => '/login']);
             }
             if (str_starts_with($path, '/media/')) {
-                return $response->setStatusCode(401);
+                $response->setStatusCode(401);
+                EmptyBody::untype($response);
+
+                return $response;
             }
 
             return $response->setStatusCode(303)->setHeader('Location', '/login');

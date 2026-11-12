@@ -2,9 +2,10 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Apotheke API",
-    "version": "1.0.0-p1",
+    "version": "1.0.0-p3",
     "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings, users, roles, the sign-in policy and the branding; P3: CSV imports; chunked restore uploads). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`. Cookie consent: the server sets no cookie at all (no session, no CSRF token) until the request carries the cookie apotheke_consent=v1, which the banner script sets when the user clicks Accept (only the name and the exact value count; any other value is no consent). Without it, reads still answer (GET /api/v1/session with an empty csrf_token), and every POST, PUT, PATCH and DELETE is 403 with code consent_required and error consent_required."
   },
+  "servers": [{"url": "/", "description": "This server: the API is under /api/v1 on the app's own address"}],
   "paths": {
     "/api/v1/session": {
       "get": {
