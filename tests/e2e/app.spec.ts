@@ -192,7 +192,7 @@ test('a refused sign-in says to accept cookies', async ({ page }) => {
         return route.fulfill({
             status: 403,
             contentType: 'application/problem+json',
-            body: JSON.stringify({ code: 'consent_required', error: 'consent_required' }),
+            body: JSON.stringify(problem(403, 'Forbidden', 'consent_required', 'Accept cookies, then try again.')),
         });
     });
     await page.getByRole('button', { name: 'Accept' }).click();
@@ -233,7 +233,7 @@ test('Accept on the landing page is the same single cookie in the app', async ({
     await page.goto('/app/');
     await expect(page.locator('#consent')).toBeHidden();
     expect(await context.cookies()).toHaveLength(1);
-    expect(hits).toEqual([]);
+    expect(hits).toEqual(['GET']);
     await page.goto('/app/sign-in');
     await expect(page.locator('#consent')).toBeHidden();
     expect(await context.cookies()).toHaveLength(1);
@@ -286,6 +286,18 @@ test('keyboard focus draws an outline on the hero and the footer', async ({ page
 
 const API_SESSION = 'https://api.services.getapotheke.com/api/v1/session';
 
+function problem(status: number, title: string, code: string, detail: string, extra: Record<string, unknown> = {}) {
+    return { type: 'about:blank', title, status, detail, code, ...extra };
+}
+
+function sessionOk(token: string, signedIn = false, username = '') {
+    return {
+        csrf_token: token,
+        signed_in: signedIn,
+        user: signedIn ? { username } : null,
+    };
+}
+
 async function allowApiCookie(page: Page) {
     await page.context().addCookies([{
         name: 'probe',
@@ -325,7 +337,7 @@ test('a wrong password shows the API detail', async ({ page }) => {
         return route.fulfill({
             status: 401,
             contentType: 'application/problem+json',
-            body: JSON.stringify({ code: 'auth.invalid_credentials', detail: 'Wrong user name or password.' }),
+            body: JSON.stringify(problem(401, 'Unauthorized', 'auth.invalid_credentials', 'Wrong user name or password.')),
         });
     });
     await acceptAndSignIn(page);
@@ -347,11 +359,9 @@ test('invalid fields show the API detail next to each input', async ({ page }) =
         return route.fulfill({
             status: 422,
             contentType: 'application/problem+json',
-            body: JSON.stringify({
-                code: 'validation.failed',
-                detail: 'Enter a user name and password.',
+            body: JSON.stringify(problem(422, 'Unprocessable Content', 'validation.failed', 'Enter a user name and password.', {
                 errors: { username: 'Required.', password: 'Required.' },
-            }),
+            })),
         });
     });
     await acceptAndSignIn(page);
@@ -380,7 +390,7 @@ test('an invalid CSRF token is refreshed and the sign-in is retried once', async
             return route.fulfill({
                 status: 403,
                 contentType: 'application/problem+json',
-                body: JSON.stringify({ code: 'csrf.invalid', detail: 'The security token does not match.' }),
+                body: JSON.stringify(problem(403, 'Forbidden', 'csrf.invalid', 'The request was refused: reload and try again.')),
             });
         }
         expect(req.headers()['x-csrf-token']).toBe('fresh-token');
@@ -411,9 +421,160 @@ test('a rate limit shows how long to wait', async ({ page }) => {
             status: 429,
             contentType: 'application/problem+json',
             headers: { 'Retry-After': '60', 'Access-Control-Expose-Headers': 'Retry-After' },
-            body: JSON.stringify({ code: 'rate_limited', detail: 'Too many attempts for this account from this address.' }),
+            body: JSON.stringify(problem(429, 'Too Many Requests', 'rate_limited', 'Too many attempts for this account from this address – please wait 1 minutes and try again.')),
         });
     });
     await acceptAndSignIn(page);
-    await expect(page.locator('#sign-in-error')).toHaveText('Too many sign-in attempts. Try again in 60 seconds.');
+    await expect(page.locator('#sign-in-error')).toHaveText('Too many attempts for this account from this address – please wait 1 minutes and try again.');
+});
+
+test('a second invalid CSRF token is shown and not retried again', async ({ page }) => {
+    await allowApiCookie(page);
+    let posts = 0;
+    await page.route(API_SESSION, (route) => {
+        expectApiCall(route.request());
+        if (route.request().method() === 'GET') {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(sessionOk(posts === 0 ? 'stale-token' : 'fresh-token')),
+            });
+        }
+        posts += 1;
+        return route.fulfill({
+            status: 403,
+            contentType: 'application/problem+json',
+            body: JSON.stringify(problem(403, 'Forbidden', 'csrf.invalid', 'The request was refused: reload and try again.')),
+        });
+    });
+    await acceptAndSignIn(page);
+    await expect(page.locator('#sign-in-error')).toHaveText('The request was refused: reload and try again.');
+    expect(posts).toBe(2);
+});
+
+test('a forbidden response that is not an invalid token is not retried', async ({ page }) => {
+    await allowApiCookie(page);
+    let posts = 0;
+    await page.route(API_SESSION, (route) => {
+        expectApiCall(route.request());
+        if (route.request().method() === 'GET') {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(sessionOk('fresh-token')),
+            });
+        }
+        posts += 1;
+        return route.fulfill({
+            status: 403,
+            contentType: 'application/problem+json',
+            body: JSON.stringify(problem(403, 'Forbidden', 'permission.denied', 'You cannot do that.')),
+        });
+    });
+    await acceptAndSignIn(page);
+    await expect(page.locator('#sign-in-error')).toHaveText('You cannot do that.');
+    expect(posts).toBe(1);
+});
+
+test('an API detail is shown as text', async ({ page }) => {
+    await allowApiCookie(page);
+    const detail = '<img src=x onerror=alert(1)>';
+    await page.route(API_SESSION, (route) => {
+        if (route.request().method() === 'GET') {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(sessionOk('fresh-token')),
+            });
+        }
+        return route.fulfill({
+            status: 401,
+            contentType: 'application/problem+json',
+            body: JSON.stringify(problem(401, 'Unauthorized', 'auth.invalid_credentials', detail)),
+        });
+    });
+    await acceptAndSignIn(page);
+    const error = page.locator('#sign-in-error');
+    await expect(error).toHaveText(detail);
+    expect(await error.evaluate((el) => el.querySelector('img'))).toBeNull();
+});
+
+test('a double click sends one sign-in', async ({ page }) => {
+    await allowApiCookie(page);
+    let posts = 0;
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    await page.route(API_SESSION, async (route) => {
+        if (route.request().method() === 'GET') {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(sessionOk('fresh-token')),
+            });
+        }
+        posts += 1;
+        await held;
+        return route.fulfill({
+            status: 401,
+            contentType: 'application/problem+json',
+            body: JSON.stringify(problem(401, 'Unauthorized', 'auth.invalid_credentials', 'Wrong user name or password.')),
+        });
+    });
+    await page.goto('/app/sign-in');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#sign-in-note')).toHaveText('You can sign in.');
+    await page.locator('#sign-in-user').fill('ada');
+    await page.locator('#sign-in-pass').fill('secret');
+    const button = page.locator('#sign-in-submit');
+    await button.evaluate((el: HTMLButtonElement) => {
+        el.click();
+        el.click();
+    });
+    await expect(button).toHaveAttribute('aria-busy', 'true');
+    release();
+    await expect(page.locator('#sign-in-error')).toHaveText('Wrong user name or password.');
+    await expect(button).not.toHaveAttribute('aria-busy');
+    expect(posts).toBe(1);
+});
+
+test('a signed-in session replaces the sign-in offer', async ({ page }) => {
+    let gets = 0;
+    await page.route(API_SESSION, (route) => {
+        gets += 1;
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
+        });
+    });
+    await page.goto('/app/');
+    await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toBeVisible();
+    expect(gets).toBe(0);
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#signed-in')).toHaveText('Signed in as ada.');
+    await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toHaveCount(0);
+    expect(gets).toBe(1);
+});
+
+test('a rate limit without a detail uses Retry-After in minutes', async ({ page }) => {
+    await allowApiCookie(page);
+    await page.route(API_SESSION, (route) => {
+        if (route.request().method() === 'GET') {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(sessionOk('fresh-token')),
+            });
+        }
+        return route.fulfill({
+            status: 429,
+            contentType: 'application/problem+json',
+            headers: { 'Retry-After': '61', 'Access-Control-Expose-Headers': 'Retry-After' },
+            body: JSON.stringify(problem(429, 'Too Many Requests', 'rate_limited', '')),
+        });
+    });
+    await acceptAndSignIn(page);
+    await expect(page.locator('#sign-in-error')).toHaveText('Too many sign-in attempts. Try again in 2 minutes.');
 });

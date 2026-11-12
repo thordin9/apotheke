@@ -1,6 +1,6 @@
 // In-app routes for /app/. Plain modules; the Svelte app replaces this in step S1.
 // Navigation uses the History API only. No localStorage, sessionStorage, IndexedDB or Cache storage.
-import { bindSignIn, enableLogin, hasConsent } from './consent.js';
+import { bindSignIn, enableLogin, fetchSession, hasConsent, loadApiBase } from './consent.js';
 import { trackPageview } from './analytics.js';
 
 // The build writes APOTHEKE_SPA_BASE in here (default /app/). The page also carries
@@ -58,8 +58,21 @@ function renderHome(root) {
     lead.textContent = 'Apotheke catalogues your things: a photo, a place, found in seconds.';
     const actions = document.createElement('div');
     actions.className = 'actions';
-    actions.append(link(base + '/sign-in', 'btn btn-primary', 'Sign in'));
+    const signInLink = link(base + '/sign-in', 'btn btn-primary', 'Sign in');
+    actions.append(signInLink);
     root.append(h1, lead, actions);
+    if (hasConsent()) showSignedIn(actions, signInLink);
+}
+
+async function showSignedIn(actions, signInLink) {
+    const session = await fetchSession(await loadApiBase());
+    if (!session.signed_in || !actions.isConnected) return;
+    signInLink.remove();
+    const line = document.createElement('p');
+    line.id = 'signed-in';
+    line.className = 'answer';
+    line.textContent = session.username ? 'Signed in as ' + session.username + '.' : 'Signed in.';
+    actions.replaceChildren(line);
 }
 
 function renderSignIn(root) {
@@ -167,5 +180,14 @@ function onClick(event) {
 }
 
 document.addEventListener('click', onClick);
+const accept = document.getElementById('consent-accept');
+if (accept) {
+    accept.addEventListener('click', () => {
+        if (routeOf(location.pathname) !== 'home') return;
+        const actions = document.querySelector('#app .actions');
+        const signInLink = actions ? actions.querySelector('a') : null;
+        if (actions && signInLink) showSignedIn(actions, signInLink);
+    });
+}
 window.addEventListener('popstate', render);
 render();

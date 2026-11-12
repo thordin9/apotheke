@@ -113,18 +113,29 @@ export function declineConsent() {
 
 let apiBasePromise = null;
 
-/** One read of /config.json for every session and CSRF call. */
+/** A successful /config.json read is kept. A failure is forgotten so the next call tries again. */
 export function loadApiBase() {
     if (!apiBasePromise) {
         apiBasePromise = fetch('/config.json', { headers: { Accept: 'application/json' } })
             .then(async (res) => {
-                if (!res.ok) return '';
+                if (!res.ok) throw new Error('config');
                 const data = await res.json();
-                return data && typeof data.apiBase === 'string' ? data.apiBase : '';
+                const base = data && typeof data.apiBase === 'string' ? data.apiBase : '';
+                if (base === '') throw new Error('config');
+                return base;
             })
-            .catch(() => '');
+            .catch(() => {
+                apiBasePromise = null;
+                return '';
+            });
     }
     return apiBasePromise;
+}
+
+export function rememberCsrf(data) {
+    const token = data && typeof data.csrf_token === 'string' ? data.csrf_token : '';
+    if (token) csrfToken = token;
+    return token;
 }
 
 export async function fetchSession(apiBase = '') {
@@ -133,12 +144,14 @@ export async function fetchSession(apiBase = '') {
             credentials: 'include',
             headers: { Accept: 'application/json' },
         });
-        if (!res.ok) return { csrf_token: '' };
+        if (!res.ok) return { csrf_token: '', signed_in: false, username: '' };
         const data = await res.json();
-        const token = data && typeof data.csrf_token === 'string' ? data.csrf_token : '';
-        return { csrf_token: token };
+        const token = rememberCsrf(data);
+        const user = data && data.user;
+        const username = user && typeof user.username === 'string' ? user.username : '';
+        return { csrf_token: token, signed_in: !!(data && data.signed_in === true), username };
     } catch {
-        return { csrf_token: '' };
+        return { csrf_token: '', signed_in: false, username: '' };
     }
 }
 
@@ -241,9 +254,12 @@ function retryAfterSeconds(res) {
 }
 
 function rateLimitMessage(res, detail) {
+    if (detail) return detail;
     const seconds = retryAfterSeconds(res);
-    if (seconds === null) return detail || 'Too many sign-in attempts. Try again later.';
-    return 'Too many sign-in attempts. Try again in ' + seconds + ' seconds.';
+    if (seconds === null) return 'Too many sign-in attempts. Try again later.';
+    const minutes = Math.ceil(seconds / 60);
+    const wait = minutes < 1 ? 1 : minutes;
+    return 'Too many sign-in attempts. Try again in ' + wait + (wait === 1 ? ' minute.' : ' minutes.');
 }
 
 async function postSession(url, body, token) {
@@ -282,47 +298,70 @@ function applyFailure(error, res, problem) {
     error.textContent = problem.detail || 'Sign-in did not succeed.';
 }
 
+function submitButton(form) {
+    const button = form.querySelector('button[type="submit"]');
+    return button instanceof HTMLButtonElement ? button : null;
+}
+
+function setBusy(button, busy) {
+    if (!button) return;
+    button.disabled = busy;
+    if (busy) button.setAttribute('aria-busy', 'true');
+    else button.removeAttribute('aria-busy');
+}
+
 async function signIn(form, onSignedIn) {
     const error = document.getElementById('sign-in-error');
+    const button = submitButton(form);
+    if (button && button.getAttribute('aria-busy') === 'true') return;
     if (error) error.textContent = '';
     clearFieldErrors();
     if (!csrfToken) return;
+    setBusy(button, true);
     const body = {
         username: form.username.value,
         password: form.password.value,
     };
-    const base = await loadApiBase();
-    const url = sessionUrl(base);
-    let res;
     try {
-        res = await postSession(url, body, csrfToken);
-    } catch {
-        if (error) error.textContent = 'Sign-in could not reach the server.';
-        return;
-    }
-    let problem = res.ok ? { code: '', detail: '', errors: {} } : await readProblem(res);
-    if (!res.ok && res.status === 403 && problem.code === 'csrf.invalid') {
-        const session = await fetchSession(base);
-        const token = session && typeof session.csrf_token === 'string' ? session.csrf_token : '';
-        if (token) {
-            csrfToken = token;
-            try {
-                res = await postSession(url, body, token);
-            } catch {
-                if (error) error.textContent = 'Sign-in could not reach the server.';
-                return;
-            }
-            problem = res.ok ? { code: '', detail: '', errors: {} } : await readProblem(res);
+        const base = await loadApiBase();
+        const url = sessionUrl(base);
+        let res;
+        try {
+            res = await postSession(url, body, csrfToken);
+        } catch {
+            if (error) error.textContent = 'Sign-in could not reach the server.';
+            return;
         }
+        let problem = res.ok ? { code: '', detail: '', errors: {} } : await readProblem(res);
+        if (!res.ok && res.status === 403 && problem.code === 'csrf.invalid') {
+            const session = await fetchSession(base);
+            const token = session && typeof session.csrf_token === 'string' ? session.csrf_token : '';
+            if (token) {
+                try {
+                    res = await postSession(url, body, token);
+                } catch {
+                    if (error) error.textContent = 'Sign-in could not reach the server.';
+                    return;
+                }
+                problem = res.ok ? { code: '', detail: '', errors: {} } : await readProblem(res);
+            }
+        }
+        if (res.ok) {
+            try {
+                rememberCsrf(await res.clone().json());
+            } catch {
+                rememberCsrf(null);
+            }
+            if (error) error.textContent = '';
+            clearFieldErrors();
+            if (typeof onSignedIn === 'function') onSignedIn();
+            else location.assign('/app/');
+            return;
+        }
+        applyFailure(error, res, problem);
+    } finally {
+        setBusy(button, false);
     }
-    if (res.ok) {
-        if (error) error.textContent = '';
-        clearFieldErrors();
-        if (typeof onSignedIn === 'function') onSignedIn();
-        else location.assign('/app/');
-        return;
-    }
-    applyFailure(error, res, problem);
 }
 
 export function bindSignIn(form, onSignedIn) {
