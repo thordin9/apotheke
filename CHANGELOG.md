@@ -16,6 +16,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** FrankenPHP worker mode ships off by default on the hosted container (`APOTHEKE_PHP_WORKER=0` in `edge/wrangler.jsonc`), so a release deploy keeps classic mode; turning it on (`1`) is a later step, after an interleaved classic/worker preview of the merged head ([#292](https://github.com/thordin9/apotheke/pull/292))
 
+## [3.36.10] - 2026-11-12
+
+### Fixed
+
+- **frontend:** sign-in uses the API base from `/config.json`, and a failed sign-in shows the API's detail, field errors, one CSRF retry and the rate-limit wait ([#286](https://github.com/thordin9/apotheke/pull/286))
+
 ## [3.36.9] - 2026-11-12
 
 ### Fixed
@@ -1598,7 +1604,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.9...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.10...HEAD
+[3.36.10]: https://github.com/thordin9/apotheke/compare/v3.36.9...v3.36.10
 [3.36.9]: https://github.com/thordin9/apotheke/compare/v3.36.8...v3.36.9
 [3.36.8]: https://github.com/thordin9/apotheke/compare/v3.36.7...v3.36.8
 [3.36.7]: https://github.com/thordin9/apotheke/compare/v3.36.6...v3.36.7

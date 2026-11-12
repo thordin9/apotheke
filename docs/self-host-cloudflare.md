@@ -125,7 +125,7 @@ follow-up lands:
 | `edge/wrangler.jsonc` | `ALLOWED_HOSTS` (the project's API host) | `api.example.com` |
 | `edge/wrangler.jsonc` | `COOKIE_DOMAIN` (the project's domain) | `example.com`, or `""` (see [Settings](#settings)) |
 | `edge/wrangler.jsonc` | `CORS_ALLOWED_ORIGINS` (the project's front end) | `https://www.example.com`, or `""` when the front end and the API share one origin (see [Settings](#settings)) |
-| `edge/app/src/index.ts`, `frontend/public/_headers`, `frontend/scripts/check-dist.mjs` | the project's API host in the SPA's Content-Security-Policy (`img-src`, `connect-src`) | `https://api.example.com`, the same in all three (`check-dist.mjs` and `scripts/app-worker-check.mjs` expect them to match) |
+| `edge/app/src/index.ts`, `frontend/public/_headers` (`/app/*` only), `frontend/scripts/check-dist.mjs` | the project's API host in the app Content-Security-Policy (`img-src`, `connect-src`). The landing `connect-src` does not include it | `https://api.example.com`, the same in the app policy (`check-dist.mjs` and `scripts/app-worker-check.mjs` expect them to match) |
 | `frontend/index.html`, `frontend/app/index.html`, `frontend/privacy/index.html`, `frontend/public/robots.txt`, `frontend/public/sitemap.xml` | canonical, Open Graph, JSON-LD `url` and sitemap URLs of getapotheke.com | your front-end URL (they only matter for search engines and link previews) |
 | `frontend/privacy/index.html` | the project's own privacy notice for getapotheke.com (its description, the cookie's `Domain`) | **replace it with your own notice, or remove the page** (and its entry in `sitemap.xml`): it describes the project's site, not yours |
 | `frontend/404.html` | the description *This page is not on getapotheke.com.* | your site's name |
