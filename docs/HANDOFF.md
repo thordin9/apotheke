@@ -68,7 +68,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- Backup restore on d1 is still open. Turning FrankenPHP worker mode on is planned and stays off by default in v3.37.0 (`APOTHEKE_PHP_WORKER=0`). For other open work, see the open pull requests on GitHub.
+- Backup restore on d1 is still open. FrankenPHP worker mode is on for the hosted container from #297 (`APOTHEKE_PHP_WORKER=1`; rollback in [Deployment and operations](deployment-and-operations.md#the-frankenphp-image)). For other open work, see the open pull requests on GitHub.
 - The account lifecycle rules for incomplete multipart uploads on `apotheke-api-storage` are reported applied by the PM (7 days for the bucket, 1 day under `installations/primary/`). The marked-upload sweep stays an uncalled helper.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
@@ -98,4 +98,5 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
   [Deployment and operations](deployment-and-operations.md).
 - Open: [L-2041](qa/apotheke-l2041-hosted-container-early-exit.md), preview containers stopping with code 0 before the sleep timer. N-1986 accepted as platform behaviour (PM, 2026-11-12).
 - Open: [N-2058](qa/apotheke-n2058-pgsql-staged-restore-flake.md), `StagedRestoreTest` preflight case flaking once on pgsql in CI.
+- Open: [N-2103](qa/apotheke-n2103-unit-of-work-lock-timing-flake.md), `UnitOfWorkLockTest` multi-key timing assertion flaking once in CI.
 - CI4 Playwright: the `CI4_UNPORTED` skip list (`tests/visual/fixtures.ts`) is empty.
