@@ -37,6 +37,14 @@ final class UndoTokens
     ) {
     }
 
+    /** @var list<array<string,mixed>>|null the expired tokens read with the last snapshot (D1), for the next prune */
+    private ?array $expiredAhead = null;
+
+    private const EXPIRED = 'SELECT token, files FROM undo_tokens WHERE expires_at <= ?';
+
+    /** Ids per read batch of snapshot(): four statements each. */
+    private const SNAPSHOT_CHUNK = 25;
+
     public function enabled(): bool
     {
         return $this->seconds > 0;
@@ -48,19 +56,40 @@ final class UndoTokens
      * @param list<int> $ids
      * @return list<array{row:array<string,mixed>,tags:list<string>,photos:list<array<string,mixed>>,attachments:list<array<string,mixed>>}>
      */
-    public function snapshot(array $ids): array
+    public function snapshot(array $ids, bool $withExpired = false): array
     {
+        // The hosted database reads the expired tokens in the same batch, for the prune before the next create().
+        $expired = $withExpired && $this->enabled() && $this->db instanceof \Apotheke\Core\Database\D1\Connection;
+        $this->expiredAhead = null;
         $out = [];
-        foreach ($ids as $id) {
-            // Typed as legacy's PDO returns them, so the stored JSON is the same on both apps (and on rollback).
-            $row = Writes::typedRows($this->db, 'SELECT * FROM items WHERE id = ?', [$id])[0] ?? null;
-            if ($row === null) {
-                continue;
+        foreach (array_chunk($ids, self::SNAPSHOT_CHUNK) as $chunk) {
+            $queries = [];
+            foreach ($chunk as $id) {
+                array_push($queries, ['SELECT * FROM items WHERE id = ?', [$id]],
+                    ['SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ? ORDER BY t.name', [$id]],
+                    ['SELECT file, position, created_at FROM item_photos WHERE item_id = ? ORDER BY position, id', [$id]],
+                    ['SELECT file, name, mime, size, created_at FROM item_attachments WHERE item_id = ? ORDER BY id', [$id]]);
             }
-            $out[] = ['row' => $row,
-                'tags' => array_map(static fn (array $r): string => (string)$r['name'], $this->rows('SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ? ORDER BY t.name', [$id])),
-                'photos' => Writes::typedRows($this->db, 'SELECT file, position, created_at FROM item_photos WHERE item_id = ? ORDER BY position, id', [$id]),
-                'attachments' => Writes::typedRows($this->db, 'SELECT file, name, mime, size, created_at FROM item_attachments WHERE item_id = ? ORDER BY id', [$id])];
+            if ($expired) {
+                $queries[] = [self::EXPIRED, [$this->clock->now()]];
+            }
+            // Typed as legacy's PDO returns them, so the stored JSON is the same on both apps (and on rollback);
+            // the tag names are text, which typing leaves as it is. One round trip per chunk on D1.
+            $read = Writes::rowsMany($this->db, $queries, true);
+            if ($expired) {
+                $this->expiredAhead = array_pop($read);
+                $expired = false;
+            }
+            foreach (array_chunk($read, 4) as [$items, $tags, $photos, $attachments]) {
+                $row = $items[0] ?? null;
+                if ($row === null) {
+                    continue;
+                }
+                $out[] = ['row' => $row,
+                    'tags' => array_map(static fn (array $r): string => (string)$r['name'], $tags),
+                    'photos' => $photos,
+                    'attachments' => $attachments];
+            }
         }
 
         return $out;
@@ -235,7 +264,9 @@ final class UndoTokens
         if ($guard !== null) {
             throw new \LogicException('A guarded undo prune (a restore) is not available on D1.');
         }
-        $tokens = $this->rows('SELECT token, files FROM undo_tokens' . ($all ? '' : ' WHERE expires_at <= ?'), $all ? [] : [$this->clock->now()]);
+        $tokens = !$all && $this->expiredAhead !== null ? $this->expiredAhead
+            : $this->rows('SELECT token, files FROM undo_tokens' . ($all ? '' : ' WHERE expires_at <= ?'), $all ? [] : [$this->clock->now()]);
+        $this->expiredAhead = null;
         if ($tokens === []) {
             return 0;
         }
