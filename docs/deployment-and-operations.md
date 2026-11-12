@@ -588,7 +588,7 @@ permission the environment's token probably lacks; a missing container push perm
 
 ### Storage gate: EDGE_STORAGE_READY
 
-The hosted API is live in storage mode (flip done 2026-11-12, on v3.36.5 then v3.36.6).
+The hosted API is live in storage mode (since 2026-11-12, on v3.36.5 then v3.36.6). On d1, restoring a backup is refused, as is duplicating an item with its photos, and adding a new location or category in the same step as saving the item. Do not move real data onto the hosted installation until backup restore works on d1 and a backup has been tested by a round trip.
 
 The first `apotheke-api` deploy waits for the storage design (P4: D1 for data, R2 for files). Until then the deploy
 job of `deploy-edge.yml` does not run, on any trigger (release and manual), unless the **repository variable**
@@ -615,7 +615,8 @@ uploads is an account lifecycle rule on the bucket. This repository does not cre
 
 ### P4 edge storage: flip checklist
 
-The hosted API is live in storage mode (flip done 2026-11-12, on v3.36.5 then v3.36.6). Its bindings are in
+The hosted API is live in storage mode (since 2026-11-12, on v3.36.5 then v3.36.6). On d1, restoring a backup is refused, as is duplicating an item with its photos, and adding a new location or category in the same step as saving the item. Do not move real data onto the hosted installation until backup restore works on d1 and a backup has been tested by a round trip.
+Its bindings are in
 `edge/storage.jsonc`, not in `edge/wrangler.jsonc`, so `wrangler dev`, the *Edge local test* and the pull request's default dry run use the default
 config unchanged. The pull request checks also dry-run the merged config with a dummy D1 id (part 2 below). Only the
 deploy job, which runs only with `EDGE_STORAGE_READY=true`, merges them in for real (`scripts/edge-storage-config.mjs`,
