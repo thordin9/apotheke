@@ -13,16 +13,17 @@ CREATE TABLE plan_limits (
   plan_id TEXT NOT NULL REFERENCES plans (id),
   limit_key TEXT NOT NULL CHECK (limit_key IN ('items', 'storage_bytes', 'photos', 'users', 'autofill_calls_month',
     'requests_month', 'container_hours_month', 'sleep_after_ms', 'import_file_bytes')),
-  soft_value INTEGER,
-  hard_value INTEGER,
-  PRIMARY KEY (plan_id, limit_key)
+  soft_value INTEGER CHECK (soft_value >= 0),
+  hard_value INTEGER CHECK (hard_value >= 0),
+  PRIMARY KEY (plan_id, limit_key),
+  CHECK (soft_value IS NULL OR hard_value IS NULL OR soft_value <= hard_value)
 );
 
 -- do_name is the name given to idFromName (Installation, EU jurisdiction) and getByName (ApothekeContainer);
--- r2_prefix is installations/<do_name>/. Neither ever changes for an installation.
+-- r2_prefix is installations/<do_name>/. Neither ever changes for an installation (a trigger refuses it).
 CREATE TABLE installations (
   id TEXT PRIMARY KEY,
-  do_name TEXT NOT NULL UNIQUE,
+  do_name TEXT NOT NULL UNIQUE CHECK (do_name <> '' AND do_name NOT GLOB '*[^a-z0-9-]*'),
   r2_prefix TEXT NOT NULL UNIQUE CHECK (r2_prefix = 'installations/' || do_name || '/'),
   status TEXT NOT NULL CHECK (status IN ('provisioning', 'active', 'suspended', 'deleting', 'deleted')),
   owner_contact TEXT,
@@ -30,10 +31,13 @@ CREATE TABLE installations (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
+CREATE TRIGGER installations_names_fixed BEFORE UPDATE OF do_name, r2_prefix ON installations
+WHEN NEW.do_name IS NOT OLD.do_name OR NEW.r2_prefix IS NOT OLD.r2_prefix
+BEGIN SELECT RAISE(ABORT, 'do_name and r2_prefix never change'); END;
 
--- Host (lower case, no port) to installation. More than one host may point at one installation.
+-- Host (lower case, no port, no trailing dot) to installation. More than one host may point at one installation.
 CREATE TABLE installation_routes (
-  host TEXT PRIMARY KEY CHECK (host = lower(host) AND instr(host, ':') = 0),
+  host TEXT PRIMARY KEY CHECK (host <> '' AND host NOT GLOB '*[^a-z0-9.-]*' AND host NOT GLOB '.*' AND host NOT GLOB '*.'),
   installation_id TEXT NOT NULL REFERENCES installations (id),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
@@ -52,7 +56,7 @@ CREATE TABLE subscriptions (
 
 CREATE TABLE usage_counters (
   installation_id TEXT NOT NULL REFERENCES installations (id),
-  period TEXT NOT NULL CHECK (period GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+  period TEXT NOT NULL CHECK (period GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]' AND substr(period, 6, 2) BETWEEN '01' AND '12'),
   metric TEXT NOT NULL,
   value INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (installation_id, period, metric)
@@ -70,6 +74,9 @@ CREATE TABLE operator_audit (
   request_id TEXT
 );
 CREATE INDEX operator_audit_installation ON operator_audit (installation_id, at);
+CREATE TRIGGER operator_audit_no_replace BEFORE INSERT ON operator_audit
+WHEN EXISTS (SELECT 1 FROM operator_audit WHERE id = NEW.id)
+BEGIN SELECT RAISE(ABORT, 'operator_audit is append-only'); END;
 CREATE TRIGGER operator_audit_no_update BEFORE UPDATE ON operator_audit
 BEGIN SELECT RAISE(ABORT, 'operator_audit is append-only'); END;
 CREATE TRIGGER operator_audit_no_delete BEFORE DELETE ON operator_audit
