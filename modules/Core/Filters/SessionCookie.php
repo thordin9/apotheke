@@ -42,11 +42,16 @@ final class SessionCookie implements FilterInterface
         // #76 L-3: a long-lived worker keeps $_SESSION from the previous request.
         // Every request starts without one; only a live cookie loads it again.
         $_SESSION = [];
+        SessionGate::reset();
         if ($this->isHealth($request) || $this->isPublicAsset($request)) {
             return null;
         }
+        $cookies = $request instanceof IncomingRequest ? (array)$request->getCookie() : $_COOKIE;
         // Cookie consent: without it no session is loaded or started, so no cookie (ConsentFilter).
-        if (!CookieConsent::configured()->given($request instanceof IncomingRequest ? (array)$request->getCookie() : $_COOKIE)) {
+        // A session cookie sent without consent (consent declined or withdrawn) ends: the
+        // session is removed and the cookie expires.
+        $consent = CookieConsent::configured()->given($cookies);
+        if (!$consent && SessionGate::carried($cookies) === []) {
             return null;
         }
         $config = Services::apothekeConfig();
@@ -104,6 +109,19 @@ final class SessionCookie implements FilterInterface
         // any other session after session_days without use (SEC-N6).
         $id = SessionGate::requestId(static fn (string $n): mixed => $request instanceof IncomingRequest ? $request->getCookie($n) : ($_COOKIE[$n] ?? null), $secure);
         $gate = new SessionGate(time());
+        if (!$consent) {
+            $carried = SessionGate::carried($cookies);
+            if ($id !== null && $gate->isLive($id, $save, $exists)) {
+                if (!isset($_COOKIE[$name])) {
+                    session_id($id);
+                }
+                $gate->signOut($carried);
+            } else {
+                SessionGate::expireCookies($carried);
+            }
+
+            return null;
+        }
         if ($id !== null && $gate->isLive($id, $save, $exists)) {
             if (!isset($_COOKIE[$name])) {
                 session_id($id);   // it came under the plain name on HTTPS: PHP sends it again under the new one

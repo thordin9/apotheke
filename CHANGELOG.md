@@ -12,6 +12,32 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** the hosted container runs PHP in FrankenPHP worker mode (`APOTHEKE_PHP_WORKER=1` in `edge/wrangler.jsonc`): the app boots once per PHP thread through `public/frankenphp-worker.php`, with CodeIgniter's worker reset between requests, and an answered error no longer ends the worker. The FrankenPHP image takes `APOTHEKE_PHP_WORKER` (default classic mode; self-hosted images are unchanged) ([#292](https://github.com/thordin9/apotheke/pull/292))
 
+## [3.36.9] - 2026-11-12
+
+### Fixed
+
+- **core:** session hardening: sign-out (`POST /logout`, `DELETE /api/v1/session`) removes the session on the server, file or database row, and the answer expires the session cookie (`Max-Age=0`, an `Expires` in the past, the same name and attributes) without issuing a new session id; a session cookie sent without cookie consent ends that session the same way, and the consent notice form takes `consent=decline`, which expires the consent cookie and ends the session ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **api:** `GET /api/v1/branding` answers absolute icon URLs (`logo_url`, `favicon_url`, `touch_icon_url`) on the public base: `public_url` when set, else the request's allowed host with `trust_proxy` ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **core:** a path no route serves answers `404` instead of a redirect to `/login`, and a route asked with a method it does not take answers `405` with an `Allow` header instead of `403`, with or without cookie consent; under `/api` both are problem+json (`not_found`, `method_not_allowed`), as is a path with a doubled slash such as `//api/v1/x` or `/api//v1`, and `/` still sends a visitor to `/login` ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **layout:** the cookie notice on the app's pages has a Decline button next to Accept, both of the same weight, and the site notice's title and wording; Decline hides the notice and posts `consent=decline`, which ends any session ([#291](https://github.com/thordin9/apotheke/pull/291))
+- **storage:** the entrypoint's `auth status` on a new storage-mode install checks for the settings table first, so the first start logs no failed queries on the D1 bridge ([#291](https://github.com/thordin9/apotheke/pull/291))
+
+## [3.36.8] - 2026-11-12
+
+### Fixed
+
+- **site:** drop `bluetooth=()` from `Permissions-Policy` on the landing Worker and `_headers`; it is not a recognised feature and logged a console warning on every page (L-1923) ([#285](https://github.com/thordin9/apotheke/pull/285))
+
+## [3.36.7] - 2026-11-12
+
+### Fixed
+
+- **backup:** on the hosted database a backup reads each table in pages, records `"driver":"d1"`, and stops with a clear message, leaving no partial zip, when the temp disk has no room for the stored photos and files ([#287](https://github.com/thordin9/apotheke/pull/287))
+
+### Maintenance
+
+- docs: update stale release, sign-in, and hosted storage status ([#284](https://github.com/thordin9/apotheke/pull/284))
+
 ### Changed
 
 - **docs:** update the hand-off and deploy runbook for the current release, sign-in, and hosted storage-mode flip ([#284](https://github.com/thordin9/apotheke/pull/284))
@@ -1568,7 +1594,10 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.6...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.9...HEAD
+[3.36.9]: https://github.com/thordin9/apotheke/compare/v3.36.8...v3.36.9
+[3.36.8]: https://github.com/thordin9/apotheke/compare/v3.36.7...v3.36.8
+[3.36.7]: https://github.com/thordin9/apotheke/compare/v3.36.6...v3.36.7
 [3.36.6]: https://github.com/thordin9/apotheke/compare/v3.36.5...v3.36.6
 [3.36.5]: https://github.com/thordin9/apotheke/compare/v3.36.4...v3.36.5
 [3.36.4]: https://github.com/thordin9/apotheke/compare/v3.36.3...v3.36.4

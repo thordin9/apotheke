@@ -102,6 +102,15 @@ final class CookieConsent
             . ($domain !== '' ? '; Domain=' . $domain : '') . ($secure ? '; Secure' : '') . '; SameSite=Lax';
     }
 
+    /** The Set-Cookie value POST /consent sends on Decline: the consent cookie expired, with the same attributes. */
+    public static function expired(string $host, bool $secure, string $configured = ''): string
+    {
+        $domain = self::domain($host, $configured);
+
+        return Consent::COOKIE . '=; Path=/; Max-Age=0'
+            . ($domain !== '' ? '; Domain=' . $domain : '') . ($secure ? '; Secure' : '') . '; SameSite=Lax';
+    }
+
     /**
      * Where POST /consent sends the browser back: a path on this site ("/…"), else "/". Refused, also once to
      * three times percent-decoded: no leading "/", "//" anywhere, a backslash, control characters (CR, LF …).

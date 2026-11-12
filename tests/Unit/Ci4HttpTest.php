@@ -344,7 +344,7 @@ final class Ci4HttpTest extends TestCase
         }
         $plain = $ci4->get('/no-such-page');
         $this->assertSame(404, $plain['status']);
-        $this->assertArrayHasKey('set-cookie', $plain['headers']);
+        $this->assertArrayNotHasKey('set-cookie', $plain['headers'], 'answered before the session filter');
         // SEC-N8: the error page is the Layout page and carries the security headers.
         $this->assertStringContainsString('<p>Page not found.</p>', $plain['body']);
         $this->assertStringContainsString('<link rel="stylesheet" href="/assets/app.css?v=', $plain['body']);
@@ -450,12 +450,12 @@ final class Ci4HttpTest extends TestCase
 
     private function cookies(Server $server, ?PDO $pdo): void
     {
-        $plain = $server->client()->get('/no-such-page');
-        $this->assertSame(404, $plain['status']);
+        $plain = $server->client()->get('/');
+        $this->assertSame(200, $plain['status']);
         $this->assertStringContainsString('apothekesid=', $this->cookieLine($plain));
         $this->assertStringNotContainsString('secure', strtolower($this->cookieLine($plain)));
 
-        $forwarded = $server->client()->get('/no-such-page', ['X-Forwarded-Proto: https']);
+        $forwarded = $server->client()->get('/', ['X-Forwarded-Proto: https']);
         $this->assertStringNotContainsString('secure', strtolower($this->cookieLine($forwarded)));
         if (!$pdo instanceof PDO) {
             return;
