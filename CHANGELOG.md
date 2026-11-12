@@ -8,13 +8,11 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-<<<<<<< HEAD
 ### Changed
 
 - **ci:** the Cloudflare account identifier for the frontend deploy comes from a `deploy-site` environment secret ([#306](https://github.com/thordin9/apotheke/pull/306))
-=======
+
 ## [3.38.1] - 2026-11-12
->>>>>>> origin/main
 
 ### Fixed
 
