@@ -332,6 +332,19 @@ final class DockerfileTest extends TestCase
         $this->assertSame(0, $code, 'validate failed for APOTHEKE_EDGE_CLIENT_IP=' . ($flag ?? '(unset)') . ', mode ' . ($mode ?? '(unset)') . "\n" . $stdout . $stderr);
     }
 
+    /** A missing asset is a 404 that is never cached; only a served file has the year-long immutable cache. */
+    public function testOnlyServedAssetsAreCachedForAYear(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $caddy = (string)file_get_contents($root . '/docker/frankenphp/Caddyfile');
+        $this->assertStringContainsString("\t\theader @assetfile Cache-Control \"public, max-age=31536000, immutable\"\n\t\tfile_server @assetfile\n\t\theader @assets Cache-Control no-store\n\t\trespond @assets 404\n", $caddy);
+        $this->assertStringNotContainsString('header @assets Cache-Control "public', $caddy);
+        $nginx = (string)file_get_contents($root . '/docker/nginx.conf');
+        $this->assertSame(1, preg_match('/map \$status \$apotheke_asset_cache \{\s*200\s+"public, max-age=31536000, immutable";\s*206\s+"public, max-age=31536000, immutable";\s*304\s+"public, max-age=31536000, immutable";\s*default "no-store";\s*\}/', $nginx));
+        $this->assertStringContainsString('add_header Cache-Control $apotheke_asset_cache always;', $nginx);
+        $this->assertStringContainsString('check "missing asset not cached"      no-store', (string)file_get_contents($root . '/scripts/docker-checks.sh'));
+    }
+
     public function testNginx421HasTheAppsText(): void
     {
         $root = dirname(__DIR__, 2);

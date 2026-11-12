@@ -504,7 +504,8 @@ that first reads up to **64 KiB** of the body. That is everything a signed-out c
 `POST /api/v1/session`), so a slow anonymous client holds a Caddy goroutine and at most 64 KiB, never a PHP thread.
 A body over 64 KiB (any method), or a request that may have a body but declares no length, is only read after the
 app said the client is signed in (or sign-in is off): Caddy asks `GET /upload/check` (204 or 401, no session, no
-body) first. A `GET`, `HEAD` or `OPTIONS` request with a chunked body (no declared length) gets **411** before
+body) first. Under `/api` that answer is problem+json with the API headers: `413` `upload.too_large` for a declared
+length over 64 KiB, else `401` `auth.required`; a body over 22 MiB under `/api` is a problem+json `413` from Caddy. A `GET`, `HEAD` or `OPTIONS` request with a chunked body (no declared length) gets **411** before
 PHP sees it, whoever sends it (M-1451); Go's server may still read and drop up to 256 KiB of that body in Caddy to
 keep the connection open. Both servers speak HTTP/1.1 only (`protocols h1`, as nginx): no cleartext HTTP/2 (h2c),
 whose bodies carry no `Transfer-Encoding` and would otherwise get past these rules (M-1454). Headers have 10 s (`read_header`), and a body 300 s (`read_body`, for a

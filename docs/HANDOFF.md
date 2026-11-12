@@ -58,6 +58,13 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   another method, before the consent and permission filters; under `/api`, doubled-slash paths included, both are
   problem+json. `GET /api/v1/branding` answers absolute icon URLs on the public base, and `auth status` on a new
   `d1` install checks for the settings table before reading it.
+- Request validation (stacked on the session hardening branch): `/media` answers `If-None-Match` lists, weak tags and
+  `*` with 304 and a single byte range with 206 or 416, on local and R2 storage (PHP slices the bytes, no Worker
+  change). Form writes outside `/api` check `Origin`, or `Referer` without it, with sign-in on too, and refuse a list
+  in a single-value field with 422 (`FormFieldsFilter`). Item name, notes, tags and serial over their limits are 422,
+  and an import row error. A small web POST gets the sign-in or CSRF answer, not 413. In the FrankenPHP image a
+  signed-out `/api` body gets problem+json 413 or 401. A missing asset's 404 is `no-store`. Empty answers carry no
+  `Content-Type`; the OpenAPI version is `1.0.0-p3` with a `servers` entry.
 
 ## Open pull requests
 
