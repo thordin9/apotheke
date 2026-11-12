@@ -38,6 +38,10 @@ export class R2Outbound extends WorkerEntrypoint<Env & R2Env> {
 export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	/** /healthz answered 200 for the running container. False after a timed-out start or a failed forward. */
 	private ready = false;
+	/** The one start-and-wait in flight: concurrent requests share it (L-1911). Cleared when it settles. */
+	private readying: Promise<number> | null = null;
+	/** Readiness waits in a row that timed out while the container kept running (L-1912). */
+	private timedOutWaits = 0;
 
 	private sleepAfter(): number {
 		return Number(this.env.SLEEP_AFTER_MS) || 15 * 60 * 1000;
@@ -71,8 +75,17 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		const backend = storageBackend(this.env);
 		await this.wireStorage(c);
 		if (c.running && this.ready) return 0;
+		this.readying ??= this.startAndWait(c, backend).finally(() => {
+			this.readying = null;
+		});
+		return this.readying;
+	}
+
+	/** Starts the container unless it is running, sets the inactivity timeout and waits for /healthz. */
+	private async startAndWait(c: NonNullable<DurableObjectState["container"]>, backend: ReturnType<typeof storageBackend>): Promise<number> {
 		const t0 = Date.now();
 		// A container left running but not ready (a timed-out start, a deploy or restart) gets the timeout and probe too.
+		if (!c.running) this.timedOutWaits = 0;
 		if (!c.running) c.start({
 			enableInternet: false,
 			env: {
@@ -106,6 +119,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 				const r = await port.fetch(probe, { redirect: "manual" });
 				if (r.status === 200) {
 					this.ready = true;
+					this.timedOutWaits = 0;
 					return Date.now() - t0;
 				}
 			} catch {
@@ -113,6 +127,13 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 			}
 			if (!c.running) throw new Error("container stopped during start");
 			await new Promise((r) => setTimeout(r, 100));
+		}
+		// The first timed-out wait keeps the container, so a slow first start can finish. A second one in a
+		// row means it is stuck: destroy it, so the next request starts a fresh one instead of waiting again.
+		this.timedOutWaits += 1;
+		if (this.timedOutWaits >= 2) {
+			this.timedOutWaits = 0;
+			await c.destroy().catch((e: unknown) => console.error("destroy failed", String(e)));
 		}
 		throw new Error("container not ready");
 	}

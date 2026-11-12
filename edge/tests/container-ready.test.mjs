@@ -12,7 +12,9 @@ function box({ running, listening, healthy = () => true }) {
   const container = {
     running,
     starts: 0,
+    destroys: 0,
     start() { this.starts += 1; this.running = true; },
+    destroy: async () => { container.destroys += 1; container.running = false; },
     setInactivityTimeout: async (ms) => { timeouts.push(ms); },
     monitor: () => new Promise(() => {}),
     interceptOutboundHttp: async () => {},
@@ -103,4 +105,66 @@ test('a timed-out start and its retry both set the inactivity timeout', async ()
   await b.fetch(req());
   await b.fetch(req());
   assert.deepEqual(timeouts, [120000, 120000]);
+});
+
+// A virtual clock: Date.now() reads it and each setTimeout moves it forward by its delay, so a 90 s wait
+// runs in a moment and ends where the real one would (100 ms per probe).
+async function virtualClock(fn) {
+  const [realNow, realTimeout] = [Date.now, globalThis.setTimeout];
+  let t = realNow();
+  const t0 = t;
+  Date.now = () => t;
+  globalThis.setTimeout = (f, ms = 0) => { t += ms; return setImmediate(f); };
+  try { return await fn(() => t - t0); } finally { Date.now = realNow; globalThis.setTimeout = realTimeout; }
+}
+
+test('concurrent requests during a start share one readiness wait', async () => {
+  let probes = 0;
+  const { box: b, container, timeouts, calls } = box({ running: false, listening: () => true, healthy: () => ++probes > 2 });
+  const res = await Promise.all([b.fetch(req()), b.fetch(req()), b.fetch(req())]);
+  assert.deepEqual(res.map((r) => r.status), [200, 200, 200]);
+  assert.equal(container.starts, 1);
+  assert.deepEqual(timeouts, [120000]);
+  assert.equal(calls.filter((p) => p === '/healthz').length, 3, 'one probe loop: two misses, then 200');
+});
+
+test('a shared wait that times out answers 503 to every waiter and is not reused', async () => {
+  let up = false;
+  const { box: b, calls } = box({ running: false, listening: () => up });
+  const res = await virtualClock(() => Promise.all([b.fetch(req()), b.fetch(req())]));
+  assert.deepEqual(res.map((r) => r.status), [503, 503]);
+  up = true;
+  calls.length = 0;
+  assert.equal((await b.fetch(req())).status, 200);
+  assert.deepEqual(calls, ['/healthz', '/items']);
+});
+
+test('a running container that never becomes healthy is destroyed after a second timed-out wait', async () => {
+  let healthy = false;
+  const { box: b, container } = box({ running: false, listening: () => true, healthy: () => healthy });
+  assert.equal((await virtualClock(() => b.fetch(req()))).status, 503);
+  assert.equal(container.destroys, 0, 'the first timed-out wait keeps the container (a slow first start)');
+  assert.equal((await virtualClock(() => b.fetch(req()))).status, 503);
+  assert.equal(container.destroys, 1, 'the second one in a row destroys it');
+  assert.equal(container.running, false);
+  healthy = true;
+  assert.equal((await b.fetch(req())).status, 200);
+  assert.equal(container.starts, 2, 'the next request starts a fresh container');
+});
+
+test('a failed forward answers the fixed 503 body, not the error text', async () => {
+  const { box: b } = box({ running: true, listening: () => false });
+  const res = await b.fetch(req());
+  assert.equal(res.status, 503);
+  assert.equal(await res.text(), 'Apotheke is not available right now.\n');
+});
+
+test('the readiness wait is 90 s', async () => {
+  for (const [healthyAt, status] of [[89_900, 200], [90_100, 503]]) {
+    const { box: b } = box({ running: false, listening: () => true, healthy: () => Date.now() - start >= healthyAt });
+    let start;
+    const res = await virtualClock((elapsed) => { start = Date.now(); return b.fetch(req()).then((r) => [r, elapsed()]); });
+    assert.equal(res[0].status, status, `healthy after ${healthyAt} ms`);
+    if (status === 503) assert.ok(res[1] >= 90_000 && res[1] < 90_200, `gave up after ${res[1]} ms`);
+  }
 });
