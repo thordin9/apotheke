@@ -104,7 +104,8 @@ else `507 storage.insufficient`. See [Deployment and operations](deployment-and-
 
   A body must be `application/json`, or `multipart/form-data` for a file, otherwise the answer is
   `415 unsupported_media_type`. So a script needs to send `Origin` too.
-* A sign-in or sign-out gives a new session id and a new token; read it from the answer.
+* A sign-in gives a new session id and a new token; read it from the answer. A sign-out ends the session: the
+  answer expires the session cookie and issues no new one, so the next `GET /api/v1/session` starts a new session.
 * **Cookie consent.** Until the request carries the cookie `apotheke_consent=v1` (the banner sets it), the API sets
   no cookie: `GET /api/v1/session` starts no session and answers `csrf_token: ""`, and every `POST`, `PUT`, `PATCH`
   and `DELETE` is `403` problem+json with `code` and `error` both `consent_required`. Only the exact value counts;

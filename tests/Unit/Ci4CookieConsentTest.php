@@ -359,23 +359,30 @@ final class Ci4CookieConsentTest extends TestCase
         $this->assertSame(200, $api->rest('POST', '/api/v1/session', ['username' => 'admin', 'password' => self::PASSWORD], ['X-CSRF-Token: ' . $token])['status']);
     }
 
-    /** A signed-in session cookie without consent (from before 3.4, or consent cleared) is not used or renewed. */
-    public function testAnOldSessionCookieIsIgnoredWithoutConsent(): void
+    /**
+     * A signed-in session cookie without consent (from before 3.4, or consent withdrawn) is not used or
+     * renewed: the session ends and the answer only expires its cookie (session hardening).
+     */
+    public function testAnOldSessionCookieEndsWithoutConsent(): void
     {
         $c = $this->client();
         $c->post('/login', ['csrf' => $c->csrf(), 'username' => 'admin', 'password' => self::PASSWORD]);
         $this->assertSame(200, $c->rest('GET', '/api/v1/me')['status']);
+        $old = $c->cookies['apothekesid'];
         $c->consent = null;
         $me = $c->rest('GET', '/api/v1/me');
         $this->assertSame(401, $me['status']);
-        $this->assertSame([], self::setCookies($me));
+        $this->assertCount(1, self::setCookies($me));
+        $this->assertStringStartsWith('apothekesid=deleted; expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0;', self::setCookies($me)[0]);
         foreach (['/api/v1/users', '/api/v1/roles', '/api/v1/security'] as $path) {
+            $c->cookies['apothekesid'] = $old;
             $r = $c->rest('GET', $path);
-            $this->assertSame([401, []], [$r['status'], self::setCookies($r)], $path . ': the admin session is not used');
+            $this->assertSame([401, 1], [$r['status'], count(self::setCookies($r))], $path . ': the admin session is not used');
         }
         $c->consent = 'v1';
-        $this->assertSame(200, $c->rest('GET', '/api/v1/me')['status'], 'the session is still there once consent is back');
-        $this->assertSame(200, $c->rest('GET', '/api/v1/users')['status']);
+        $c->cookies['apothekesid'] = $old;
+        $this->assertSame(401, $c->rest('GET', '/api/v1/me')['status'], 'the session is gone, also once consent is back');
+        $this->assertSame(401, $c->rest('GET', '/api/v1/users')['status']);
     }
 
     /**

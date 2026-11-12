@@ -7,7 +7,6 @@ namespace Apotheke\Auth\Controllers;
 use Apotheke\Auth\Accounts;
 use Apotheke\Auth\SessionEpoch;
 use Apotheke\Auth\Views\AuthViews;
-use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\ErrorPage;
 use Apotheke\Core\Http\SessionGate;
@@ -86,28 +85,23 @@ final class SignInController extends AuthPages
     /**
      * POST /logout. A live session still needs the token. One that already
      * ended (idle, absolute, or an old epoch) has nothing left to protect, so
-     * the open page can sign out instead of answering 419.
+     * the open page can sign out instead of answering 419. The session is
+     * removed and the response expires its cookie; no new session starts.
      */
     public function logout(): ResponseInterface
     {
         $gate = new SessionGate(time());
+        $carried = SessionGate::carried((array)$this->request->getCookie());
         if ($this->signedIn()) {
             $this->checkCsrf();
-            $gate->signOut();
-        } elseif ($this->sessionCookieLive($gate) || session_status() === PHP_SESSION_ACTIVE) {
-            $gate->signOut();
+            $gate->signOut($carried);
+        } elseif (SessionGate::loaded() || session_status() === PHP_SESSION_ACTIVE) {
+            $gate->signOut($carried);
+        } elseif ($carried !== []) {
+            SessionGate::expireCookies($carried);
         }
 
         return $this->redirectTo($this->settings()->signInEnabled() ? '/login' : '/');
-    }
-
-    private function sessionCookieLive(SessionGate $gate): bool
-    {
-        $id = SessionGate::requestId(fn (string $n): mixed => $this->request->getCookie($n), session_name() === SessionGate::SECURE_COOKIE);
-        /** @var ApothekeConfig $config */
-        $config = service('apothekeConfig');
-
-        return $id !== null && $gate->isLive($id, $config->dataDir() . '/sessions');
     }
 
     private function loginPage(?string $error, string $username, ?string $note = null): string
