@@ -61,7 +61,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- E1 (#300, ready for review): the edge deploy applies `edge/migrations/control/` to D1 `apotheke-api` before `wrangler deploy`. Schema SQL is in #299. Awaiting *Account > D1 > Edit* on the existing deploy token before merge.
+- E1 (#300, ready for review): the edge deploy applies `edge/migrations/control/` to D1 `apotheke-api` before `wrangler deploy`. Schema SQL is on main (#299). Awaiting *Account > D1 > Edit* on the existing deploy token before merge.
 - Backup restore on d1 is still open. Turning FrankenPHP worker mode on is planned and stays off by default in v3.37.0 (`APOTHEKE_PHP_WORKER=0`). For other open work, see the open pull requests on GitHub.
 - The account lifecycle rules for incomplete multipart uploads on `apotheke-api-storage` are reported applied by the PM (7 days for the bucket, 1 day under `installations/primary/`). The marked-upload sweep stays an uncalled helper.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.

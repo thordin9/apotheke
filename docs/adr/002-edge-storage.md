@@ -287,10 +287,10 @@ The storage code is written for worker mode:
 - In hosted mode each installation's Durable Object migrates its own storage the first time it starts on a new
   image, using the same runner.
 - `uow_guard` and `uow_refs` are added as ordinary migrations. They are harmless on every backend.
-- `edge/migrations/control/` holds the control-plane schema (the installations registry). It is never mixed with
-  the app schema. The deploy job applies it with `wrangler d1 migrations apply apotheke-api --remote` after
-  merging `edge/storage.jsonc` (which sets `migrations_dir` to `migrations/control` on the `DB` binding) and
-  before `wrangler deploy`.
+- `edge/migrations/control/` holds the control-plane schema (installations, routes, plans and limits, subscriptions,
+  usage, audit; see [operator console](../operator-console.md)). It is never mixed with the app schema. The deploy
+  job applies it with `wrangler d1 migrations apply apotheke-api --remote` after merging `edge/storage.jsonc`
+  (which sets `migrations_dir` to `migrations/control` on the `DB` binding) and before `wrangler deploy`.
 - Tables that only the CI4 app has stay registered in `Backups::UNCARRIED_MIGRATIONS` and `upg_ci4_only()`. The
   2.6.x tables keep their shape, so rolling back to the Docker image stays possible from a backup zip.
 
