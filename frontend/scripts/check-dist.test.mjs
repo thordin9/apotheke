@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { PAGE_SECURITY, PERMISSIONS_POLICY, headersFor, offSiteHosts, parseHeaders, resolves } from './check-dist.mjs';
+import { PAGE_SECURITY, PERMISSIONS_POLICY, connectSrcHas, headersFor, offSiteHosts, parseHeaders, resolves } from './check-dist.mjs';
 
 const rules = parseHeaders(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/_headers'), 'utf8'));
 const pages = ['/', '/privacy/', '/404.html', '/app/', '/app/index.html'];
@@ -16,6 +16,19 @@ test('pages set HSTS, nosniff, Referrer-Policy, X-Frame-Options and Permissions-
         }
         assert.equal(headers.get('permissions-policy'), PERMISSIONS_POLICY, path);
     }
+});
+
+test('the API host is only in the app connect-src', () => {
+    const api = 'https://api.services.getapotheke.com';
+    for (const path of ['/', '/privacy/', '/404.html']) {
+        const csp = headersFor(rules, path).get('content-security-policy') || '';
+        assert.equal(connectSrcHas(csp, api), false, path);
+    }
+    for (const path of ['/app/', '/app/index.html']) {
+        const csp = headersFor(rules, path).get('content-security-policy') || '';
+        assert.equal(connectSrcHas(csp, api), true, path);
+    }
+    assert.equal(connectSrcHas("connect-src https://not" + api.slice('https://'.length), api), false);
 });
 
 test('a missing /assets file is not cached as immutable', () => {

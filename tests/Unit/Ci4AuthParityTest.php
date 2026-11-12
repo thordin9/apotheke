@@ -52,7 +52,7 @@ final class Ci4AuthParityTest extends TestCase
                 $untokened[$app][$verb] = $cases['eda ' . $verb . ' /account without csrf']['status'];
                 unset($answers[$app]['eda ' . $verb . ' /account without csrf']);
             }
-            // N-353: a method CI4 cannot route (PROPFIND) gets 404 there, the page or a redirect on legacy.
+            // N-353: a method CI4 cannot route (PROPFIND) gets 405 there, the page or a redirect on legacy.
             foreach ($cases as $case => $answer) {
                 if (str_contains($case, ' PROPFIND ')) {
                     $webdav[$app][$case] = [$answer['status'], $answer['location']];
@@ -63,9 +63,8 @@ final class Ci4AuthParityTest extends TestCase
         $this->assertSame(['ci4' => ['PUT' => 419, 'PATCH' => 419, 'DELETE' => 419, 'CONNECT' => 419]], $untokened);
         $this->assertCount(15, $webdav['ci4']);
         foreach ($webdav['ci4'] as $case => $answer) {
-            // Signed out, /account still goes to /login first on both (the permission check).
-            $out = str_ends_with($case, 'PROPFIND /account') && (str_starts_with($case, 'guest ') || str_starts_with($case, 'signed-out '));
-            $this->assertSame($out ? [303, '/login'] : [404, null], $answer, $case);
+            // A routed page asked with a method it does not take: 405 with Allow, before any permission check.
+            $this->assertSame([405, null], $answer, $case);
         }
         $this->assertGreaterThan(80, count($answers['ci4']));
         // The cases are what they claim to be.
