@@ -54,6 +54,22 @@ final class WorkerRecycleTest extends CIUnitTestCase
         $this->assertTrue(WorkerRecycle::keepServing(PHP_INT_MAX, 0));
     }
 
+    /** N-2044: a set but rejected value is named in a warning; empty and valid values give none. */
+    public function testAnInvalidValueGetsAWarning(): void
+    {
+        foreach (['-1', 'abc', '1e3', '1234567890', '99999999999'] as $bad) {
+            $warning = WorkerRecycle::invalid($bad);
+            $this->assertNotNull($warning, $bad);
+            $this->assertStringStartsWith('apotheke: APOTHEKE_WORKER_MAX_REQUESTS must be a whole number', (string)$warning);
+            $this->assertStringContainsString('"' . $bad . '", using 1000', (string)$warning);
+            $this->assertSame(WorkerRecycle::DEFAULT, WorkerRecycle::limit($bad));
+        }
+        foreach ([false, null, '', ' ', '0', '3', '999999999'] as $ok) {
+            $this->assertNull(WorkerRecycle::invalid($ok), var_export($ok, true));
+        }
+        $this->assertStringContainsString('"a?b", using', (string)WorkerRecycle::invalid("a\nb"));
+    }
+
     /** The worker script uses both, before frankenphp_handle_request(), and logs one line per boot. */
     public function testTheWorkerLoopUsesTheCap(): void
     {
@@ -64,5 +80,6 @@ final class WorkerRecycleTest extends CIUnitTestCase
             $script,
         );
         $this->assertStringContainsString("'apotheke: PHP worker started (recycles after '", $script);
+        $this->assertStringContainsString("WorkerRecycle::invalid(getenv('APOTHEKE_WORKER_MAX_REQUESTS'))", $script);
     }
 }

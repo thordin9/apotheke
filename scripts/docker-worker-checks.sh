@@ -50,5 +50,8 @@ done
 n=$(boots apotheke-worker-recycle)
 if (( n >= 5 )); then echo "ok   recycling: $n worker boots for 12 requests at 3 per worker"; else
   echo "FAIL recycling: $n worker boots, expected at least 5"; fail=1; fi
+if docker logs apotheke-worker-recycle 2>&1 | grep -iE '"level":"(warn|error)".*worker'; then
+  echo "FAIL FrankenPHP logged a worker warning while recycling (a recycle must return, not exit)"; fail=1
+fi
 
 exit "$fail"

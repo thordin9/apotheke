@@ -55,6 +55,10 @@ $guard = new OriginalsGuard();
 /** @var WorkerMode $workerConfig */
 $workerConfig = config(WorkerMode::class);
 $maxRequests = WorkerRecycle::limit(getenv('APOTHEKE_WORKER_MAX_REQUESTS'));
+$invalidMax = WorkerRecycle::invalid(getenv('APOTHEKE_WORKER_MAX_REQUESTS'));
+if ($invalidMax !== null) {
+    file_put_contents('php://stderr', $invalidMax . "\n");
+}
 // One line per worker boot on the container's stderr (error_log() from a worker script does not reach the log).
 file_put_contents('php://stderr', 'apotheke: PHP worker started (recycles after ' . ($maxRequests === 0 ? 'no limit' : $maxRequests . ' requests') . ")\n");
 
