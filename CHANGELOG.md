@@ -17,6 +17,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **tests:** the Caddyfile validate test skips worker mode when `/var/www/app/public/frankenphp-worker.php` is missing, so a host `frankenphp` on `PATH` no longer fails it (N-1981); stale worker-mode comments fixed (N-1985) ([#298](https://github.com/thordin9/apotheke/pull/298))
 
+### Performance
+
+- **d1:** fewer database round trips per request on the D1 driver: the request's settings, roles and account count are read in one batch and remembered until a write to their tables, independent list, item, stats and undo reads are batched (`Writes::rowsMany`), and the rate limiter, recent-views sweep and sign-in checks use fewer calls; SQLite and PostgreSQL read as before (signed-in list 45 to 12 calls, `/api/v1/me` 15 to 8, healthz 2 to 1) ([#293](https://github.com/thordin9/apotheke/pull/293))
+
 ## [3.37.1] - 2026-11-12
 
 ### Fixed
