@@ -152,8 +152,14 @@ test('a link to another host must name https', () => {
         '/\t/getapotheke.com/privacy/',
         '/\r/getapotheke.com/privacy/',
         '/\n/getapotheke.com/privacy/',
+        '/\t\n\r/getapotheke.com/privacy/',
+        '/\tprivacy/',
+        'ht\ttps://cdn.example/x',
+        'ht\t\tps://cdn.example/x',
+        'https://getapotheke.com/pri\tvacy/',
         'https://getapotheke%2Ecom/',
         'https://getapotheke%2ecom/privacy/',
+        'HTTPS://getapotheke%2Ecom/',
     ]) {
         assert.equal(resolves(url, from).ok, false, url);
     }
@@ -173,6 +179,7 @@ test('a link to another host must name https', () => {
 
 test('a stylesheet may use a data URL', () => {
     assert.equal(resolves('data:image/svg+xml,x', pageUrl('assets/x.css')).ok, true);
+    assert.equal(resolves('data:image/svg+xml,x', 'https://getapotheke.com/assets/x.CSS').ok, true);
     assert.equal(resolves('data:image/svg+xml,x', pageUrl('index.html')).ok, false);
     assert.equal(resolves('data:image/svg+xml,x', 'https://getapotheke.com/privacy/?file=.css').ok, false);
 });

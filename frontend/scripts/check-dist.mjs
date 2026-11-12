@@ -175,9 +175,8 @@ function explicitHttps(url) {
     return /^https:\/\//i.test(url);
 }
 
-/** Tab, CR and LF are removed before a URL is parsed. */
-function urlText(url) {
-    return String(url || '').replace(/[\t\n\r]/g, '').trim();
+function hasAsciiBreak(url) {
+    return /[\t\n\r]/.test(url);
 }
 
 function rawAuthority(url) {
@@ -604,7 +603,9 @@ function htmlUrls(html) {
 let spaMount = '/app';
 
 export function resolves(url, from = PAGE_BASE) {
-    const trimmed = urlText(url);
+    const raw = String(url || '');
+    if (hasAsciiBreak(raw)) return { ok: false, why: 'not a root-absolute path' };
+    const trimmed = raw.trim();
     if (sourceIsCss(from) && trimmed.toLowerCase().startsWith('data:')) return { ok: true };
     const parsed = parsedUrl(trimmed, from);
     if (!parsed) return { ok: false, why: 'not a root-absolute path' };
