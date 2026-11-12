@@ -56,6 +56,8 @@ container named by the installation's `do_name`. A hit or a miss is cached in th
 - No row, no `DB` binding, or a failed lookup: the request goes to `primary`, as before routing existed. The app's
   own `ALLOWED_HOSTS` check still applies.
 - Status `provisioning` answers 503, `suspended` 402, `deleting` and `deleted` 410, without starting a container.
+  This applies only to installations other than `primary`: `primary` is served as before whatever its row says.
+  Suspending `primary` will be a separate, explicit operator flow later.
 - Until per-installation storage is in place, an active route to any name other than `primary` answers 503, so no
   second installation can start on `primary`'s storage.
 

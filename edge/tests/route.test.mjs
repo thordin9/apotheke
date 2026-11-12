@@ -78,6 +78,19 @@ test('E2: a non-active installation never wakes a container; another DO name wai
   assert.deepEqual(w.seen, []);
 });
 
+test('E2: primary is never status-gated, whatever its row says', async () => {
+  const db = controlDb();
+  const w = worker(db);
+  for (const status of ['suspended', 'deleting', 'deleted', 'provisioning']) {
+    clearRouteCache();
+    db.raw.exec(`UPDATE installations SET status = '${status}' WHERE id = 'primary'`);
+    const res = await w.go('https://api.services.getapotheke.com/');
+    assert.equal(res.status, 200, status);
+    assert.equal(await res.text(), 'app');
+  }
+  assert.deepEqual(w.seen, ['primary', 'primary', 'primary', 'primary']);
+});
+
 test('E2: hosts are normalised before the lookup', () => {
   assert.equal(normalizeHost('API.Services.getapotheke.com:8443'), 'api.services.getapotheke.com');
   assert.equal(normalizeHost('a.example.test.'), 'a.example.test');

@@ -48,9 +48,10 @@ const STATUS: Record<string, [number, string]> = {
 
 /** The answer for a route that must not reach a container, or null to forward. Never wakes a container. */
 export function routeResponse(route: Route): Response | null {
+	// primary is never status-gated: it is served as before whatever its row says. Pausing it is a separate operator flow.
+	if (route.doName === INSTALLATION_NAME) return null;
 	if (route.status === "active") {
 		// Until per-installation storage (E3) lands, only primary's storage exists: another name must not start.
-		if (route.doName === INSTALLATION_NAME) return null;
 		console.error("route to an installation without its own storage yet", route.doName);
 		return text(503, "Apotheke is not available right now.", { "Retry-After": "30" });
 	}
