@@ -81,7 +81,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Items, search, bulk, lending | 39.4 % | 75.9 % | 83.3 % |
 | Favourites, undo, history | 34.9 % | 65.7 % | 67.5 % |
 | Stocktake & labels | 47.6 % | 95.6 % | 96.0 % |
-| Users, roles & sign-in | 62.0 % | 75.4 % | 83.5 % |
+| Users, roles & sign-in | 62.0 % | 75.5 % | 83.5 % |
 | CSV import & export | 54.6 % | 79.9 % | 91.0 % |
 | Photos & autofill | 69.2 % | 17.9 % | 70.6 % |
 | Notes & layout | 87.5 % | 75.4 % | 94.8 % |
