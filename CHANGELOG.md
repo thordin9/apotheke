@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **ci:** the edge deploy applies control-plane D1 migrations in `edge/migrations/control/` to `apotheke-api` before `wrangler deploy` (idempotent; a failed apply stops the deploy)
+
 ## [3.37.0] - 2026-11-12
 
 ### Added
