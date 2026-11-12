@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Fixed
 
-- **frontend:** `/app/` shows a sign-in link, or the signed-in line when a session exists, and the sign-in button stays busy while the request is in flight
+- **frontend:** `/app/` shows a sign-in link, or the signed-in line when a session exists, and the sign-in button stays busy while the request is in flight ([#296](https://github.com/thordin9/apotheke/pull/296))
 
 ## [3.36.10] - 2026-11-12
 
