@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.36.9] - 2026-11-12
+
 ### Fixed
 
 - **core:** session hardening: sign-out (`POST /logout`, `DELETE /api/v1/session`) removes the session on the server, file or database row, and the answer expires the session cookie (`Max-Age=0`, an `Expires` in the past, the same name and attributes) without issuing a new session id; a session cookie sent without cookie consent ends that session the same way, and the consent notice form takes `consent=decline`, which expires the consent cookie and ends the session ([#291](https://github.com/thordin9/apotheke/pull/291))
@@ -1588,7 +1590,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.8...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.9...HEAD
+[3.36.9]: https://github.com/thordin9/apotheke/compare/v3.36.8...v3.36.9
 [3.36.8]: https://github.com/thordin9/apotheke/compare/v3.36.7...v3.36.8
 [3.36.7]: https://github.com/thordin9/apotheke/compare/v3.36.6...v3.36.7
 [3.36.6]: https://github.com/thordin9/apotheke/compare/v3.36.5...v3.36.6
