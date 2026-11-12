@@ -1,8 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { consentCookie, consentDomain, withdrawnConsentCookie } from '../src/consent.js';
+import { consentCookie, consentDomain, sessionUrl, withdrawnConsentCookie } from '../src/consent.js';
 
 const HOSTED = 'apotheke_consent=v1; Domain=getapotheke.com; Path=/; Max-Age=15552000; Secure; SameSite=Lax';
+
+test('session URL joins an apiBase that already ends in /api/v1', () => {
+    assert.equal(
+        sessionUrl('https://api.services.getapotheke.com/api/v1'),
+        'https://api.services.getapotheke.com/api/v1/session',
+    );
+    assert.equal(
+        sessionUrl('https://api.services.getapotheke.com/api/v1/'),
+        'https://api.services.getapotheke.com/api/v1/session',
+    );
+    assert.equal(sessionUrl(''), '/api/v1/session');
+});
 
 test('getapotheke.com gets the exact hosted cookie', () => {
     assert.equal(consentDomain('getapotheke.com'), 'getapotheke.com');

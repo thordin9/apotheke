@@ -85,7 +85,11 @@ function renderSignIn(root) {
     form.className = 'sign-in';
     form.method = 'post';
     form.action = '/api/v1/session';
-    bindSignIn(form);
+    bindSignIn(form, () => {
+        const next = base + '/';
+        if (location.pathname + location.search + location.hash !== next) history.pushState(null, '', next);
+        render();
+    });
     const userLabel = document.createElement('label');
     userLabel.htmlFor = 'sign-in-user';
     userLabel.textContent = 'Name';
@@ -94,6 +98,9 @@ function renderSignIn(root) {
     user.name = 'username';
     user.autocomplete = 'username';
     user.disabled = true;
+    const userError = document.createElement('p');
+    userError.id = 'sign-in-user-error';
+    userError.className = 'field-error';
     const passLabel = document.createElement('label');
     passLabel.htmlFor = 'sign-in-pass';
     passLabel.textContent = 'Password';
@@ -103,15 +110,18 @@ function renderSignIn(root) {
     pass.type = 'password';
     pass.autocomplete = 'current-password';
     pass.disabled = true;
+    const passError = document.createElement('p');
+    passError.id = 'sign-in-pass-error';
+    passError.className = 'field-error';
     const button = document.createElement('button');
     button.type = 'submit';
     button.className = 'btn btn-primary';
     button.id = 'sign-in-submit';
     button.disabled = true;
     button.textContent = 'Sign in';
-    form.append(userLabel, user, passLabel, pass, button);
+    form.append(userLabel, user, userError, passLabel, pass, passError, button);
     root.append(h1, note, error, home, form);
-    if (hasConsent()) enableLogin(form, '');
+    if (hasConsent()) enableLogin(form);
 }
 
 function renderMissing(root) {

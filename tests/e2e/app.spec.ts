@@ -283,3 +283,137 @@ test('keyboard focus draws an outline on the hero and the footer', async ({ page
     expect(footer.style).not.toBe('none');
     expect(parseFloat(footer.width)).toBeGreaterThan(0);
 });
+
+const API_SESSION = 'https://api.services.getapotheke.com/api/v1/session';
+
+async function allowApiCookie(page: Page) {
+    await page.context().addCookies([{
+        name: 'probe',
+        value: 'sent',
+        domain: 'api.services.getapotheke.com',
+        path: '/',
+        secure: true,
+        sameSite: 'None',
+    }]);
+}
+
+function expectApiCall(req: { url: () => string; headers: () => Record<string, string> }) {
+    expect(req.url()).toBe(API_SESSION);
+    expect(req.headers().cookie || '').toContain('probe=sent');
+}
+
+async function acceptAndSignIn(page: Page) {
+    await page.goto('/app/sign-in');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#sign-in-note')).toHaveText('You can sign in.');
+    await page.locator('#sign-in-user').fill('ada');
+    await page.locator('#sign-in-pass').fill('secret');
+    await page.locator('#sign-in-submit').click();
+}
+
+test('a wrong password shows the API detail', async ({ page }) => {
+    await allowApiCookie(page);
+    await page.route(API_SESSION, (route) => {
+        expectApiCall(route.request());
+        if (route.request().method() === 'GET') {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ csrf_token: 'fresh-token', signed_in: false }),
+            });
+        }
+        return route.fulfill({
+            status: 401,
+            contentType: 'application/problem+json',
+            body: JSON.stringify({ code: 'auth.invalid_credentials', detail: 'Wrong user name or password.' }),
+        });
+    });
+    await acceptAndSignIn(page);
+    await expect(page.locator('#sign-in-error')).toHaveText('Wrong user name or password.');
+    await expect(page).toHaveURL(/\/app\/sign-in$/);
+});
+
+test('invalid fields show the API detail next to each input', async ({ page }) => {
+    await allowApiCookie(page);
+    await page.route(API_SESSION, (route) => {
+        expectApiCall(route.request());
+        if (route.request().method() === 'GET') {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ csrf_token: 'fresh-token', signed_in: false }),
+            });
+        }
+        return route.fulfill({
+            status: 422,
+            contentType: 'application/problem+json',
+            body: JSON.stringify({
+                code: 'validation.failed',
+                detail: 'Enter a user name and password.',
+                errors: { username: 'Required.', password: 'Required.' },
+            }),
+        });
+    });
+    await acceptAndSignIn(page);
+    await expect(page.locator('#sign-in-error')).toHaveText('Enter a user name and password.');
+    await expect(page.locator('#sign-in-user-error')).toHaveText('Required.');
+    await expect(page.locator('#sign-in-pass-error')).toHaveText('Required.');
+});
+
+test('an invalid CSRF token is refreshed and the sign-in is retried once', async ({ page }) => {
+    await allowApiCookie(page);
+    let posts = 0;
+    await page.route(API_SESSION, (route) => {
+        const req = route.request();
+        expectApiCall(req);
+        if (req.method() === 'GET') {
+            const token = posts === 0 ? 'stale-token' : 'fresh-token';
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ csrf_token: token, signed_in: false }),
+            });
+        }
+        posts += 1;
+        if (posts === 1) {
+            expect(req.headers()['x-csrf-token']).toBe('stale-token');
+            return route.fulfill({
+                status: 403,
+                contentType: 'application/problem+json',
+                body: JSON.stringify({ code: 'csrf.invalid', detail: 'The security token does not match.' }),
+            });
+        }
+        expect(req.headers()['x-csrf-token']).toBe('fresh-token');
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ csrf_token: 'fresh-token', signed_in: true }),
+        });
+    });
+    await acceptAndSignIn(page);
+    await expect(page).toHaveURL(/\/app\/$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Where did you put the drill?');
+    expect(posts).toBe(2);
+});
+
+test('a rate limit shows how long to wait', async ({ page }) => {
+    await allowApiCookie(page);
+    await page.route(API_SESSION, (route) => {
+        expectApiCall(route.request());
+        if (route.request().method() === 'GET') {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ csrf_token: 'fresh-token', signed_in: false }),
+            });
+        }
+        return route.fulfill({
+            status: 429,
+            contentType: 'application/problem+json',
+            headers: { 'Retry-After': '60', 'Access-Control-Expose-Headers': 'Retry-After' },
+            body: JSON.stringify({ code: 'rate_limited', detail: 'Too many attempts for this account from this address.' }),
+        });
+    });
+    await acceptAndSignIn(page);
+    await expect(page.locator('#sign-in-error')).toHaveText('Too many sign-in attempts. Try again in 60 seconds.');
+});
