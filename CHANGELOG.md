@@ -8,6 +8,14 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** the hosted container can run PHP in FrankenPHP worker mode (`APOTHEKE_PHP_WORKER` in `edge/wrangler.jsonc`): the app boots once per PHP thread through `public/frankenphp-worker.php`, with CodeIgniter's worker reset between requests, and an answered error no longer ends the worker. The FrankenPHP image takes `APOTHEKE_PHP_WORKER` (default classic mode; self-hosted images are unchanged) ([#292](https://github.com/thordin9/apotheke/pull/292))
+
+### Changed
+
+- **edge:** FrankenPHP worker mode ships off by default on the hosted container (`APOTHEKE_PHP_WORKER=0` in `edge/wrangler.jsonc`), so a release deploy keeps classic mode; turning it on (`1`) is a later step, after an interleaved classic/worker preview of the merged head ([#292](https://github.com/thordin9/apotheke/pull/292))
+
 ## [3.36.10] - 2026-11-12
 
 ### Fixed
