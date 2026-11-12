@@ -12,9 +12,6 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** after a container start times out, the next request checks readiness again instead of failing, a request the container cannot take answers 503 with `Retry-After`, every start path sets the inactivity timeout, and the readiness wait is 90 s so a first start with migrations fits ([#280](https://github.com/thordin9/apotheke/pull/280))
 
-### Fixed
-
-
 ## [3.36.3] - 2026-11-12
 
 ### Fixed
