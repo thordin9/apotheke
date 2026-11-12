@@ -56,8 +56,9 @@ your phone, to encrypt stored secrets with `APP_KEY`, to use PostgreSQL or to ru
 [Getting started](docs/getting-started.md).
 
 Docker is the recommended way to self-host. To run it on your own Cloudflare account instead, see
-[self-hosting on Cloudflare](docs/self-host-cloudflare.md): today only the front end is usable there; the API stays
-stateless until its D1 and R2 storage lands (P4).
+[self-hosting on Cloudflare](docs/self-host-cloudflare.md). The project's hosted API already runs in storage mode
+(D1, an Installation Durable Object and R2). A self-hosted copy can use the same storage code; on d1, restoring a
+backup is not available yet.
 
 ## Documentation
 
@@ -82,7 +83,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Stocktake & labels | 47.6 % | 95.6 % | 96.0 % |
 | Users, roles & sign-in | 62.1 % | 75.3 % | 83.5 % |
 | CSV import & export | 54.5 % | 79.9 % | 90.9 % |
-| Photos & autofill | 68.2 % | 14.6 % | 69.9 % |
+| Photos & autofill | 68.2 % | 14.3 % | 69.7 % |
 | Notes & layout | 87.5 % | 75.4 % | 94.8 % |
 | Settings & Control Panel | 53.5 % | 48.8 % | 69.1 % |
 | Backup & restore | 64.4 % | 63.9 % | 81.2 % |
