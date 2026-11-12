@@ -32,8 +32,10 @@ test('the privacy page describes the sign-in session cookie', async ({ page }) =
     await expect(main).toContainText('host-only on api.services.getapotheke.com');
     await expect(main).toContainText('up to 30 days');
     await expect(main).toContainText('See Sign-in for the API session cookie.');
+    await expect(main).toContainText('Accepting again keeps you signed in.');
     await expect(main).toContainText('Signing out removes the session cookie.');
-    await expect(main).toContainText('your sign-in session ends the next time the app contacts the API');
+    await expect(main).toContainText('Sign out first to end the session at once.');
+    await expect(main).toContainText('The session ends only when the browser reaches the API without consent.');
     await expect(main).toContainText('removes the consent cookie, apotheke_consent');
 });
 
