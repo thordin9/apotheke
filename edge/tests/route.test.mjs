@@ -58,6 +58,10 @@ test('E2: a failed D1 lookup or no DB binding falls back to primary', async () =
   }
 });
 
+test('E3a: a failed lookup is retried after exactly 5 s, as documented', () => {
+  assert.equal(FAILURE_TTL_MS, 5_000);
+});
+
 test('E3a: missing control tables fall back to primary, log once, and are retried after FAILURE_TTL_MS', async (t) => {
   const logged = t.mock.method(console, 'error', () => {});
   for (const table of ['installation_routes', 'installations']) {
