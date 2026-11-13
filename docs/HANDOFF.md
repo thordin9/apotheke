@@ -68,6 +68,13 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   signed-out `/api` body gets problem+json 413 or 401. A missing asset's 404 is `no-store`. Empty answers carry no
   `Content-Type`; the OpenAPI version is `1.0.0-p3` with a `servers` entry.
 
+- Operator console C1 (`feat/operator-console-c1`): the `Installation` object answers read-only `GET /stats`,
+  `/users` and `/limits` on `d1.internal` in storage mode. `APOTHEKE_HOSTED` turns on the plan's limits (checked
+  inside the adding unit of work, with a `plan-limit:<key>` key), the upload-size ceilings, always-on sign-in and the
+  one-time first-admin claim (`accounts:claim-create`, `/claim#<token>`); off, nothing changes. The container does
+  not set `APOTHEKE_HOSTED` yet (edge `index.ts`); limit values come only from `plan_limits`
+  ([operator console](operator-console.md#hosted-installations)).
+
 ## Open pull requests
 
 - E1 (#300, ready for review): the edge deploy applies `edge/migrations/control/` to D1 `apotheke-api` before `wrangler deploy`. Schema SQL is on main (#299). Awaiting *Account > D1 > Edit* on the existing deploy token before merge.

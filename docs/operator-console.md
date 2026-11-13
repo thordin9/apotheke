@@ -89,3 +89,33 @@ When a container starts, its object sets two values for its own installation:
 
 No new Worker variables or secrets. `edge/tests/installation-secrets.test.mjs` pins `primary`'s values and checks the
 derivation against an independent HKDF with fake keys.
+
+## Hosted installations
+
+`APOTHEKE_HOSTED=1` in the container's environment marks a hosted installation. Without it the app behaves exactly as
+when self-hosted: no plan limits are read, nothing below is active, and `/claim` answers 404.
+
+**Bridge reads.** The `Installation` object answers three read-only requests on `d1.internal`, next to the SQL bridge
+and only in storage mode:
+
+- `GET /stats`: counts of items, photos, user accounts, and accounts signed in during the last 30 days.
+- `GET /users`: id, name, role, status, created and last sign-in for each account. No password hashes or sessions.
+- `GET /limits`: the plan and its `plan_limits` rows (`{key: {soft, hard}}`) for the object's own installation,
+  looked up by its `do_name` through its subscription. 404 when the installation has no subscription, 503 when the
+  control plane is not bound.
+
+**Plan limits.** With `APOTHEKE_HOSTED`, the app reads `/limits` once per request when it needs them. The hard
+values of `items`, `photos` and `users` cap adding items, photos and accounts: the count is checked inside the unit
+of work that adds the rows, and the unit also takes a `plan-limit:<key>` key, so two adds at once cannot pass a
+limit together. Edits, deletes and replacing a cover are not adds. `import_file_bytes` caps the Control Panel's
+upload size settings (`max_upload_mb`, `attach_max_mb`); the autofill URL is set by the hosting side and cannot be
+changed there. If the limits cannot be read, adds that need them are refused with 503. Limit values come only from
+`plan_limits`; the app has no built-in tier numbers. Restoring a backup, undoing a delete and the photos copied by
+Duplicate are not counted.
+
+**First-admin claim.** A new installation starts with no account. `php spark accounts:claim-create` (run through the
+bridge) prints a one-time token and stores only its SHA-256 and expiry (`HOSTED_CLAIM_HOURS`, default 72) as a
+settings row outside the Control Panel's keys, so it is never exported or backed up. A new claim replaces the old one.
+The link is `https://<host>/claim#<token>`: the page reads the token from the fragment, and the owner picks a user
+name and password and becomes an active `admin`. The claim row is deleted in the same unit as the account insert, so
+a link works once. Registration stays closed until the first account exists, and sign-in cannot be turned off.
