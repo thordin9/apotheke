@@ -80,6 +80,16 @@ if [[ $server == frankenphp ]]; then
   # read the rest of an unread body to keep the connection; this request never sends one.)
   check "anonymous 300 KB POST /save -> 401 before the body" 401 "$(declared POST /save 300000)"
   check "anonymous chunked POST -> 401"  401 "$(code -H 'Transfer-Encoding: chunked' -X POST --data-binary 'name=x' "$base/locations")"
+  # Under /api the refusals are the API's problem+json: 413 from /upload/check (a declared length over 64 KiB) or
+  # Caddy (over 22 MiB), and 401 from /upload/check for a body without a length
+  head -c 70000 /dev/zero > "$work/70k"
+  api=(-b apotheke_consent=v1 -X POST -H 'Content-Type: application/json' "$base/api/v1/session")
+  check "anonymous 70 KB POST /api -> 413"  413 "$(code --data-binary @"$work/70k" "${api[@]}")"
+  check "anonymous 70 KB POST /api: problem+json" application/problem+json "$(hdr Content-Type --data-binary @"$work/70k" "${api[@]}")"
+  check "anonymous 30 MB POST /api -> 413"  413 "$(declared POST /api/v1/session $((30 * 1024 * 1024)))"
+  check "anonymous 30 MB POST /api: problem+json" application/problem+json "$(hdr Content-Type -H "Content-Length: $((30 * 1024 * 1024))" --data-binary 'x' --max-time 5 "${api[@]}")"
+  check "anonymous chunked POST /api -> 401" 401 "$(code -H 'Transfer-Encoding: chunked' --data-binary '{}' "${api[@]}")"
+  check "anonymous chunked POST /api: problem+json" application/problem+json "$(hdr Content-Type -H 'Transfer-Encoding: chunked' --data-binary '{}' "${api[@]}")"
   # M-1451: GET, HEAD and OPTIONS without a declared length never reach the app: 411 (any route, any client)
   for m in GET HEAD OPTIONS; do
     check "chunked $m /login -> 411"     411 "$(chunked "$m" /login)"

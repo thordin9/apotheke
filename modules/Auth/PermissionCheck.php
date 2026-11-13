@@ -32,6 +32,9 @@ final class PermissionCheck
         if ($need === Permissions::SELF) {
             return !$user['guest'];
         }
+        if ($need === Permissions::BACKUP_OR_RESTORE) {
+            return $this->roles->has($user['role'], 'backup') || $this->roles->has($user['role'], 'restore');
+        }
 
         return $this->roles->has($user['role'], $need);
     }
@@ -47,7 +50,8 @@ final class PermissionCheck
         }
 
         return 'Your role (' . $this->roles->name($user['role']) . ') does not allow this'
-            . (isset(Permissions::ALL[$need]) ? ' – it needs the “' . Permissions::ALL[$need][0] . '” permission' : '')
+            . (isset(Permissions::ALL[$need]) ? ' – it needs the “' . Permissions::ALL[$need][0] . '” permission'
+                : ($need === Permissions::BACKUP_OR_RESTORE ? ' – it needs the “Backup” or the “Restore” permission' : ''))
             . '. Ask an admin.';
     }
 }

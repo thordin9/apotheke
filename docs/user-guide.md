@@ -425,13 +425,15 @@ Entries of deleted items are kept. With sign-in on, every entry also names the a
 
 ☰ → *Backup & restore*:
 
-* **Download backup** creates one zip with `backup.json` (every table: items with all their fields, locations,
+* **Download backup** creates one zip of the whole installation's catalog (not only what you added) with `backup.json` (every table: items with all their fields, locations,
   categories, tags, photos, history, settings, attachments) plus the served photo files, their thumbnails, the camera
   files those photos were uploaded as, and attached files. The format doesn't depend on the
   database, so you can move between SQLite and PostgreSQL. Restoring brings back both the camera file and the
   stripped JPEG. **Export CSV** is for sharing: it names the served photo and does not include the camera file.
 * **Restore** uploads such a zip and first shows a preview (counts in the file vs. your current data). Nothing changes
-  until you tick the confirmation box and press *Restore*; then all data is **replaced** in one transaction.
+  until you tick the confirmation box and press *Restore*; then the whole catalog is **replaced** in one transaction,
+  for everyone who uses the installation. Accounts, roles and sign-ins are not part of a backup and stay as they are.
+  The backup's settings are restored only for an account that may change settings.
   Backups from older versions can be restored (columns added later are simply empty). A backup that includes camera
   files is often larger than the usual 22 MB upload limit. The browser then answers 413. The Docker image allows
   520 MB on the restore page only. Otherwise raise PHP `upload_max_filesize` and `post_max_size` and the web server's
@@ -439,6 +441,14 @@ Entries of deleted items are kept. With sign-in on, every entry also names the a
   [Deployment and operations](deployment-and-operations.md#backup-and-restore)). Where even that is too small (a
   host that caps every request), a script can send the backup in chunks through the
   [API](api.md#chunked-restore); it is checked and restored the same way.
+* **Kept backups**: before each restore the whole catalog is backed up first, and the restore does not start if that
+  backup cannot be made. The newest five are kept (`RESTORE_KEEP_BACKUPS`) and listed on the page to download; the
+  history shows who restored. Downloading needs the Backup permission, restoring the Restore permission; the page
+  opens with either and shows only the download or the restore that the account may use.
+
+A hosted install that uses the d1 database downloads and restores backups as described above; the catalog kept from
+before a restore is stored with the installation's files. The command line restore (`php bin/restore.php`) is for
+self-hosted installs.
 
 ☰ → *Export CSV* (also in the footer) downloads the whole catalogue as UTF-8 CSV with these columns:
 `id, name, location, category, quantity, notes, image, created_at, updated_at, tags, value, currency, purchase_date,
@@ -491,15 +501,21 @@ Then add an account for each person under **Add a user** and pick a role:
 
 | Role | May (default permissions) |
 |---|---|
-| **Viewer** | view, export CSV, print labels |
-| **Editor** | also add, edit, delete, move, bulk actions, lend, import, stocktake |
+| **Viewer** | view, export CSV, print labels; on a new installation also download backups |
+| **Editor** | also add, edit, delete, move, bulk actions, lend, import, stocktake; on a new installation also download and restore backups |
 | **Admin** | everything, including settings, users and backup & restore — always, it cannot be changed |
 | **Guest** | what visitors who are *not* signed in may do while guest browsing is on: view |
 
 **Roles & permissions** (same page) lists every role with a checklist of its permissions: *View, Add items, Edit,
-Delete, Move, Bulk actions, Lend, Import, Export, Stocktake, Labels, Settings, Users, Backup*. Change the built-in
+Delete, Move, Bulk actions, Lend, Import, Export, Stocktake, Labels, Settings, Users, Backup, Restore*. Change the built-in
 Editor, Viewer and Guest, or add your own (e.g. “Lender”: view + lend). Deleting a custom role moves its accounts to the
-role you choose. Guests can never get Settings, Users or Backup.
+role you choose. Guests can never get Settings, Users, Backup or Restore.
+
+*Backup* downloads a backup of the whole catalog and the kept ones; *Restore* replaces the whole catalog with a
+backup, for everyone. The two can be given separately. Every role that had Backup before Restore existed has both.
+A new installation starts with Editor having both and Viewer having Backup. An existing installation keeps its roles
+as they are: to let editors and viewers download or restore there, tick Backup and Restore in the role editor, or use
+*Reset built-in roles* (which also resets the other built-in permissions).
 
 The permissions are checked by the server on every page and action (a refused page says which permission it needs);
 the buttons a role can't use are hidden. Moving an item (changing its location in the form, a bulk move, stocktake

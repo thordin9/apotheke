@@ -70,7 +70,8 @@ a:hover { color: var(--color-accent-strong); }
 .hero-shot picture img { width: 100%; height: auto; border-radius: var(--radius-card); outline: var(--rule-hair) solid var(--color-rule); outline-offset: -1px; box-shadow: var(--shadow-rest); }
 .quick { margin-block: var(--space-lg); background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); padding: var(--space-md) var(--space-lg); }
 .quick h2 { font-size: var(--text-lg); letter-spacing: -0.02em; margin-bottom: var(--space-sm); max-width: none; }
-.quick pre { margin: 0; padding: var(--space-2xs) 0; overflow-x: auto; font-family: var(--font-outlier); font-size: var(--text-sm); line-height: 1.9; color: var(--color-ink); }
+.quick pre { margin: 0; padding: var(--space-2xs) 0; overflow-x: auto; white-space: pre-wrap; overflow-wrap: break-word; font-family: var(--font-outlier); font-size: var(--text-sm); line-height: 1.9; color: var(--color-ink); }
+@media (max-width: 26.25rem) { .quick pre { font-size: 0.6875rem; } }
 .quick p { margin-top: var(--space-sm); font-size: var(--text-sm); color: var(--color-muted); }
 
 /* question sections */

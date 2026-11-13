@@ -209,7 +209,7 @@ final class Page
             . '<a class="menu-item" href="/lent" role="menuitem">' . Icons::svg('handoff') . ' Lent out</a>'
             . ($can('stocktake') ? '<a class="menu-item" href="/stocktake" role="menuitem" id="menu-stocktake">' . Icons::svg('check') . ' Stocktake</a>' : '')
             . '<a class="menu-item" href="/activity" role="menuitem">' . Icons::svg('clock') . ' Recent activity</a>'
-            . ($can('backup') ? '<a class="menu-item" href="/backup" role="menuitem" id="menu-backup">' . Icons::svg('archive') . ' Backup &amp; restore</a>' : '')
+            . ($can('backup') || $can('restore') ? '<a class="menu-item" href="/backup" role="menuitem" id="menu-backup">' . Icons::svg('archive') . ' Backup &amp; restore</a>' : '')
             . ($can('settings') ? '<a class="menu-item" href="/settings" role="menuitem" id="menu-settings">' . Icons::svg('sliders') . ' Settings</a>'
                 : ($can('users') ? '<a class="menu-item" href="/settings/security" role="menuitem" id="menu-settings">' . Icons::svg('sliders') . ' Users &amp; sign-in</a>' : ''));
         if ($me !== null && !$me['guest']) {

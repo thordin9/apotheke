@@ -63,7 +63,7 @@ final class RoleRepository
         foreach ($rows as $row) {
             $key = (string)$row['role_key'];
             $perms = json_decode((string)$row['perms'], true);
-            $out[$key] = ['name' => (string)$row['name'], 'perms' => Permissions::clean($key, is_array($perms) ? $perms : [])];
+            $out[$key] = ['name' => (string)$row['name'], 'perms' => Permissions::clean($key, Permissions::fromStored(is_array($perms) ? $perms : []))];
         }
 
         return $out;
@@ -87,7 +87,7 @@ final class RoleRepository
             $key = (string)$row['role_key'];
             $perms = json_decode((string)$row['perms'], true);
             $out[$key] = ['key' => $key, 'name' => (string)$row['name'], 'builtin' => (bool)$row['builtin'], 'users' => $counts[$key] ?? 0,
-                'perms' => Permissions::clean($key, is_array($perms) ? $perms : [])];
+                'perms' => Permissions::clean($key, Permissions::fromStored(is_array($perms) ? $perms : []))];
         }
 
         return $out;
@@ -102,7 +102,7 @@ final class RoleRepository
     {
         $this->units->run('roles', function (UnitOfWork $uow) use ($key, $name, $perms, $now): void {
             $uow->write('INSERT INTO roles (role_key, name, perms, builtin, created_at) VALUES (?,?,?,0,?)',
-                [$key, $name, (string)json_encode($perms), $now], 'roles insert');
+                [$key, $name, (string)json_encode(Permissions::stored($perms)), $now], 'roles insert');
         }, $key);
     }
 
@@ -114,7 +114,7 @@ final class RoleRepository
     public function update(string $key, string $name, array $perms): void
     {
         $this->units->run('roles', function (UnitOfWork $uow) use ($key, $name, $perms): void {
-            $uow->write('UPDATE roles SET name = ?, perms = ? WHERE role_key = ?', [$name, (string)json_encode($perms), $key], 'roles update');
+            $uow->write('UPDATE roles SET name = ?, perms = ? WHERE role_key = ?', [$name, (string)json_encode(Permissions::stored($perms)), $key], 'roles update');
         }, $key);
     }
 
@@ -132,7 +132,7 @@ final class RoleRepository
     {
         $this->units->run('roles', function (UnitOfWork $uow): void {
             foreach (Permissions::ROLE_DEFAULTS as $key => [$name, $perms]) {
-                $uow->write('UPDATE roles SET name = ?, perms = ? WHERE role_key = ?', [$name, (string)json_encode($perms), $key], 'roles reset');
+                $uow->write('UPDATE roles SET name = ?, perms = ? WHERE role_key = ?', [$name, (string)json_encode(Permissions::stored($perms)), $key], 'roles reset');
             }
         });
     }

@@ -27,7 +27,7 @@ final class RoleAdmin
     public const NAME_MAX = 60;
 
     /** What the guest role can never have (legacy role_update()). */
-    public const NOT_FOR_GUESTS = ['users', 'settings', 'backup'];
+    public const NOT_FOR_GUESTS = ['users', 'settings', 'backup', 'restore'];
 
     public function __construct(
         private readonly RoleRepository $roles,

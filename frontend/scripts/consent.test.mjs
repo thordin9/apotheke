@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { consentCookie, consentDomain, loadApiBase, sessionUrl, withdrawnConsentCookie } from '../src/consent.js';
+import { consentCookie, consentDomain, declineConsent, fetchSession, loadApiBase, sessionUrl, signedInLineAllowed, withdrawnConsentCookie } from '../src/consent.js';
 
 const HOSTED = 'apotheke_consent=v1; Domain=getapotheke.com; Path=/; Max-Age=15552000; Secure; SameSite=Lax';
 
@@ -102,5 +102,160 @@ test('a successful /config.json is fetched once, and a failure is tried again', 
         assert.equal(calls, 3);
     } finally {
         globalThis.fetch = previous;
+    }
+});
+
+test('a signed-in line needs consent', () => {
+    const previousDoc = globalThis.document;
+    let cookie = '';
+    globalThis.document = {
+        get cookie() { return cookie; },
+        set cookie(value) { cookie = String(value); },
+    };
+    try {
+        assert.equal(signedInLineAllowed({ signed_in: true }), false);
+        cookie = 'apotheke_consent=v1';
+        assert.equal(signedInLineAllowed({ signed_in: true }), true);
+        assert.equal(signedInLineAllowed({ signed_in: false }), false);
+    } finally {
+        globalThis.document = previousDoc;
+    }
+});
+
+function installCookieDocument(cookieRef) {
+    globalThis.isSecureContext = true;
+    globalThis.location = { hostname: '127.0.0.1', protocol: 'http:' };
+    globalThis.document = {
+        get cookie() { return cookieRef.value; },
+        set cookie(value) {
+            cookieRef.value = String(value).includes('Max-Age=0') ? '' : String(value);
+        },
+        getElementById() { return null; },
+        dispatchEvent() {},
+    };
+}
+
+test('Decline removes the consent cookie before one keepalive session read', async () => {
+    const previousFetch = globalThis.fetch;
+    const previousDoc = globalThis.document;
+    const previousLocation = globalThis.location;
+    const previousSecure = globalThis.isSecureContext;
+    const cookieRef = { value: 'apotheke_consent=v1' };
+    const sessionReads = [];
+    installCookieDocument(cookieRef);
+    globalThis.fetch = async (url, init) => {
+        const href = String(url);
+        if (href.includes('config.json')) {
+            assert.equal(cookieRef.value, '');
+            return new Response(JSON.stringify({ apiBase: 'https://api.example/api/v1' }), { status: 200 });
+        }
+        sessionReads.push({
+            method: init && init.method ? init.method : 'GET',
+            credentials: init && init.credentials,
+            keepalive: init && init.keepalive,
+            cookie: cookieRef.value,
+        });
+        return new Response('', { status: 200 });
+    };
+    try {
+        declineConsent();
+        assert.equal(cookieRef.value, '');
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        assert.deepEqual(sessionReads, [{ method: 'GET', credentials: 'include', keepalive: true, cookie: '' }]);
+    } finally {
+        globalThis.fetch = previousFetch;
+        globalThis.document = previousDoc;
+        globalThis.location = previousLocation;
+        globalThis.isSecureContext = previousSecure;
+    }
+});
+
+test('Decline during a slow config read sends the session read when config resolves', async () => {
+    const mod = await import('../src/consent.js?case=slow-config');
+    const previousFetch = globalThis.fetch;
+    const previousDoc = globalThis.document;
+    const previousLocation = globalThis.location;
+    const previousSecure = globalThis.isSecureContext;
+    const cookieRef = { value: 'apotheke_consent=v1' };
+    let release = () => {};
+    const held = new Promise((resolve) => {
+        release = resolve;
+    });
+    let sessionReads = 0;
+    installCookieDocument(cookieRef);
+    globalThis.fetch = async (url, init) => {
+        const href = String(url);
+        if (href.includes('config.json')) {
+            await held;
+            return new Response(JSON.stringify({ apiBase: 'https://api.example/api/v1' }), { status: 200 });
+        }
+        sessionReads += 1;
+        assert.equal(init && init.keepalive, true);
+        assert.equal(cookieRef.value, '');
+        return new Response('', { status: 200 });
+    };
+    try {
+        const pendingConfig = mod.loadApiBase();
+        mod.declineConsent();
+        assert.equal(sessionReads, 0);
+        assert.equal(cookieRef.value, '');
+        release();
+        await pendingConfig;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        assert.equal(sessionReads, 1);
+    } finally {
+        globalThis.fetch = previousFetch;
+        globalThis.document = previousDoc;
+        globalThis.location = previousLocation;
+        globalThis.isSecureContext = previousSecure;
+    }
+});
+
+test('fetchSession drops a response that arrives after Decline', async () => {
+    const previousFetch = globalThis.fetch;
+    const previousDoc = globalThis.document;
+    const previousLocation = globalThis.location;
+    const previousSecure = globalThis.isSecureContext;
+    let cookie = 'apotheke_consent=v1';
+    let release = () => {};
+    const held = new Promise((resolve) => {
+        release = resolve;
+    });
+    let sessionReads = 0;
+    globalThis.isSecureContext = true;
+    globalThis.location = { hostname: '127.0.0.1', protocol: 'http:' };
+    globalThis.document = {
+        get cookie() { return cookie; },
+        set cookie(value) {
+            cookie = String(value).includes('Max-Age=0') ? '' : String(value);
+        },
+        getElementById() { return null; },
+        dispatchEvent() {},
+    };
+    globalThis.fetch = async (url) => {
+        const href = String(url);
+        if (href.includes('config.json')) {
+            return new Response(JSON.stringify({ apiBase: 'https://api.example/api/v1' }), { status: 200 });
+        }
+        sessionReads += 1;
+        if (sessionReads === 1) {
+            await held;
+            return new Response(JSON.stringify({ csrf_token: 't', signed_in: true, user: { username: 'ada' } }), { status: 200 });
+        }
+        return new Response('', { status: 204 });
+    };
+    try {
+        const pending = fetchSession('https://api.example/api/v1');
+        declineConsent();
+        release();
+        const session = await pending;
+        assert.equal(session.signed_in, false);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        assert.equal(sessionReads, 2);
+    } finally {
+        globalThis.fetch = previousFetch;
+        globalThis.document = previousDoc;
+        globalThis.location = previousLocation;
+        globalThis.isSecureContext = previousSecure;
     }
 });
