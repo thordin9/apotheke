@@ -22,6 +22,298 @@ test('header Sign in stays header ink and underlines on hover', async ({ browser
     await context.close();
 });
 
+test('the privacy page describes the sign-in session cookie', async ({ page }) => {
+    await page.goto('/privacy/');
+    await page.getByRole('button', { name: 'Decline' }).click();
+    const main = page.locator('#main');
+    await expect(main).toContainText('__Host-apothekesid');
+    await expect(main).toContainText('when you visit that host or start signing in');
+    await expect(main).toContainText('SameSite=Lax');
+    await expect(main).toContainText('host-only on api.services.getapotheke.com');
+    await expect(main).toContainText('up to 30 days');
+    await expect(main).toContainText('See Sign-in for the API session cookie.');
+    await expect(main).toContainText('Decline removes the consent cookie immediately and asks the server to end your session right away.');
+    await expect(main).toContainText("If that request can't get through (for example, you're offline), the server ends the session the next time your browser contacts it without consent.");
+    await expect(main).toContainText('Decline stores nothing');
+    await expect(main).toContainText('Once the server has ended the session, accepting again needs a fresh sign-in.');
+    await expect(main).toContainText('Signing out removes the session cookie.');
+    await expect(main).toContainText('removes the consent cookie, apotheke_consent');
+});
+
+async function hasConsentCookie(page: Page) {
+    const cookies = await page.context().cookies();
+    return cookies.some((cookie) => cookie.name === 'apotheke_consent' && cookie.value === 'v1');
+}
+
+test('Decline after consent sends one credentialed session read, and none before consent', async ({ page }) => {
+    await allowApiCookie(page);
+    const reads: string[] = [];
+    await page.route(API_SESSION, async (route) => {
+        const req = route.request();
+        if (req.method() === 'DELETE') {
+            return route.fulfill({
+                status: 403,
+                contentType: 'application/problem+json',
+                body: JSON.stringify(problem(403, 'Forbidden', 'consent_required', 'Accept cookies, then try again.')),
+            });
+        }
+        const consented = await hasConsentCookie(page);
+        reads.push((consented ? 'with-cookie' : 'no-cookie') + ' ' + (req.headers().cookie || ''));
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
+        });
+    });
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await page.waitForTimeout(200);
+    expect(reads).toEqual([]);
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#signed-in')).toHaveText('Signed in as ada.');
+    const before = reads.length;
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect(page.locator('#consent')).toBeHidden();
+    await expect(page.locator('#signed-in')).toHaveCount(0);
+    await expect.poll(() => reads.slice(before)).toEqual(['no-cookie probe=sent']);
+    await expect.poll(async () => hasConsentCookie(page)).toBe(false);
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await expect(page.locator('#consent-choice')).toHaveText(/not accepted/);
+});
+
+test('Decline from the landing pages sends one credentialed session read after consent', async ({ page }) => {
+    await allowApiCookie(page);
+    for (const path of ['/', '/privacy/', '/404.html']) {
+        const reads: string[] = [];
+        await page.unroute(API_SESSION).catch(() => {});
+        await page.context().clearCookies();
+        await allowApiCookie(page);
+        await page.route(API_SESSION, async (route) => {
+            const req = route.request();
+            if (req.method() === 'GET') {
+                const consented = await hasConsentCookie(page);
+                reads.push((consented ? 'with' : 'without') + ' ' + (req.headers().cookie || ''));
+                return route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    headers: { 'set-cookie': 'apothekesid=; Max-Age=0; Path=/' },
+                    body: JSON.stringify(sessionOk('', false)),
+                });
+            }
+            if (req.method() === 'DELETE' && !(await hasConsentCookie(page))) {
+                return route.fulfill({
+                    status: 403,
+                    contentType: 'application/problem+json',
+                    body: JSON.stringify(problem(403, 'Forbidden', 'consent_required', 'Accept cookies, then try again.')),
+                });
+            }
+            return route.fulfill({ status: 204, body: '' });
+        });
+        await page.goto(path);
+        await page.getByRole('button', { name: 'Decline' }).click();
+        await page.waitForTimeout(200);
+        expect(reads, path + ' before consent').toEqual([]);
+        await page.goto(path);
+        await page.getByRole('button', { name: 'Accept' }).click();
+        await page.getByRole('button', { name: 'Cookie settings' }).click();
+        await page.getByRole('button', { name: 'Decline' }).click();
+        await expect(page.locator('#consent')).toBeHidden();
+        await expect.poll(() => reads, path).toEqual(['without probe=sent']);
+    }
+});
+
+test('Decline during a slow config read sends exactly one session read when config resolves', async ({ page }) => {
+    await allowApiCookie(page);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const sessions: string[] = [];
+    await page.route('**/config.json', async (route) => {
+        await held;
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: '{"apiBase":"https://api.services.getapotheke.com/api/v1"}',
+        });
+    });
+    await page.route(API_SESSION, (route) => {
+        sessions.push(route.request().headers().cookie || '');
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(sessionOk('', false)),
+        });
+    });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    expect(await hasConsentCookie(page)).toBe(false);
+    await page.waitForTimeout(150);
+    expect(sessions).toEqual([]);
+    release();
+    await expect.poll(() => sessions).toEqual(['probe=sent']);
+    await page.waitForTimeout(200);
+    expect(sessions).toEqual(['probe=sent']);
+});
+
+test('a slow config read started with consent still sends the session read after navigation', async ({ page }) => {
+    await allowApiCookie(page);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    let configStarted = false;
+    const sessions: string[] = [];
+    await page.route('**/config.json', async (route) => {
+        configStarted = true;
+        await held;
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: '{"apiBase":"https://api.services.getapotheke.com/api/v1"}',
+        });
+    });
+    await page.route(API_SESSION, (route) => {
+        sessions.push(route.request().headers().cookie || '');
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            headers: { 'set-cookie': 'apothekesid=; Max-Age=0; Path=/' },
+            body: JSON.stringify(sessionOk('', false)),
+        });
+    });
+    await page.goto('/');
+    await page.evaluate(() => {
+        document.cookie = 'apotheke_consent=v1; Path=/; Max-Age=15552000; Secure; SameSite=Lax';
+    });
+    await page.reload();
+    await expect.poll(() => configStarted).toBe(true);
+    const configDone = page.waitForResponse((response) => response.url().includes('/config.json'));
+    release();
+    await configDone;
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await page.goto('/privacy/');
+    await expect.poll(() => sessions).toEqual(['probe=sent']);
+    await page.waitForTimeout(200);
+    expect(sessions).toEqual(['probe=sent']);
+    expect(await hasConsentCookie(page)).toBe(false);
+});
+
+test('Decline ends the session, and accepting again shows signed out', async ({ page }) => {
+    let live = true;
+    const calls: string[] = [];
+    await page.route(API_SESSION, async (route) => {
+        const req = route.request();
+        const consented = await hasConsentCookie(page);
+        if (req.method() === 'DELETE') {
+            if (!consented) {
+                return route.fulfill({
+                    status: 403,
+                    contentType: 'application/problem+json',
+                    body: JSON.stringify(problem(403, 'Forbidden', 'consent_required', 'Accept cookies, then try again.')),
+                });
+            }
+            return route.fulfill({ status: 204, body: '' });
+        }
+        if (!consented) {
+            live = false;
+            calls.push('end');
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                headers: { 'set-cookie': 'apothekesid=; Max-Age=0; Path=/' },
+                body: JSON.stringify(sessionOk('', false)),
+            });
+        }
+        calls.push(live ? 'in' : 'out');
+        return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(sessionOk('kept-token', live, 'ada')),
+        });
+    });
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#signed-in')).toHaveText('Signed in as ada.');
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect(page.locator('#signed-in')).toHaveCount(0);
+    await expect.poll(() => calls.includes('end')).toBe(true);
+    await expect.poll(async () => (await page.context().cookies()).some((cookie) => cookie.name === 'apotheke_consent')).toBe(false);
+    await page.goto('/privacy/');
+    await expect(page.locator('#consent')).toBeVisible();
+    expect(await hasConsentCookie(page)).toBe(false);
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await expect(page.locator('#signed-in')).toHaveCount(0);
+    expect(calls.filter((hit) => hit === 'end')).toHaveLength(1);
+});
+
+test('a failed or hanging session read still leaves consent withdrawn', async ({ page }) => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    await page.route(API_SESSION, async (route) => {
+        if (route.request().method() !== 'GET' || (await hasConsentCookie(page))) {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
+            });
+        }
+        await held;
+        return route.fulfill({ status: 500, body: '' });
+    });
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#signed-in')).toHaveText('Signed in as ada.');
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect(page.locator('#consent')).toBeHidden();
+    await expect(page.locator('#signed-in')).toHaveCount(0);
+    expect(await hasConsentCookie(page)).toBe(false);
+    release();
+    await page.waitForTimeout(200);
+    expect(await hasConsentCookie(page)).toBe(false);
+    await expect(page.locator('#signed-in')).toHaveCount(0);
+});
+
+test('a session response that arrives after Decline does not show signed in', async ({ page }) => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    let gets = 0;
+    await page.route(API_SESSION, async (route) => {
+        gets += 1;
+        if (gets === 1) {
+            await held;
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
+            });
+        }
+        return route.fulfill({ status: 204, body: '' });
+    });
+    await page.goto('/app/');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect(page.locator('#consent')).toBeHidden();
+    release();
+    await page.waitForTimeout(200);
+    await expect(page.locator('#signed-in')).toHaveCount(0);
+    await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toBeVisible();
+});
+
 test('the FAQ says hosted sign-up is invitation-only', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: 'Decline' }).click();

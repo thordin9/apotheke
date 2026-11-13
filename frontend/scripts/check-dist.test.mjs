@@ -18,11 +18,12 @@ test('pages set HSTS, nosniff, Referrer-Policy, X-Frame-Options and Permissions-
     }
 });
 
-test('the API host is only in the app connect-src', () => {
+test('landing pages may read the API session', () => {
     const api = 'https://api.services.getapotheke.com';
     for (const path of ['/', '/privacy/', '/404.html']) {
         const csp = headersFor(rules, path).get('content-security-policy') || '';
-        assert.equal(connectSrcHas(csp, api), false, path);
+        assert.equal(connectSrcHas(csp, api), true, path);
+        assert.equal(connectSrcHas(csp, "'self'"), true, path);
     }
     for (const path of ['/app/', '/app/index.html']) {
         const csp = headersFor(rules, path).get('content-security-policy') || '';
