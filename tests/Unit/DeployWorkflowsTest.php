@@ -240,6 +240,10 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertStringContainsString('id: token', $t);
         $this->assertStringContainsString('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}', $t);
         $this->assertStringContainsString('if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then echo "::add-mask::$CLOUDFLARE_ACCOUNT_ID"; fi', $t);
+        if ($file === 'deploy-frontend.yml') {
+            $this->assertStringContainsString('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}', $t);
+            $this->assertStringNotContainsString('vars.CLOUDFLARE_ACCOUNT_ID', $this->workflow($file));
+        }
         if ($file === 'deploy-edge.yml') {
             $this->assertStringContainsString('APOTHEKE_D1_DATABASE_ID: ${{ secrets.APOTHEKE_D1_DATABASE_ID }}', $t);
             $this->assertStringContainsString('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}', $t);
@@ -262,6 +266,7 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertCount(1, $deploys, 'one deploy step');
         $deploy = $deploys[0];
         $this->assertStringContainsString('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}', $steps[$deploy]);
+        $this->assertStringContainsString('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}', $steps[$deploy]);
         // deploy-frontend: the deploy is the last step; deploy-edge: only the smoke check follows it
         $this->assertSame(count($steps) - ($file === 'deploy-edge.yml' ? 2 : 1), $deploy);
 
