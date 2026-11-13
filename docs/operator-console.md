@@ -57,11 +57,21 @@ host is used; `X-Forwarded-Host` is ignored. A hit or a miss is cached in the Wo
 seconds to show.
 
 - No row, no `DB` binding, or a failed lookup: the request goes to `primary`, as before routing existed. The app's
-  own `ALLOWED_HOSTS` check still applies.
+  own `ALLOWED_HOSTS` check still applies. A failed lookup (for example before the control migrations are applied)
+  logs one line with the D1 error and is retried for that host after 5 seconds, not on every request.
 - Status `provisioning` answers 503, `suspended` 402, `deleting` and `deleted` 410, without starting a container.
   This applies only to installations other than `primary`: `primary` is served as before whatever its row says.
   Suspending `primary` will be a separate, explicit operator flow later.
-- Until per-installation storage is in place, an active route to any name other than `primary` answers 503, so no
-  second installation can start on `primary`'s storage.
+- An active installation is served by the container object named `do_name`.
+
+## Per-installation storage
+
+Each container object takes its installation from its own name (`ctx.id.name`, set by `getByName(do_name)`), never
+from PHP. It passes `{ doName, prefix }` as props to the `d1.internal` and `r2.internal` handlers: the database is
+the `Installation` object made by `installationStub(ns, doName)` from the EU-jurisdiction namespace, and every R2 key,
+multipart marker and sweep stays under `installations/<do_name>/`. Missing or inconsistent props refuse storage, and
+a container object without a name never starts in storage mode. For `primary` the names, the prefix, the marker keys
+and the Worker secrets are the same as before. `edge/tests/installation-isolation.test.mjs` runs two installations
+side by side and checks that no file, marker, sweep or database row crosses between them.
 
 Limits are not read here. They come only from `plan_limits` rows, which the console edits; no tier is built in.

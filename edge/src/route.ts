@@ -8,6 +8,8 @@ type RouteDb = { prepare(sql: string): { bind(...v: unknown[]): { first<T>(): Pr
 
 const FALLBACK: Route = { doName: INSTALLATION_NAME, status: "active" };
 const TTL_MS = 30_000;
+/** A failed lookup (a D1 outage, or tables not migrated yet) is retried after this, not on every request. */
+export const FAILURE_TTL_MS = 5_000;
 /** At most this many hosts are cached per isolate: expired entries go first, then the oldest. */
 export const ROUTE_CACHE_MAX = 1000;
 const cache = new Map<string, { route: Route | null; until: number }>();
@@ -17,7 +19,7 @@ export function normalizeHost(host: string): string {
 	return host.toLowerCase().replace(/:\d+$/, "").replace(/\.+$/, "");
 }
 
-function remember(key: string, route: Route | null, now: number): void {
+function remember(key: string, route: Route | null, now: number, ttl = TTL_MS): void {
 	cache.delete(key);
 	if (cache.size >= ROUTE_CACHE_MAX) {
 		for (const [k, v] of cache) if (v.until <= now) cache.delete(k);
@@ -27,10 +29,11 @@ function remember(key: string, route: Route | null, now: number): void {
 			cache.delete(k);
 		}
 	}
-	cache.set(key, { route, until: now + TTL_MS });
+	cache.set(key, { route, until: now + ttl });
 }
 
-/** The route for a host: a row from installation_routes (a hit or a miss is cached in the isolate for 30 s), else primary. */
+/** The route for a host: a row from installation_routes (a hit or a miss is cached in the isolate for 30 s, a failed
+ *  lookup for 5 s), else primary. */
 export async function routeFor(host: string, db: RouteDb | undefined, now = Date.now()): Promise<Route> {
 	if (!db) return FALLBACK;
 	const key = normalizeHost(host);
@@ -44,7 +47,9 @@ export async function routeFor(host: string, db: RouteDb | undefined, now = Date
 		remember(key, row, now);
 		return row ?? FALLBACK;
 	} catch (e) {
+		// One line per host per FAILURE_TTL_MS in this isolate: the D1 error text, never the host.
 		console.error("route lookup failed, using the fallback", String(e));
+		remember(key, null, now, FAILURE_TTL_MS);
 		return FALLBACK;
 	}
 }
@@ -70,11 +75,7 @@ const STATUS: Record<string, [number, string]> = {
 export function routeResponse(route: Route): Response | null {
 	// primary is never status-gated: it is served as before whatever its row says. Pausing it is a separate operator flow.
 	if (route.doName === INSTALLATION_NAME) return null;
-	if (route.status === "active") {
-		// Until per-installation storage (E3) lands, only primary's storage exists: another name must not start.
-		console.error("route to an installation without its own storage yet", route.doName);
-		return text(503, "Apotheke is not available right now.", { "Retry-After": "30" });
-	}
+	if (route.status === "active") return null;
 	const [status, body] = STATUS[route.status] ?? [503, "Apotheke is not available right now."];
 	return text(status, body, status === 503 ? { "Retry-After": "30" } : {});
 }

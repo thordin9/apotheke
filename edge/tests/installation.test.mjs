@@ -8,6 +8,7 @@ const { doStorage } = await import(new URL('./do-storage.mjs', import.meta.url).
 
 const { D1Outbound, Installation, ApothekeContainer, default: publicWorker } = await import('../src/index.ts');
 const { installationStub, INSTALLATION_NAME } = await import('../src/installation.ts');
+const AS_PRIMARY = { props: { doName: 'primary', prefix: 'installations/primary/' } };
 
 /** A namespace whose root refuses id creation: ids may only come from jurisdiction("eu"). */
 function namespace(storage, calls = []) {
@@ -39,13 +40,13 @@ function setup() {
   const storage = doStorage();
   const calls = [];
   const env = fullEnv({ INSTALLATION: namespace(storage, calls) });
-  return { storage, calls, env, outbound: new D1Outbound({}, env) };
+  return { storage, calls, env, outbound: new D1Outbound(AS_PRIMARY, env) };
 }
 const SCHEMA = 'CREATE TABLE uow_guard (ok INTEGER NOT NULL); CREATE TABLE item (id INTEGER PRIMARY KEY, qty INTEGER NOT NULL, version INTEGER NOT NULL);';
 
 test('P4-5b: every Installation id comes from the EU jurisdiction, by the Worker-chosen name', async () => {
   const calls = [];
-  installationStub(namespace(doStorage(), calls));
+  installationStub(namespace(doStorage(), calls), INSTALLATION_NAME);
   assert.deepEqual(calls, [['jurisdiction', 'eu'], ['eu.idFromName', INSTALLATION_NAME], ['eu.get', INSTALLATION_NAME]]);
   assert.equal(INSTALLATION_NAME, 'primary', 'matches the container object and the R2 prefix installations/primary/');
 });
@@ -65,7 +66,7 @@ test('P4-5b: in storage mode d1.internal is the Installation SQLite, and its dat
   assert.deepEqual(await post(outbound, '/exec', { sql: SCHEMA }), [200, { ok: true, count: 1 }]);
   assert.equal((await post(outbound, '/query', { sql: 'INSERT INTO item (id, qty, version) VALUES (?, ?, ?)', params: [1, 5, 1] }))[0], 200);
   // A new outbound and a new object on the same storage (container slept, object evicted) still see the row.
-  const again = new D1Outbound({}, fullEnv({ INSTALLATION: namespace(storage) }));
+  const again = new D1Outbound(AS_PRIMARY, fullEnv({ INSTALLATION: namespace(storage) }));
   assert.deepEqual(await post(again, '/query', { sql: 'SELECT qty FROM item WHERE id = ?', params: [1] }), [200, { ok: true, rows: [{ qty: 5 }] }]);
   const [status, body] = await post(outbound, '/batch', [{ sql: 'UPDATE item SET qty = qty + 1 WHERE id = ?', params: [1] }, { sql: 'SELECT qty FROM item' }]);
   assert.equal(status, 200);
@@ -139,7 +140,7 @@ test('P4-5b: concurrent relative writes all land (no lost update)', async () => 
 
 test('P4-5b: d1.internal is closed unless STORAGE, DB and INSTALLATION are all bound', async () => {
   for (const env of [{}, { DB: untouchable }, { INSTALLATION: untouchable }, { DB: untouchable, INSTALLATION: untouchable }, { STORAGE: untouchable, INSTALLATION: untouchable }, { STORAGE: untouchable, DB: untouchable }, { DB: untouchable, STORAGE_BACKEND: 'r2' }]) {
-    const res = await new D1Outbound({}, env).fetch(d1('/query', { sql: 'SELECT 1' }));
+    const res = await new D1Outbound(AS_PRIMARY, env).fetch(d1('/query', { sql: 'SELECT 1' }));
     assert.equal(res.status, 503, Object.keys(env).join());
     assert.deepEqual(await res.json(), { ok: false, code: 'unbound', error: 'D1 is not bound' });
   }
@@ -157,7 +158,7 @@ test('P4-5b: the container starts only with the whole fragment, and PHP is not y
   const start = async (env) => {
     let started;
     const container = { running: false, start(o) { started = o; this.running = true; }, setInactivityTimeout: async () => {}, monitor: () => new Promise(() => {}), getTcpPort: () => ({ fetch: async () => new Response('ok') }), interceptOutboundHttp: async () => {} };
-    const ctx = { container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
+    const ctx = { id: { name: 'primary' }, container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
     const original = console.error;
     console.error = () => {};
     try { return [(await new ApothekeContainer(ctx, { APP_PASSWORD: 'p', APP_KEY: 'k', ...env }).fetch(new Request('https://api.example.test/healthz'))).status, started]; } finally { console.error = original; }
