@@ -8,13 +8,19 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-### Added
-
-- **ci:** the edge deploy applies control-plane D1 migrations in `edge/migrations/control/` to `apotheke-api` before `wrangler deploy` (idempotent; a failed apply stops the deploy), and the Cloudflare account id and D1 database id come from `deploy-edge` environment secrets ([#300](https://github.com/thordin9/apotheke/pull/300))
+## [3.42.2] - 2026-11-13
 
 ### Fixed
 
 - **auth:** a first install on the hosted database that stops part way and finishes on a later start gives editors and viewers the new built-in permissions, as an install that did not stop does ([#309](https://github.com/thordin9/apotheke/pull/309))
+
+### Maintenance
+
+- ci: apply control-plane D1 migrations before the edge deploy ([#300](https://github.com/thordin9/apotheke/pull/300))
+
+### Added
+
+- **ci:** the edge deploy applies control-plane D1 migrations in `edge/migrations/control/` to `apotheke-api` before `wrangler deploy` (idempotent; a failed apply stops the deploy), and the Cloudflare account id and D1 database id come from `deploy-edge` environment secrets ([#300](https://github.com/thordin9/apotheke/pull/300))
 
 ## [3.42.1] - 2026-11-13
 
@@ -1708,7 +1714,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.2...HEAD
+[3.42.2]: https://github.com/thordin9/apotheke/compare/v3.42.1...v3.42.2
 [3.42.1]: https://github.com/thordin9/apotheke/compare/v3.42.0...v3.42.1
 [3.42.0]: https://github.com/thordin9/apotheke/compare/v3.41.0...v3.42.0
 [3.41.0]: https://github.com/thordin9/apotheke/compare/v3.40.0...v3.41.0
