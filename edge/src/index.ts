@@ -101,12 +101,14 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	}
 
 	/** APP_KEY and ALLOWED_HOSTS for this object's installation. primary (or an unnamed object) gets the Worker's own
-	 *  values unchanged. Another installation gets its derived key and its own hosts from installation_routes, or
-	 *  does not start (also when its status is not provisioning or active). */
-	private async installationEnv(): Promise<{ appKey: string; allowedHosts: string }> {
+	 *  values unchanged and the Worker's APP_PASSWORD. Another installation gets its derived key and its own hosts from
+	 *  installation_routes, or does not start (also when its status is not provisioning or active); it gets no
+	 *  APP_PASSWORD, and APOTHEKE_HOSTED=1 with APOTHEKE_INSTALLATION set to this object's own name. */
+	private async installationEnv(): Promise<{ appKey: string; allowedHosts: string; account: Record<string, string> }> {
 		const doName = this.ctx.id?.name ?? INSTALLATION_NAME;
 		const appKey = await installationAppKey(doName, this.env.APP_KEY);
-		if (doName === INSTALLATION_NAME) return { appKey, allowedHosts: this.env.ALLOWED_HOSTS ?? "" };
+		// The entrypoint refuses to start without a valid APP_PASSWORD (exit 78): the Worker answers 503.
+		if (doName === INSTALLATION_NAME) return { appKey, allowedHosts: this.env.ALLOWED_HOSTS ?? "", account: { APP_PASSWORD: this.env.APP_PASSWORD ?? "" } };
 		if (!validDoName(doName) || !this.env.DB) throw new Error("no installation hosts");
 		const { results } = await this.env.DB
 			// Read fresh at every start: a suspended or deleted installation does not start, even through a cached route.
@@ -114,7 +116,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 			.bind(doName)
 			.all<{ host: string }>();
 		if (results.length === 0) throw new Error("no installation hosts");
-		return { appKey, allowedHosts: results.map((r) => r.host).join(",") };
+		return { appKey, allowedHosts: results.map((r) => r.host).join(","), account: { APOTHEKE_HOSTED: "1", APOTHEKE_INSTALLATION: doName } };
 	}
 
 	/** Starts the container unless it is running, sets the inactivity timeout and waits for /healthz. */
@@ -126,8 +128,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		if (!c.running) c.start({
 			enableInternet: false,
 			env: {
-				// The entrypoint refuses to start without a valid APP_PASSWORD (exit 78): the Worker answers 503.
-				APP_PASSWORD: this.env.APP_PASSWORD ?? "",
+				...site.account,
 				APP_KEY: site.appKey,
 				ALLOWED_HOSTS: site.allowedHosts,
 				COOKIE_DOMAIN: this.env.COOKIE_DOMAIN ?? "",
