@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** lifecycle jobs for the operator console: provision, suspend, resume, export, soft delete and purge as paused jobs that run only after an operator confirms them, with idempotent steps that refuse `primary` (migration `0003_lifecycle_jobs`) ([#314](https://github.com/thordin9/apotheke/pull/314))
+
 ## [3.43.0] - 2026-11-13
 
 ### Added
