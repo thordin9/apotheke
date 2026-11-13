@@ -515,9 +515,13 @@ final class Restorer
                 ? $c::class . ': ' . $c->getMessage() : $c::class;
         }
         $line = '[apotheke] restore failed at ' . $this->step . ($causes === [] ? '' : ': ' . implode(' <- ', $causes));
-        ($this->log ?? static function (string $line): void {
-            error_log($line);
-        })($line);
+        try {
+            ($this->log ?? static function (string $line): void {
+                error_log($line);
+            })($line);
+        } catch (Throwable) {
+            // Best effort: a log that cannot be written does not change the restore's answer.
+        }
     }
 
     /**
