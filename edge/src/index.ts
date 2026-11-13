@@ -90,7 +90,6 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		return this.readying;
 	}
 
-	/** Starts the container unless it is running, sets the inactivity timeout and waits for /healthz. */
 	/** APP_KEY and ALLOWED_HOSTS for this object's installation. primary (or an unnamed object) gets the Worker's own
 	 *  values unchanged. Another installation gets its derived key and its own hosts from installation_routes, or
 	 *  does not start. */
@@ -107,6 +106,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		return { appKey, allowedHosts: results.map((r) => r.host).join(",") };
 	}
 
+	/** Starts the container unless it is running, sets the inactivity timeout and waits for /healthz. */
 	private async startAndWait(c: NonNullable<DurableObjectState["container"]>, backend: ReturnType<typeof storageBackend>): Promise<number> {
 		const t0 = Date.now();
 		const site = await this.installationEnv();
