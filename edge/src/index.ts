@@ -5,7 +5,7 @@
 // R2 for files and the Installation Durable Object's SQLite for the database.
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { d1UnboundResponse, type D1Env } from "./d1";
-import { INSTALLATION_NAME, installationAppKey, installationPrefix, installationStub, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
+import { INSTALLATION_NAME, installationAppKey, installationPrefix, installationStub, lifecycleName, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
 import { routeFor, routeResponse } from "./route";
 import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env } from "./r2";
 
@@ -163,6 +163,21 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 			await c.destroy().catch((e: unknown) => console.error("destroy failed", String(e)));
 		}
 		throw new Error("container not ready");
+	}
+
+	/** Lifecycle (src/lifecycle.ts): stops and destroys this installation's container. Data is not touched. Refused for
+	 *  primary and for an unnamed object, whatever the control plane says. */
+	async stopContainer(): Promise<void> {
+		lifecycleName(this.ctx.id?.name);
+		this.ready = false;
+		const c = this.ctx.container;
+		if (c?.running) await c.destroy();
+	}
+
+	/** Lifecycle purge: stops the container, then deletes this object's own storage. Refused like stopContainer. */
+	async purge(): Promise<void> {
+		await this.stopContainer();
+		await this.ctx.storage.deleteAll();
 	}
 
 	async fetch(request: Request): Promise<Response> {
