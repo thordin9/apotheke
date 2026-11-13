@@ -589,12 +589,11 @@ preview; for `apotheke-api` also a second dry run of the merged P4 storage confi
 
 **Secrets and variables** (set by the repository owner, never in the repository):
 
-* in each environment, the secret `CLOUDFLARE_API_TOKEN` and the variable `CLOUDFLARE_ACCOUNT_ID`;
+* in each environment, the secret `CLOUDFLARE_API_TOKEN`; `deploy-site` keeps the variable `CLOUDFLARE_ACCOUNT_ID`, and `deploy-edge` keeps the account id and the D1 database id as environment secrets;
 * both environments are limited to `main` and tags `v*`; `deploy-edge` also has a required reviewer;
 * without the secret the deploy job prints a notice, skips its steps and stays green. Fork pull requests never get
   secrets and never reach the deploy job;
-* the account id is masked in the logs (it is a variable, but it appears in container registry paths), and the token
-  is only passed in the environment of the deploy step.
+* the account id is masked in the logs, and the token is only passed in the environment of the steps that need it.
 
 **Token scope.** The tokens are account-wide: `deploy-site` has *Account > Workers Scripts > Edit*; `deploy-edge` has
 *Workers Scripts > Edit* and *Account > Containers > Edit*. Neither has Zone permissions, and CI makes no Zone API
@@ -657,11 +656,11 @@ Its bindings are in
 `edge/storage.jsonc`, not in `edge/wrangler.jsonc`, so `wrangler dev`, the *Edge local test* and the pull request's default dry run use the default
 config unchanged. The pull request checks also dry-run the merged config with a dummy D1 id (part 2 below). Only the
 deploy job, which runs only with `EDGE_STORAGE_READY=true`, merges them in for real (`scripts/edge-storage-config.mjs`,
-on the runner's checkout), deploys, and then checks `/healthz`:
+on the runner's checkout), applies control-plane D1 migrations, deploys, and then checks `/healthz`:
 
 | Binding | Resource | Notes |
 |---|---|---|
-| `DB` | D1 database `apotheke-api` | EU jurisdiction; `database_id` from the repository variable `APOTHEKE_D1_DATABASE_ID` |
+| `DB` | D1 database `apotheke-api` | EU jurisdiction; `database_id` from the `deploy-edge` environment secret `APOTHEKE_D1_DATABASE_ID`; `migrations_dir` is `migrations/control` |
 | `STORAGE` | R2 bucket `apotheke-api-storage` | `"jurisdiction": "eu"` |
 | `INSTALLATION` | Durable Object class `Installation`, SQLite storage | hosted mode; migration `v2` (`new_sqlite_classes`) |
 
@@ -671,8 +670,10 @@ Hosted mode keeps every cookie host-only ([ADR-002](adr/002-edge-storage.md), de
 config, because the SPA is served there today. Per-installation origins depend on the hosted subdomain scheme, which
 isn't decided yet; until it is, every installation's API accepts only that one origin.
 
-The deploy runs no `wrangler d1 migrations apply`: the app's own migration runner applies `migrations/` through the
-bridge. A control-plane D1 schema would later go in `edge/migrations/control/`, set as the binding's `migrations_dir`.
+The app's own migration runner still applies `migrations/` through the bridge. Control-plane migrations in
+`edge/migrations/control/` are applied by the deploy job with `wrangler d1 migrations apply apotheke-api --remote`,
+after the storage config is merged (so the `DB` binding has `migrations_dir: migrations/control`) and before
+`wrangler deploy`. The step is idempotent: a second run applies nothing. A failed apply stops the deploy.
 
 Work through it top to bottom; each part names who does it. Everything up to the flip is additive and nothing is
 deleted. Never paste a token, a secret value or a resource id into a pull request, an issue or this repository.
@@ -684,8 +685,8 @@ deleted. Never paste a token, a secret value or a resource id into a pull reques
 | 1.1 | Storage gate criteria 1 to 4 of [ADR-002](adr/002-edge-storage.md#opening-the-storage-gate): P4-2 to P4-5 merged (so `edge/src/index.ts` exports `Installation`), `edge-local` green with D1 and R2, the preview guard cases, and every `Installation` id made through `jurisdiction("eu")` | app | the merged dry run (part 2) is green on `main` |
 | 1.2 | D1 database `apotheke-api` in the EU jurisdiction (fixed at creation; a `--location` hint is ignored with a jurisdiction) | Stathis | `npx --no-install wrangler d1 list` shows it with jurisdiction `eu` |
 | 1.3 | R2 bucket `apotheke-api-storage` in the EU jurisdiction. **Done:** exists in `eu` (EEUR) | Stathis | `npx --no-install wrangler r2 bucket list --jurisdiction eu`. EU buckets are listed only with the jurisdiction (the API needs the `cf-r2-jurisdiction: eu` header), so a plain listing does not show it |
-| 1.4 | Repository variable `APOTHEKE_D1_DATABASE_ID` = the UUID from `wrangler d1 info apotheke-api` (an identifier, not a secret) | Stathis | `gh variable list` |
-| 1.5 | `deploy-edge` environment: secret `CLOUDFLARE_API_TOKEN`, variable `CLOUDFLARE_ACCOUNT_ID`, required reviewer, `main` and `v*` only | Stathis | `gh secret list --env deploy-edge`, `gh variable list --env deploy-edge` |
+| 1.4 | `deploy-edge` environment secret `APOTHEKE_D1_DATABASE_ID` = the UUID from `wrangler d1 info apotheke-api` | Stathis | `gh secret list --env deploy-edge` |
+| 1.5 | `deploy-edge` environment: secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `APOTHEKE_D1_DATABASE_ID`, required reviewer, `main` and `v*` only | Stathis | `gh secret list --env deploy-edge` |
 | 1.6 | Token scope of that secret: see *Token scope* below | Stathis | Cloudflare dashboard, *Account API tokens* |
 | 1.7 | Worker secrets `APP_KEY` and `APP_PASSWORD` on `apotheke-api` ([One-time manual step](#one-time-manual-step-before-the-first-edge-deploy)) | DevOps (`APP_KEY`), Stathis (`APP_PASSWORD`) | `npx --no-install wrangler secret list --name apotheke-api` lists both names |
 | 1.8 | Custom domain for the first host in `ALLOWED_HOSTS` (`api.services.getapotheke.com`) attached to `apotheke-api` | Stathis | dashboard, *Workers > apotheke-api > Domains* |
@@ -694,9 +695,12 @@ deleted. Never paste a token, a secret value or a resource id into a pull reques
 | 1.11 | `CORS_ALLOWED_ORIGINS=https://getapotheke.com` in `edge/wrangler.jsonc` `vars`; the merge drops only `COOKIE_DOMAIN` | DevOps | the merged dry run checks both (part 2) |
 
 **Token scope** (1.6). The `deploy-edge` token: *Specified Workers > Editor* on `apotheke-api` plus
-*Account > Containers > Edit*. It needs no D1 or R2 permission: deploying a Worker with D1, R2 or Durable Object
-bindings needs only *Editor* on that Worker
-([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/#bindings)).
+*Account > Containers > Edit*, and *Account > D1 > Edit* for the control-plane migration step. Deploying a Worker
+with D1, R2 or Durable Object bindings still needs only *Editor* on that Worker
+([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/#bindings)); applying
+`edge/migrations/control/` with `wrangler d1 migrations apply` needs *Account > D1 > Edit*. That permission cannot
+be scoped to a single database, so a token with it can write every D1 database in the account. The same GitHub
+secret `CLOUDFLARE_API_TOKEN` is used; no second deploy token is created.
 
 - A per-Worker role can only name a Worker that already exists. If `apotheke-api` has never had a real deploy, the
   first one needs a one-time *Account > Workers Scripts > Edit* token; replace it with the per-Worker token right after.
@@ -706,8 +710,10 @@ bindings needs only *Editor* on that Worker
   short-lived token from a trusted machine (*Account > D1 > Edit*, *Account > Workers R2 Storage > Edit*, this account
   only, with a TTL), never the CI token. Set it in the environment only:
   `read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN` and `export CLOUDFLARE_ACCOUNT_ID=<account-id>`.
-- Only a future control-plane `wrangler d1 migrations apply` would need *D1 > Edit*, in a token kept out of
-  `deploy-edge`.
+- The control-plane `wrangler d1 migrations apply` in the deploy job uses the existing `CLOUDFLARE_API_TOKEN`
+  secret, which therefore needs *Account > D1 > Edit*. That permission cannot be scoped to a single database, so
+  the token can write every D1 database in the account. Creating databases (1.2) still uses the operator's
+  short-lived token, never the CI token.
 
 Creating the resources (1.2, 1.3), in `edge/` with the pinned wrangler. Don't pass `--update-config`: ids stay out of
 the repository.
@@ -717,7 +723,7 @@ npx --no-install wrangler d1 create apotheke-api --jurisdiction eu
 npx --no-install wrangler r2 bucket create apotheke-api-storage --jurisdiction eu
 npx --no-install wrangler d1 info apotheke-api                 # the database UUID, for 1.4
 npx --no-install wrangler r2 bucket list --jurisdiction eu     # apotheke-api-storage is listed
-gh variable set APOTHEKE_D1_DATABASE_ID --body <database-uuid>
+gh secret set APOTHEKE_D1_DATABASE_ID --env deploy-edge
 ```
 
 The lifecycle rule (1.9) is applied (see the table). To recreate it, list first and keep every existing rule; `add`
@@ -876,7 +882,8 @@ With parts 1 to 3 done and the PM's go:
 
 1. `gh variable set EDGE_STORAGE_READY --body true` (Stathis).
 2. Publish a release (or run *Deploy edge* on `main`) and approve the `deploy-edge` review (Stathis).
-3. The app applies `migrations/` itself on start; there is no `wrangler d1 migrations apply`.
+3. The app applies `migrations/` itself on start. The deploy job applies control-plane migrations in
+   `edge/migrations/control/` with `wrangler d1 migrations apply apotheke-api --remote` before `wrangler deploy`.
 
 #### 5. Post-flip checks
 
