@@ -93,6 +93,22 @@ test('P4-5b: a batch is all or nothing, and a guard failure returns only the mar
   assert.deepEqual(storage.db.prepare('SELECT qty, version FROM item').all().map((r) => ({ ...r })), [{ qty: 5, version: 1 }]);
 });
 
+test('the Installation SQLite refuses the pragmas the runtime refuses (page_count, dbstat), and allows table_info and page_size', async () => {
+  const { outbound } = setup();
+  await post(outbound, '/exec', { sql: SCHEMA });
+  const original = console.error;
+  console.error = () => {};
+  try {
+    for (const sql of ['SELECT page_count * page_size AS n FROM pragma_page_count(), pragma_page_size()', 'PRAGMA page_count', 'SELECT SUM(pgsize) AS n FROM dbstat']) {
+      assert.deepEqual(await post(outbound, '/query', { sql }), [500, { ok: false, code: 'write_failed', error: 'the batch' }], sql);
+    }
+  } finally { console.error = original; }
+  assert.deepEqual(await post(outbound, '/query', { sql: 'SELECT name FROM pragma_table_info(?)', params: ['uow_guard'] }), [200, { ok: true, rows: [{ name: 'ok' }] }]);
+  const [status, body] = await post(outbound, '/query', { sql: 'SELECT page_size AS n FROM pragma_page_size()' });
+  assert.equal(status, 200);
+  assert.ok(body.rows[0].n > 0);
+});
+
 /** Requests whose bodies arrive only after the gate opens, so every caller is in flight before any batch runs. */
 function gatedRequests(bodies) {
   let open;
