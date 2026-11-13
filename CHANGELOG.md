@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Maintenance
+
+- ci: bump @playwright/test to 1.65.0 and pin the Playwright image ([#311](https://github.com/thordin9/apotheke/pull/311))
+
 ## [3.43.0] - 2026-11-13
 
 ### Added
