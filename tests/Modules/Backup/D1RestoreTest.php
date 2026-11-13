@@ -216,6 +216,31 @@ final class D1RestoreTest extends CIUnitTestCase
         $this->assertSame(['[apotheke] restore failed at swap: RuntimeException'], $lines);
     }
 
+    /** A confirm that fails on the hosted database answers 422 on the hosted page: no command-line restore hint. */
+    public function testAFailedConfirmShowsTheHostedPage(): void
+    {
+        [$zip] = $this->backupOf('sqlite');
+        [$d, $r2] = $this->hosted();
+        $token = bin2hex(random_bytes(16));
+        $backups = $this->backups($d, $r2);
+        @mkdir($backups->tmpDir(), 0770, true);
+        copy($zip, $backups->tmpDir() . '/restore-' . $token . '.zip');
+        Services::injectMock('settings', $this->settings($d));
+        Services::injectMock('currentUser', new \Apotheke\Auth\CurrentUser(fn (): SettingsService => $this->settings($d), new \Apotheke\Auth\UserRepository($d->db), static fn (): array => []));
+        Services::injectMock('roles', new \Apotheke\Auth\RoleRepository($d->db));
+        Services::injectMock('backups', $backups);
+        Services::injectMock('restorer', $this->restorer($d, $r2, self::stopping($this->exec($d))));
+        $request = Services::request(null, false);
+        $request->setGlobal('post', ['token' => $token, 'confirm' => '1']);
+        $c = new \Apotheke\Backup\Controllers\BackupController();
+        $c->initController($request, Services::response(null, false), Services::logger());
+        $response = $c->confirm();
+        $html = (string)$response->getBody();
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString(Restorer::FAILED, $html);
+        $this->assertStringNotContainsString('php bin/restore.php', $html);
+    }
+
     /** A stop before the swap leaves the rows and the objects as they were; the copies, lock and fence go. */
     public function testAStopBeforeTheSwapLeavesTheHostedCatalogIntact(): void
     {

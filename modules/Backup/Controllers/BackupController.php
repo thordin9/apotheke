@@ -133,7 +133,7 @@ final class BackupController extends CatalogController
                 @unlink($file);
             }
 
-            return $this->sessionPage($this->pages()->page($backups->counts(), $e->getMessage()), $e->getCode() === 409 ? 409 : 422);
+            return $this->sessionPage($this->pages()->page($backups->counts(), $e->getMessage(), null, null, $restorer->hosted()), $e->getCode() === 409 ? 409 : 422);
         } catch (\Throwable $e) {
             @unlink($file);
             throw $e;
