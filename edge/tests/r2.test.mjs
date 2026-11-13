@@ -991,3 +991,4 @@ await import(new URL('./route.test.mjs', import.meta.url).href);
 await import(new URL('./installation-isolation.test.mjs', import.meta.url).href);
 await import(new URL('./installation-secrets.test.mjs', import.meta.url).href);
 await import(new URL('./bridge-reads.test.mjs', import.meta.url).href);
+await import(new URL('./ops-signature.test.mjs', import.meta.url).href);
