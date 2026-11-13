@@ -85,16 +85,22 @@ final class D1MigrationRunner
 
         $pdo = new D1Pdo($d1);
         $done = [];
-        // A known schema DDL entry uses the D1 prepared-batch API; no transaction on D1.
-        $d1->run([['sql' => <<<SQL
+        // A known schema DDL entry uses the D1 prepared-batch API; no transaction on D1. Each migration is its own
+        // batch, so a first install can stop part way: an empty database also gets the fresh-install marker here,
+        // and a later run that still finds it finishes the install as fresh (FreshInstallRoles).
+        $setup = [['sql' => <<<SQL
             CREATE TABLE IF NOT EXISTS schema_migrations (
                 version    TEXT NOT NULL PRIMARY KEY,
                 name       TEXT NOT NULL,
                 applied_at TEXT NOT NULL
             )
-        SQL, 'params' => []]]);
+        SQL, 'params' => []]];
+        if ($applied === []) {
+            $setup[] = ['sql' => 'CREATE TABLE IF NOT EXISTS ' . FreshInstallRoles::MARKER . ' (id INTEGER PRIMARY KEY)', 'params' => []];
+        }
+        $d1->run($setup);
         $applied = $this->applied($d1);
-        $fresh = $applied === [];
+        $fresh = $applied === [] || (!isset($applied[FreshInstallRoles::ROLES_MIGRATION]) && $this->markerExists($d1));
 
         foreach ($available as $ver => $file) {
             if (isset($applied[$ver])) {
@@ -113,6 +119,9 @@ final class D1MigrationRunner
                     $m($pdo, 'sqlite');
                     $pdo->prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)')
                         ->execute([$ver, $name, $appliedAt]);
+                    foreach ($this->freshRoles($fresh, $ver) as $st) {
+                        $pdo->prepare($st['sql'])->execute($st['params']);
+                    }
                     $pdo->commit();
                 } catch (Throwable $e) {
                     if ($pdo->inTransaction()) {
@@ -126,7 +135,7 @@ final class D1MigrationRunner
                 $d1->run([[
                     'sql' => 'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)',
                     'params' => [$ver, $name, $appliedAt],
-                ]]);
+                ], ...$this->freshRoles($fresh, $ver)]);
             } else {
                 throw new RuntimeException("Migration $ver has no SQLite step for D1.");
             }
@@ -137,8 +146,9 @@ final class D1MigrationRunner
         if ($fresh) {
             $log('fresh D1 database; no legacy user_version adopt path');
         }
-        if (FreshInstallRoles::applies($fresh, $done)) {
-            $d1->run(FreshInstallRoles::statements());
+        if ($fresh && !in_array(FreshInstallRoles::ROLES_MIGRATION, $done, true)) {
+            // A migration set without the roles table: the install is complete, so the marker goes.
+            $d1->run([self::dropMarker()]);
         }
 
         return $done;
@@ -152,9 +162,39 @@ final class D1MigrationRunner
         $pdo->exec($sql);
     }
 
+    /**
+     * The role defaults and the marker's removal, sent in the roles migration's own batch on a fresh install.
+     *
+     * @return list<array{sql:string,params:list<string>}>
+     */
+    private function freshRoles(bool $fresh, string $ver): array
+    {
+        if (!$fresh || $ver !== FreshInstallRoles::ROLES_MIGRATION) {
+            return [];
+        }
+
+        return [...FreshInstallRoles::statements(), self::dropMarker()];
+    }
+
+    /** @return array{sql:string,params:list<string>} */
+    private static function dropMarker(): array
+    {
+        return ['sql' => 'DROP TABLE IF EXISTS ' . FreshInstallRoles::MARKER, 'params' => []];
+    }
+
+    private function markerExists(D1Executor $d1): bool
+    {
+        return $this->hasTable($d1, FreshInstallRoles::MARKER);
+    }
+
     private function tableExists(D1Executor $d1): bool
     {
-        $rows = $d1->query("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'", []);
+        return $this->hasTable($d1, 'schema_migrations');
+    }
+
+    private function hasTable(D1Executor $d1, string $name): bool
+    {
+        $rows = $d1->query("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = ?", [$name]);
 
         return (int)($rows[0]['n'] ?? 0) > 0;
     }

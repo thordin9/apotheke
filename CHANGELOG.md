@@ -16,6 +16,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **ci:** the Cloudflare account identifier for the frontend deploy comes from a `deploy-site` environment secret ([#306](https://github.com/thordin9/apotheke/pull/306))
 
+### Fixed
+
+- **auth:** a first install on the hosted database that stops part way and finishes on a later start gives editors and viewers the new built-in permissions, as an install that did not stop does ([#309](https://github.com/thordin9/apotheke/pull/309))
+
 ## [3.42.1] - 2026-11-13
 
 ### Fixed
