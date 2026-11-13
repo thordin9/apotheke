@@ -8,6 +8,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.42.5] - 2026-11-13
+
+### Fixed
+
+- **frontend:** align sign-in docs and tests ([#296](https://github.com/thordin9/apotheke/pull/296))
+
 ### Changed
 
 - **frontend:** docs and tests now describe the /app/ sign-in link and signed-in state ([#296](https://github.com/thordin9/apotheke/pull/296))
@@ -1744,7 +1750,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.4...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.5...HEAD
+[3.42.5]: https://github.com/thordin9/apotheke/compare/v3.42.4...v3.42.5
 [3.42.4]: https://github.com/thordin9/apotheke/compare/v3.42.3...v3.42.4
 [3.42.3]: https://github.com/thordin9/apotheke/compare/v3.42.2...v3.42.3
 [3.42.2]: https://github.com/thordin9/apotheke/compare/v3.42.1...v3.42.2
