@@ -116,7 +116,8 @@ test('E3a: the container object wires storage from its own name only, and will n
     };
     const ctx = { id, container, waitUntil() {}, blockConcurrencyWhile: (f) => f(),
       exports: { D1Outbound: (o) => { props.push(['d1', o.props]); return {}; }, R2Outbound: (o) => { props.push(['r2', o.props]); return {}; } } };
-    const res = await new ApothekeContainer(ctx, { APP_PASSWORD: 'placeholder', APP_KEY: 'placeholder', STORAGE: {}, DB: {}, INSTALLATION: {} }).fetch(new Request('https://b.example.test/'));
+    const res = await new ApothekeContainer(ctx, { APP_PASSWORD: 'placeholder', APP_KEY: Buffer.alloc(32, 7).toString('base64'), STORAGE: {}, INSTALLATION: {},
+      DB: { prepare: () => ({ bind: () => ({ all: async () => ({ results: [{ host: 'b.example.test' }] }) }) }) } }).fetch(new Request('https://b.example.test/'));
     return { status: res.status, props, started };
   };
   const b = await wired({ name: 'tenant-b' });

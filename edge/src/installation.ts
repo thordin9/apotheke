@@ -29,6 +29,37 @@ export function propsDoName(props: StorageProps | undefined): string | undefined
 	return validDoName(doName) && props?.prefix === installationPrefix(doName) ? doName : undefined;
 }
 
+/**
+ * APP_KEY for an installation's container. primary gets the Worker secret unchanged (no derivation), so its stored
+ * secrets keep opening. Any other installation gets HKDF-SHA256 over the secret's 32 key bytes, with the installation
+ * name as info, in the form PHP accepts (SecretKey::bytes): "base64:" and the standard base64 of 32 bytes.
+ * Throws when the secret is not a 32-byte key, so a second installation never starts with an unusable or shared key.
+ */
+export async function installationAppKey(doName: string, master: string | undefined): Promise<string> {
+	if (doName === INSTALLATION_NAME) return master ?? "";
+	const ikm = keyBytes(master ?? "");
+	if (!ikm) throw new Error("APP_KEY is not a 32-byte key");
+	const base = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
+	const bits = await crypto.subtle.deriveBits(
+		{ name: "HKDF", hash: "SHA-256", salt: new TextEncoder().encode(APP_KEY_SALT), info: new TextEncoder().encode(doName) },
+		base,
+		256,
+	);
+	return "base64:" + btoa(String.fromCharCode(...new Uint8Array(bits)));
+}
+
+/** Fixed HKDF salt: versions the derivation, so a later scheme can change it without reusing keys. */
+const APP_KEY_SALT = "apotheke-installation-app-key-v1";
+
+/** The 32 key bytes of an APP_KEY, decoded as PHP does (trim, optional "base64:", strict base64), else null. */
+function keyBytes(raw: string): Uint8Array | null {
+	let text = raw.trim();
+	if (text.startsWith("base64:")) text = text.slice(7).trim();
+	if (!/^[A-Za-z0-9+/]{43}=?$/.test(text)) return null;
+	const bytes = Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+	return bytes.length === 32 ? bytes : null;
+}
+
 /** The only place an Installation id is made: from the EU-jurisdiction namespace, fixed when the id is created. */
 export function installationStub(ns: DurableObjectNamespace<Installation>, doName: string): DurableObjectStub<Installation> {
 	const eu = ns.jurisdiction("eu");

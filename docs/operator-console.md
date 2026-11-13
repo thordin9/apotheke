@@ -75,3 +75,17 @@ and the Worker secrets are the same as before. `edge/tests/installation-isolatio
 side by side and checks that no file, marker, sweep or database row crosses between them.
 
 Limits are not read here. They come only from `plan_limits` rows, which the console edits; no tier is built in.
+
+## Per-installation APP_KEY and ALLOWED_HOSTS
+
+When a container starts, its object sets two values for its own installation:
+
+- `APP_KEY`: `primary` gets the Worker's `APP_KEY` secret exactly as before, with no derivation, so its stored
+  secrets keep opening. Any other installation gets HKDF-SHA256 over the secret's 32 key bytes (fixed salt
+  `apotheke-installation-app-key-v1`, the installation's `do_name` as info), written as `base64:` and 44 base64
+  characters, the form the app accepts. If the secret is not a 32-byte key, the other installation does not start.
+- `ALLOWED_HOSTS`: `primary` keeps the Worker's `ALLOWED_HOSTS`. Any other installation gets its own hosts from
+  `installation_routes`, comma-separated. With no hosts, or no readable control plane, it does not start.
+
+No new Worker variables or secrets. `edge/tests/installation-secrets.test.mjs` pins `primary`'s values and checks the
+derivation against an independent HKDF with fake keys.

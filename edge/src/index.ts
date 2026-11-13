@@ -5,7 +5,7 @@
 // R2 for files and the Installation Durable Object's SQLite for the database.
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { d1UnboundResponse, type D1Env } from "./d1";
-import { installationPrefix, installationStub, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
+import { INSTALLATION_NAME, installationAppKey, installationPrefix, installationStub, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
 import { routeFor, routeResponse } from "./route";
 import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env } from "./r2";
 
@@ -91,8 +91,25 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	}
 
 	/** Starts the container unless it is running, sets the inactivity timeout and waits for /healthz. */
+	/** APP_KEY and ALLOWED_HOSTS for this object's installation. primary (or an unnamed object) gets the Worker's own
+	 *  values unchanged. Another installation gets its derived key and its own hosts from installation_routes, or
+	 *  does not start. */
+	private async installationEnv(): Promise<{ appKey: string; allowedHosts: string }> {
+		const doName = this.ctx.id?.name ?? INSTALLATION_NAME;
+		const appKey = await installationAppKey(doName, this.env.APP_KEY);
+		if (doName === INSTALLATION_NAME) return { appKey, allowedHosts: this.env.ALLOWED_HOSTS ?? "" };
+		if (!validDoName(doName) || !this.env.DB) throw new Error("no installation hosts");
+		const { results } = await this.env.DB
+			.prepare("SELECT r.host FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE i.do_name = ? ORDER BY r.host")
+			.bind(doName)
+			.all<{ host: string }>();
+		if (results.length === 0) throw new Error("no installation hosts");
+		return { appKey, allowedHosts: results.map((r) => r.host).join(",") };
+	}
+
 	private async startAndWait(c: NonNullable<DurableObjectState["container"]>, backend: ReturnType<typeof storageBackend>): Promise<number> {
 		const t0 = Date.now();
+		const site = await this.installationEnv();
 		// A container left running but not ready (a timed-out start, a deploy or restart) gets the timeout and probe too.
 		if (!c.running) this.timedOutWaits = 0;
 		if (!c.running) c.start({
@@ -100,8 +117,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 			env: {
 				// The entrypoint refuses to start without a valid APP_PASSWORD (exit 78): the Worker answers 503.
 				APP_PASSWORD: this.env.APP_PASSWORD ?? "",
-				APP_KEY: this.env.APP_KEY ?? "",
-				ALLOWED_HOSTS: this.env.ALLOWED_HOSTS ?? "",
+				APP_KEY: site.appKey,
+				ALLOWED_HOSTS: site.allowedHosts,
 				COOKIE_DOMAIN: this.env.COOKIE_DOMAIN ?? "",
 				CORS_ALLOWED_ORIGINS: this.env.CORS_ALLOWED_ORIGINS ?? "",
 				APOTHEKE_JOBS_WORKER: this.env.APOTHEKE_JOBS_WORKER ?? "0",
@@ -123,7 +140,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		// inactive for up to 15 minutes from when they start, so the inactivity
 		// timeout would not begin until then (Cloudflare Durable Object lifecycle).
 		const port = c.getTcpPort(PORT);
-		const probe = readinessRequest(this.env.ALLOWED_HOSTS ?? "");
+		const probe = readinessRequest(site.allowedHosts);
 		while (Date.now() - t0 < READY_TIMEOUT_MS) {
 			try {
 				const r = await port.fetch(probe, { redirect: "manual" });
