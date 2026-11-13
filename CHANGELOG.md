@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.40.0] - 2026-11-13
+
 ### Added
 
 - **edge:** each installation's database object and R2 key prefix come from its own container object's name, passed as props to `d1.internal` and `r2.internal`; multipart markers and the unfinished-upload sweep are per installation. `primary` keeps its names, prefix and keys. A failed route lookup is retried after 5 seconds instead of on every request ([#303](https://github.com/thordin9/apotheke/pull/303))
@@ -1675,7 +1677,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.39.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.40.0...HEAD
+[3.40.0]: https://github.com/thordin9/apotheke/compare/v3.39.0...v3.40.0
 [3.39.0]: https://github.com/thordin9/apotheke/compare/v3.38.2...v3.39.0
 [3.38.2]: https://github.com/thordin9/apotheke/compare/v3.38.1...v3.38.2
 [3.38.1]: https://github.com/thordin9/apotheke/compare/v3.38.0...v3.38.1
