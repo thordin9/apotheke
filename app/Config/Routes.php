@@ -179,13 +179,15 @@ $routes->match(['GET', 'HEAD'], 'export.csv', $import . '::export', ['permission
 // route_perm()), except the restore probe nginx asks before a large upload: legacy answers
 // it before its permission check (204, 401 or 403) and never starts a session.
 $backup = '\\Apotheke\\Backup\\Controllers\\BackupController';
-$routes->match(['GET', 'HEAD'], 'backup', $backup . '::index', ['permission' => 'backup']);
+// The page opens with backup or restore and shows only what the account may do.
+$routes->match(['GET', 'HEAD'], 'backup', $backup . '::index', ['permission' => \Apotheke\Auth\Permissions::BACKUP_OR_RESTORE]);
 $routes->match(['GET', 'HEAD'], 'backup.zip', $backup . '::download', ['permission' => 'backup']);
 $routes->match(['GET', 'HEAD'], 'backup/restore/check', $backup . '::check', ['permission' => 'none']);
 // The FrankenPHP image's probe before it reads a body over 64 KiB (docker/frankenphp/Caddyfile, M-1420).
 $routes->match(['GET', 'HEAD'], 'upload/check', '\\Apotheke\\Core\\Controllers\\UploadCheckController::check', ['permission' => 'none']);
-$routes->post('backup/restore', $backup . '::upload', ['permission' => 'backup']);
-$routes->post('backup/restore/confirm', $backup . '::confirm', ['permission' => 'backup']);
+// Restoring replaces the whole catalog for everyone: the restore permission, split from backup.
+$routes->post('backup/restore', $backup . '::upload', ['permission' => 'restore']);
+$routes->post('backup/restore/confirm', $backup . '::confirm', ['permission' => 'restore']);
 
 // API v1 (API plan §3). Every endpoint keeps the permission of the UI route it
 // replaces. Anything else under /api answers 404 problem+json; it is last so the
@@ -212,14 +214,18 @@ $routes->post('api/v1/imports', $apiImports . '::create', ['permission' => 'impo
 $routes->get('api/v1/imports/([0-9]+)', $apiImports . '::show/$1', ['permission' => 'import']);
 $routes->get('api/v1/imports/([0-9]+)/preview', $apiImports . '::preview/$1', ['permission' => 'import']);
 $routes->post('api/v1/imports/([0-9]+)/commit', $apiImports . '::commit/$1', ['permission' => 'import']);
-// Chunked restore (Backup): the backup permission, as /backup/restore; each upload is its owner's only.
+// Chunked restore (Backup): the restore permission, as /backup/restore; each upload is its owner's only.
 $apiRestores = '\\Apotheke\\Backup\\Controllers\\Api\\RestoresController';
-$routes->post('api/v1/restores', $apiRestores . '::create', ['permission' => 'backup']);
-$routes->get('api/v1/restores/([^/]+)', $apiRestores . '::show/$1', ['permission' => 'backup']);
-$routes->delete('api/v1/restores/([^/]+)', $apiRestores . '::delete/$1', ['permission' => 'backup']);
-$routes->post('api/v1/restores/([^/]+)/chunks/([0-9]+)', $apiRestores . '::chunk/$1/$2', ['permission' => 'backup']);
-$routes->post('api/v1/restores/([^/]+)/finish', $apiRestores . '::finish/$1', ['permission' => 'backup']);
-$routes->post('api/v1/restores/([^/]+)/confirm', $apiRestores . '::confirm/$1', ['permission' => 'backup']);
+$routes->post('api/v1/restores', $apiRestores . '::create', ['permission' => 'restore']);
+$routes->get('api/v1/restores/([^/]+)', $apiRestores . '::show/$1', ['permission' => 'restore']);
+$routes->delete('api/v1/restores/([^/]+)', $apiRestores . '::delete/$1', ['permission' => 'restore']);
+$routes->post('api/v1/restores/([^/]+)/chunks/([0-9]+)', $apiRestores . '::chunk/$1/$2', ['permission' => 'restore']);
+$routes->post('api/v1/restores/([^/]+)/finish', $apiRestores . '::finish/$1', ['permission' => 'restore']);
+$routes->post('api/v1/restores/([^/]+)/confirm', $apiRestores . '::confirm/$1', ['permission' => 'restore']);
+// The backups the installation keeps (Backup): the backup permission, as downloading a backup.
+$apiBackups = '\\Apotheke\\Backup\\Controllers\\Api\\BackupsController';
+$routes->get('api/v1/backups', $apiBackups . '::index', ['permission' => 'backup']);
+$routes->get('api/v1/backups/([^/]+)', $apiBackups . '::show/$1', ['permission' => 'backup']);
 $routes->get('api/v1/jobs/([0-9]+)', '\\Apotheke\\Auth\\Controllers\\Api\\JobsController::show/$1', ['permission' => 'view']);
 $web::every($routes, 'api', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);
 $web::every($routes, 'api/(.*)', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);

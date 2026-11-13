@@ -415,7 +415,19 @@ final class Ci4MigrateTest extends TestCase
         [$fresh, $freshSchema] = $this->target($driver, 'fresh');
         $this->assertCount(34, $this->worker($this->env($driver, $fresh, $freshSchema))['applied']);
         $expected = $this->dump($driver, $fresh, $freshSchema);
+        // An install whose first run made the roles table (0022) starts with the new built-in role defaults; one that
+        // gets 0022 on a later run (an upgrade) keeps 2.6.x's.
+        $legacyRoles = ['editor' => '["view","create","edit","delete","move","bulk","lend","import","export","stocktake","labels"]', 'viewer' => '["view","export","labels"]'];
+        $upgraded = $expected;
+        foreach ($expected['data']['roles'] as $i => $role) {
+            if (isset(\Apotheke\Migrations\FreshInstallRoles::PERMS[$role['role_key']])) {
+                $this->assertSame((string)json_encode(\Apotheke\Migrations\FreshInstallRoles::PERMS[$role['role_key']]), $role['perms'], $driver . ' fresh ' . $role['role_key']);
+                $upgraded['data']['roles'][$i]['perms'] = $legacyRoles[$role['role_key']];
+            }
+        }
+        $freshExpected = $expected;
         for ($n = 1, $last = count($files); $n < $last; $n++) {
+            $expected = $n >= 22 ? $freshExpected : $upgraded;
             $slice = $this->slice($files, $n);
             foreach ([false, true] as $demo) {
                 $label = $driver . ' from version ' . $n . ($demo ? ' with data' : '');

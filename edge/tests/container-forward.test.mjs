@@ -30,7 +30,7 @@ function readyContainer(handler) {
       };
     },
   };
-  const ctx = { container, waitUntil(p) { waitUntil.push(p); }, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
+  const ctx = { id: { name: 'primary' }, container, waitUntil(p) { waitUntil.push(p); }, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
   return { ctx, calls, waitUntil, timeouts, monitor: () => monitorCalls, box: new ApothekeContainer(ctx, containerEnv()) };
 }
 
@@ -143,7 +143,7 @@ function coldContainer(handler, envOver = {}) {
       };
     },
   };
-  const ctx = { container, waitUntil(p) { waitUntil.push(p); }, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
+  const ctx = { id: { name: 'primary' }, container, waitUntil(p) { waitUntil.push(p); }, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
   return { ctx, calls, container, waitUntil, timeouts, monitor: () => monitorCalls, box: new ApothekeContainer(ctx, containerEnv(envOver)) };
 }
 

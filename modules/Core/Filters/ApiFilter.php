@@ -7,6 +7,7 @@ namespace Apotheke\Core\Filters;
 use Apotheke\Core\Http\ApiResponse;
 use Apotheke\Core\Http\ApiSecurityPolicy;
 use Apotheke\Core\Http\Cors;
+use Apotheke\Core\Http\EmptyBody;
 use Apotheke\Core\Http\LegacyPathRouter;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
@@ -52,6 +53,7 @@ final class ApiFilter implements FilterInterface
                 $response->setHeader($name, $value);
             }
         }
+        EmptyBody::untype($response);
 
         return $response;
     }

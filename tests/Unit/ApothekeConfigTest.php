@@ -38,8 +38,9 @@ final class ApothekeConfigTest extends TestCase
             unset($ours[$key]);
         }
         // The chunked restore sizes (CI4 only).
-        $this->assertSame(['restore_chunk_kb' => 8192, 'restore_max_mb' => 520, 'restore_max_uploads' => 8, 'restore_db_max_mb' => 0], array_intersect_key($ours['uploads'], ['restore_chunk_kb' => 0, 'restore_max_mb' => 0, 'restore_max_uploads' => 0, 'restore_db_max_mb' => 0]));
-        unset($ours['uploads']['restore_chunk_kb'], $ours['uploads']['restore_max_mb'], $ours['uploads']['restore_max_uploads'], $ours['uploads']['restore_db_max_mb']);
+        $this->assertSame(['restore_chunk_kb' => 8192, 'restore_max_mb' => 520, 'restore_max_uploads' => 8, 'restore_db_max_mb' => 0, 'restore_keep_backups' => 5],
+            array_intersect_key($ours['uploads'], ['restore_chunk_kb' => 0, 'restore_max_mb' => 0, 'restore_max_uploads' => 0, 'restore_db_max_mb' => 0, 'restore_keep_backups' => 0]));
+        unset($ours['uploads']['restore_chunk_kb'], $ours['uploads']['restore_max_mb'], $ours['uploads']['restore_max_uploads'], $ours['uploads']['restore_db_max_mb'], $ours['uploads']['restore_keep_backups']);
         // The storage block now matches legacy's (P4-5: the CI4 app reads STORAGE_BACKEND too).
         $this->assertSame('local', $legacy['storage']['backend']);
         $this->assertSame($legacy['storage'], $ours['storage']);
@@ -81,6 +82,15 @@ final class ApothekeConfigTest extends TestCase
         foreach (['' => 0, '-5' => 0, '10240' => 10240, '9999999' => 1048576, 'abc' => 0] as $raw => $want) {
             $env = $raw === '' ? [] : ['RESTORE_DB_MAX_MB' => (string)$raw];
             $this->assertSame($want, ApothekeConfig::load('/repo', null, $env)->values()['uploads']['restore_db_max_mb'], (string)$raw);
+        }
+    }
+
+    /** RESTORE_KEEP_BACKUPS (the backups kept from before a restore) is clamped to 1–50, default 5. */
+    public function testTheKeptBackupCountIsClamped(): void
+    {
+        foreach (['' => 5, '0' => 1, '3' => 3, '999' => 50, 'abc' => 1] as $raw => $want) {
+            $env = $raw === '' ? [] : ['RESTORE_KEEP_BACKUPS' => (string)$raw];
+            $this->assertSame($want, ApothekeConfig::load('/repo', null, $env)->values()['uploads']['restore_keep_backups'], (string)$raw);
         }
     }
 

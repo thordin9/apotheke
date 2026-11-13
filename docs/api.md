@@ -25,12 +25,14 @@ answer against it.
 | `GET /api/v1/imports/{id}` | Import, and the user who uploaded it or an admin | The import: status, columns with the guessed field, the first five rows, the fields to map to. |
 | `GET /api/v1/imports/{id}/preview` | Import, and the user who uploaded it or an admin | A dry run: what each row would do (`new`, `update`, `same` or `error`) and the summary. Query `map` (the field per column, comma-separated), `create`, `skip_errors`, `page`, `per_page` (up to 200). Writes nothing, the mapping included. |
 | `POST /api/v1/imports/{id}/commit` | Import, and the user who uploaded it or an admin | Import the file as a background job, with an optional `{"map": […], "create": …, "skip_errors": …}`. `202` with the job and a `Location` header; `422` when rows have errors and `skip_errors` is off. Rows are committed one by one, so they show up while the job runs; a stopped or failed job resumes when the import is committed again. |
-| `POST /api/v1/restores` | Backup, signed in | Start a [chunked restore](#chunked-restore) with `{"size": <bytes>, "sha256": <hex, optional>}`; `201` with the upload and a `Location` header. |
-| `GET /api/v1/restores/{id}` | Backup, your own upload | `status` (`uploading` or `ready`), `size`, `chunk_size`, `received`, `next_chunk`, `idle_seconds`. |
-| `POST /api/v1/restores/{id}/chunks/{n}` | Backup, your own upload | Chunk `n` (from 0) as the `multipart/form-data` field `chunk`. |
-| `POST /api/v1/restores/{id}/finish` | Backup, your own upload | Check the upload and the backup: the dry run, under `backup`. Nothing is changed. |
-| `POST /api/v1/restores/{id}/confirm` | Backup, your own upload | `{"confirm": true}`: replace the catalog with the backup. On PDO this is the confirm answer. On a batch-only database it is `202` with the `restore.confirm` job and a `Location` of `GET /api/v1/jobs/{id}`. |
-| `DELETE /api/v1/restores/{id}` | Backup, your own upload | Cancel it (`204`); its files are removed. |
+| `POST /api/v1/restores` | Restore, signed in | Start a [chunked restore](#chunked-restore) with `{"size": <bytes>, "sha256": <hex, optional>}`; `201` with the upload and a `Location` header. |
+| `GET /api/v1/restores/{id}` | Restore, your own upload | `status` (`uploading` or `ready`), `size`, `chunk_size`, `received`, `next_chunk`, `idle_seconds`. |
+| `POST /api/v1/restores/{id}/chunks/{n}` | Restore, your own upload | Chunk `n` (from 0) as the `multipart/form-data` field `chunk`. |
+| `POST /api/v1/restores/{id}/finish` | Restore, your own upload | Check the upload and the backup: the dry run, under `backup`. Nothing is changed. |
+| `POST /api/v1/restores/{id}/confirm` | Restore, your own upload | `{"confirm": true}`: replace the whole catalog, for everyone, with the backup. On PDO this is the confirm answer. On a batch-only database it is `202` with the `restore.confirm` job and a `Location` of `GET /api/v1/jobs/{id}`. |
+| `DELETE /api/v1/restores/{id}` | Restore, your own upload | Cancel it (`204`); its files are removed. |
+| `GET /api/v1/backups` | Backup, signed in | The backups kept from before each restore, newest first: `backups` (`id`, `kind`, `created_at`, `size`, `sha256`, `by`, `download`) and `keep` (how many are kept, `RESTORE_KEEP_BACKUPS`). Each is the whole installation's catalog. |
+| `GET /api/v1/backups/{id}` | Backup, signed in | Download one kept backup as its zip (`application/zip`); `404` for an unknown id. |
 | `GET /api/v1/jobs/{id}` | the job type's permission, and the user who started it or an admin | `status` (`queued`, `running`, `done`, `failed`), `progress` (`done` and `total` rows), `result` and `error`. Anyone else gets `404`, as for an id that is not there. |
 
 A job that the worker stops cleanly (SIGTERM, with pcntl) is released and resumes at once. A worker that is killed

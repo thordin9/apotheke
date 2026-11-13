@@ -13,6 +13,8 @@ use Apotheke\Core\Http\RequestCleanup;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\CommandLine;
 use Apotheke\Core\Storage\LocalStorage;
+use Apotheke\Core\Storage\R2Bridge;
+use Apotheke\Core\Storage\R2Storage;
 use Apotheke\Media\ImageLimits;
 use Apotheke\Media\ImageStore;
 use Apotheke\Media\Storage\ImagickDecoder;
@@ -27,6 +29,7 @@ use CodeIgniter\HTTP\Exceptions\BadRequestException;
 use CodeIgniter\Test\CIUnitTestCase;
 use CodeIgniter\Test\FeatureTestTrait;
 use Config\Services;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
 
 /**
@@ -487,18 +490,101 @@ final class MediaTest extends CIUnitTestCase
         $this->assertNotNull($this->served->read('full', $name));
     }
 
-    public function testOnlyAnExactIfNoneMatchGets304(): void
+    /** @return iterable<string,array{0:string}> */
+    public static function storages(): iterable
+    {
+        yield 'local' => ['local'];
+        yield 'r2' => ['r2'];
+    }
+
+    /** If-None-Match as RFC 9110 reads it: a list, the weak comparison and `*` all get 304, on local and R2 storage. */
+    #[DataProvider('storages')]
+    public function testIfNoneMatchListsWeakTagsAndStarGet304(string $storage): void
+    {
+        [$name, $etag, $bytes] = $this->servedPhoto($storage);
+        foreach ([$etag, 'W/' . $etag, '"x", ' . $etag, 'W/"x",W/' . $etag, $etag . ', "x"', '*', ' ' . $etag . ' '] as $header) {
+            $r = $this->withHeaders(['If-None-Match' => $header])->get('media/full/' . $name);
+            $this->assertSame(304, $r->response()->getStatusCode(), $storage . ': ' . $header);
+            $this->assertSame('', (string)$r->response()->getBody(), $header);
+            $this->assertSame($etag, $r->response()->getHeaderLine('ETag'), $header);
+        }
+        foreach (['"x"', 'W/"x", "y"', 'x', substr($etag, 1, -1), '"' . $name . '"'] as $header) {
+            $r = $this->withHeaders(['If-None-Match' => $header])->get('media/full/' . $name);
+            $this->assertSame(200, $r->response()->getStatusCode(), $storage . ': ' . $header);
+            $this->assertSame($bytes, (string)$r->response()->getBody(), $header);
+        }
+        $this->withHeaders([]);
+    }
+
+    /** A single byte range is 206 with Content-Range, one past the end 416, on local and R2 storage. */
+    #[DataProvider('storages')]
+    public function testRangesGet206Or416(string $storage): void
+    {
+        [$name, $etag, $bytes] = $this->servedPhoto($storage);
+        $n = strlen($bytes);
+        $full = $this->get('media/full/' . $name)->response();
+        $this->assertSame('bytes', $full->getHeaderLine('Accept-Ranges'));
+        foreach ([
+            'bytes=0-9' => [0, 9], 'bytes=10-' => [10, $n - 1], 'bytes=-5' => [$n - 5, $n - 1],
+            'bytes=0-' . ($n + 100) => [0, $n - 1], 'bytes=-' . ($n + 100) => [0, $n - 1], 'BYTES = 3 - 3' => [3, 3],
+        ] as $header => [$first, $last]) {
+            $res = $this->withHeaders(['Range' => $header])->get('media/full/' . $name)->response();
+            $this->assertSame(206, $res->getStatusCode(), $storage . ': ' . $header);
+            $this->assertSame('bytes ' . $first . '-' . $last . '/' . $n, $res->getHeaderLine('Content-Range'), $header);
+            $this->assertSame(substr($bytes, $first, $last - $first + 1), (string)$res->getBody(), $header);
+            $this->assertSame((string)($last - $first + 1), $res->getHeaderLine('Content-Length'), $header);
+            $this->assertSame('image/jpeg', $res->getHeaderLine('Content-Type'), $header);
+        }
+        foreach (['bytes=' . $n . '-', 'bytes=' . ($n + 5) . '-' . ($n + 9), 'bytes=-0'] as $header) {
+            $res = $this->withHeaders(['Range' => $header])->get('media/full/' . $name)->response();
+            $this->assertSame(416, $res->getStatusCode(), $storage . ': ' . $header);
+            $this->assertSame('bytes */' . $n, $res->getHeaderLine('Content-Range'), $header);
+            $this->assertSame('', (string)$res->getBody(), $header);
+        }
+        // Not one valid bytes range (several, another unit, malformed, reversed), or an If-Range that does not
+        // match: the whole photo.
+        foreach ([['Range' => 'bytes=0-1,4-5'], ['Range' => 'items=0-1'], ['Range' => 'bytes=abc'], ['Range' => 'bytes=9-3'],
+            ['Range' => 'bytes=0-9', 'If-Range' => '"other"']] as $headers) {
+            $res = $this->withHeaders($headers)->get('media/full/' . $name)->response();
+            $this->assertSame(200, $res->getStatusCode(), $storage . ': ' . implode(' ', $headers));
+            $this->assertSame($bytes, (string)$res->getBody());
+        }
+        $res = $this->withHeaders(['Range' => 'bytes=0-9', 'If-Range' => $etag])->get('media/full/' . $name)->response();
+        $this->assertSame(206, $res->getStatusCode(), 'a matching If-Range keeps the range');
+        $this->withHeaders([]);
+    }
+
+    /**
+     * A served photo on $storage: uploaded locally, or the same bytes in an in-memory R2 (the Worker's JSON
+     * protocol) with ServedImageWriter over R2Storage.
+     *
+     * @return array{0:string,1:string,2:string} name, ETag, bytes of the full copy
+     */
+    private function servedPhoto(string $storage): array
     {
         $this->wire();
         $name = $this->upload($this->jpeg(50, 40));
-        $etag = '"' . $name . '-' . filemtime($this->database->dataDir() . '/images/' . $name) . '"';
-        // Same as main's serve_image(): an exact string compare, so a weak or a list form gets the full answer.
-        foreach (['W/' . $etag, '"x", ' . $etag, $etag . ', "x"', '*'] as $header) {
-            $r = $this->withHeaders(['If-None-Match' => $header])->get('media/full/' . $name);
-            $r->assertStatus(200);
-            $this->assertSame($this->served->read('full', $name), $r->response()->getBody(), $header);
+        $bytes = (string)$this->served->read('full', $name);
+        if ($storage === 'local') {
+            return [$name, '"' . $name . '-' . filemtime($this->database->dataDir() . '/images/' . $name) . '"', $bytes];
         }
-        $this->withHeaders([]);
+        $objects = ['/images/' . $name => $bytes, '/thumbs/' . $name => (string)$this->served->read('thumb', $name)];
+        $transport = static function (string $method, string $url) use ($objects): array {
+            $parts = parse_url($url);
+            $path = (string)($parts['path'] ?? '');
+            parse_str((string)($parts['query'] ?? ''), $query);
+            if ($method !== 'GET' || !isset($objects[$path])) {
+                return ['status' => 404, 'body' => '{"ok":true,"found":false}'];
+            }
+            $body = ($query['action'] ?? '') === 'head'
+                ? ['ok' => true, 'found' => true, 'etag' => 'r2', 'modified' => 1_800_000_000]
+                : ['ok' => true, 'found' => true, 'bytes' => base64_encode($objects[$path])];
+
+            return ['status' => 200, 'body' => (string)json_encode($body)];
+        };
+        Services::injectMock('servedImages', new ServedImageWriter(new R2Storage(new R2Bridge(transport: $transport))));
+
+        return [$name, '"' . $name . '-1800000000"', $bytes];
     }
 
     public function testAPlantedFileWithAnInvalidNameIsNotServed(): void
