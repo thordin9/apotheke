@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { handleR2Request, multipartMarkerKey, r2UnboundResponse, sweepExpiredMultipartUploads, UNFINISHED_UPLOAD_RETENTION_MS, validKey, validateRawPath } from '../src/r2.ts';
+import { handleR2Request as handleFor, multipartMarkerKey as markerKeyFor, r2UnboundResponse, sweepExpiredMultipartUploads as sweepFor, UNFINISHED_UPLOAD_RETENTION_MS, validKey, validateRawPath } from '../src/r2.ts';
 import { register } from 'node:module';
 import { readFileSync } from 'node:fs';
 import net from 'node:net';
@@ -15,6 +15,12 @@ register('data:text/javascript,' + encodeURIComponent(`export async function res
   return next(s, c);
 }`));
 const { R2Outbound, ApothekeContainer, default: publicWorker } = await import('../src/index.ts');
+// The suite below runs as primary; two-installation isolation is in installation-isolation.test.mjs.
+const PRIMARY = 'installations/primary/';
+const AS_PRIMARY = { props: { doName: 'primary', prefix: PRIMARY } };
+const handleR2Request = (request, bucket) => handleFor(request, bucket, PRIMARY);
+const multipartMarkerKey = (id) => markerKeyFor(PRIMARY, id);
+const sweepExpiredMultipartUploads = (bucket, now, options) => sweepFor(bucket, PRIMARY, now, options);
 
 class Upload {
   constructor(bucket, key, id) { this.bucket = bucket; this.key = key; this.uploadId = id; }
@@ -141,7 +147,7 @@ test('application listing filtering uses the shared dot-segment predicate', asyn
 
 test('manifest replacements require the exact observed ETag', async () => {
   const bucket = new Bucket();
-  const worker = new R2Outbound({}, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
+  const worker = new R2Outbound(AS_PRIMARY, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
   const path = 'backups/manifest.json';
   assert.equal((await worker.fetch(request('PUT', path, {}, 'one'))).status, 200);
   const head = await (await worker.fetch(request('GET', path, { action: 'head' }))).json();
@@ -195,7 +201,7 @@ test('one object read keeps its own etag when a later lookup sees a replacement'
 
 test('real transport rejects a stale conditional write after the read response', { timeout: 20000 }, async () => {
   const bucket = new Bucket();
-  const worker = new R2Outbound({}, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
+  const worker = new R2Outbound(AS_PRIMARY, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
   const relative = 'backups/manifest.json';
   const objectKey = `installations/primary/${relative}`;
   await bucket.put(objectKey, 'body-A');
@@ -272,7 +278,7 @@ test('metadata lookups have no HEAD: it is refused without a body, and action=he
 test('PHP metadata lookups over real HTTP answer within the bridge timeout', { timeout: 30000 }, async () => {
   const bucket = new Bucket();
   bucket.objects.set('installations/primary/images/a.jpg', new Uint8Array([1, 2, 3]));
-  const worker = new R2Outbound({}, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
+  const worker = new R2Outbound(AS_PRIMARY, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
   const seen = [];
   const server = http.createServer(async (req, res) => {
     const chunks = [];
@@ -356,7 +362,7 @@ test('unsafe paths, missing caps, and absent R2 fail generically', async () => {
 
 test('the real entrypoint resumes begin, parts, and complete without request sessions', async () => {
   const bucket = new Bucket();
-  const outbound = () => new R2Outbound({}, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
+  const outbound = () => new R2Outbound(AS_PRIMARY, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
   const begin = await outbound().fetch(request('PUT', 'a.bin', { action: 'begin' }));
   assert.equal(begin.status, 200);
   const { upload_id: id } = await begin.json();
@@ -375,7 +381,7 @@ test('the real entrypoint resumes begin, parts, and complete without request ses
 
 test('the real entrypoint aborts a resumed upload and confines its installation key', async () => {
   const bucket = new Bucket();
-  const outbound = () => new R2Outbound({}, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
+  const outbound = () => new R2Outbound(AS_PRIMARY, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
   const begin = await outbound().fetch(request('PUT', 'a.bin', { action: 'begin' }));
   const { upload_id: id } = await begin.json();
   assert.equal((await outbound().fetch(request('DELETE', 'other.bin', { action: 'abort', upload_id: id }))).status, 400);
@@ -621,7 +627,7 @@ test('the outbound entrypoint does not construct request-local multipart session
   const source = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8');
   const outbound = source.slice(source.indexOf('export class R2Outbound'), source.indexOf('export class ApothekeContainer'));
   assert.doesNotMatch(outbound, /new\s+Map|sessions?[,)\s]/, 'R2 state belongs to its uploadId, never a per-request Map');
-  assert.match(outbound, /handleR2Request\(request, bucket\)/);
+  assert.match(outbound, /handleR2Request\(request, bucket, installationPrefix\(doName\)\)/);
 });
 
 const DAY = UNFINISHED_UPLOAD_RETENTION_MS;
@@ -920,7 +926,7 @@ function startedContainer(env) {
     getTcpPort: () => ({ fetch: async () => new Response('ok') }),
     interceptOutboundHttp: async () => {},
   };
-  const ctx = { container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
+  const ctx = { id: { name: 'primary' }, container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
   const obj = new ApothekeContainer(ctx, { APP_PASSWORD: 'placeholder', APP_KEY: 'placeholder', ...env });
   return { obj, started: () => started };
 }
@@ -960,11 +966,11 @@ test('P4-5: half a fragment refuses to start (fails closed, no fallback, no reas
 
 test('P4-5: r2.internal answers only when r2 is selected; local mode never reaches the bucket', async () => {
   for (const env of [{ STORAGE: untouchable }, { STORAGE: untouchable, STORAGE_BACKEND: 'r2' }, { DB: {} }, { STORAGE: untouchable, DB: {} }, {}]) {
-    const res = await new R2Outbound({}, env).fetch(request('GET', 'file.bin'));
+    const res = await new R2Outbound(AS_PRIMARY, env).fetch(request('GET', 'file.bin'));
     assert.equal(res.status, 503);
     assert.deepEqual(await res.json(), await r2UnboundResponse().json());
   }
-  const res = await new R2Outbound({}, { STORAGE: new Bucket(), DB: {}, INSTALLATION: {} }).fetch(request('PUT', 'file.bin', {}, 'abc'));
+  const res = await new R2Outbound(AS_PRIMARY, { STORAGE: new Bucket(), DB: {}, INSTALLATION: {} }).fetch(request('PUT', 'file.bin', {}, 'abc'));
   assert.equal(res.status, 200);
 });
 
@@ -981,3 +987,5 @@ await import(new URL('./installation.test.mjs', import.meta.url).href);
 await import(new URL('./container-forward.test.mjs', import.meta.url).href);
 await import(new URL('./container-ready.test.mjs', import.meta.url).href);
 await import(new URL('./control-migrations.test.mjs', import.meta.url).href);
+await import(new URL('./route.test.mjs', import.meta.url).href);
+await import(new URL('./installation-isolation.test.mjs', import.meta.url).href);

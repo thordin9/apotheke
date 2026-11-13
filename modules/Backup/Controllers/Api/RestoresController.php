@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Apotheke\Backup\Controllers\Api;
 
-use Apotheke\Core\Database\Writes;
 use Apotheke\Backup\Jobs\RestoreConfirmJob;
 use Apotheke\Backup\Restorer;
 use Apotheke\Backup\RestoreUploads;
@@ -34,7 +33,6 @@ final class RestoresController extends Controller
     /** POST /api/v1/restores */
     public function create(): ResponseInterface
     {
-        $this->refuseHosted();
         $body = $this->json();
         if ($body === null) {
             return ApiResponse::problem($this->response, 400, 'bad_request', 'The body is not valid JSON.');
@@ -56,7 +54,6 @@ final class RestoresController extends Controller
     /** POST /api/v1/restores/{id}/chunks/{n} */
     public function chunk(string $id, string $index): ResponseInterface
     {
-        $this->refuseHosted();
         return $this->answer(function () use ($id, $index): ResponseInterface {
             $f = $this->request->getFile('chunk');
             $uploads = $this->uploads();
@@ -74,7 +71,6 @@ final class RestoresController extends Controller
     /** POST /api/v1/restores/{id}/finish: the upload is checked, then the backup (a dry run, nothing is changed) */
     public function finish(string $id): ResponseInterface
     {
-        $this->refuseHosted();
         return $this->answer(function () use ($id): ResponseInterface {
             @set_time_limit(300);   // N-1588: as the page's upload step; a retry gives the dry run again
             $restorer = $this->restorer();
@@ -94,7 +90,6 @@ final class RestoresController extends Controller
     /** POST /api/v1/restores/{id}/confirm {"confirm": true} */
     public function confirm(string $id): ResponseInterface
     {
-        $this->refuseHosted();
         $body = $this->json();
         if ($body === null) {
             return ApiResponse::problem($this->response, 400, 'bad_request', 'The body is not valid JSON.');
@@ -111,7 +106,7 @@ final class RestoresController extends Controller
                 }
             }
             if (($body['confirm'] ?? null) !== true) {
-                throw new UserError('Set "confirm": true to replace the catalog with this backup.', 422);
+                throw new UserError('Set "confirm": true to replace the whole catalog, for everyone, with this backup.', 422);
             }
             // N-1588: a restore may outlast a proxy's timeout. It runs to the end without the client, and the outcome
             // stays readable with GET (status restored or failed) or a second confirm, which never restores twice.
@@ -123,8 +118,9 @@ final class RestoresController extends Controller
             @ignore_user_abort(true);
             @set_time_limit(300);
             $restorer = $this->restorer();
-            $done = $this->uploads()->confirm($id, static function (string $zip, ?\Apotheke\Core\Storage\LeaseHold $hold = null) use ($restorer, $settings, $id): array {
-                return $restorer->restore($zip, $settings, $id, $hold);
+            $by = $this->actor();
+            $done = $this->uploads()->confirm($id, static function (string $zip, ?\Apotheke\Core\Storage\LeaseHold $hold = null) use ($restorer, $settings, $id, $by): array {
+                return $restorer->restore($zip, $settings, $id, $hold, $by);
             });
 
             return ApiResponse::json($this->response, ['restored' => true, 'tables' => (object)$done['tables'], 'photos' => $done['photos'],
@@ -155,9 +151,7 @@ final class RestoresController extends Controller
                 ? $this->accepted($running->view())
                 : $this->confirmed($id, $settings);
         }
-        $user = service('currentUser')->resolve();
-        $actor = is_array($user) && $user['username'] !== '' ? $user['username'] : null;
-        $created = $queue->find($queue->enqueue(RestoreConfirmJob::TYPE, $payload, $actor, RestoreConfirmJob::ONCE));
+        $created = $queue->find($queue->enqueue(RestoreConfirmJob::TYPE, $payload, $this->actor(), RestoreConfirmJob::ONCE));
         if ($created === null) {
             throw new UserError('The restore could not be stored.', 500);
         }
@@ -181,8 +175,9 @@ final class RestoresController extends Controller
     private function confirmed(string $id, bool $settings): ResponseInterface
     {
         $restorer = $this->restorer();
-        $done = $this->uploads()->confirm($id, static function (string $zip, ?\Apotheke\Core\Storage\LeaseHold $hold = null) use ($restorer, $settings, $id): array {
-            return $restorer->restore($zip, $settings, $id, $hold);
+        $by = $this->actor();
+        $done = $this->uploads()->confirm($id, static function (string $zip, ?\Apotheke\Core\Storage\LeaseHold $hold = null) use ($restorer, $settings, $id, $by): array {
+            return $restorer->restore($zip, $settings, $id, $hold, $by);
         });
 
         return ApiResponse::json($this->response, ['restored' => true, 'tables' => (object)$done['tables'], 'photos' => $done['photos'],
@@ -256,12 +251,12 @@ final class RestoresController extends Controller
         }
     }
 
-    /** On the hosted database a restore is refused before any upload is accepted (501 hosted.unavailable). */
-    private function refuseHosted(): void
+    /** The signed-in account's name (null: nobody, or the guest): the job's actor and the restore's activity row. */
+    private function actor(): ?string
     {
-        if ($this->restorer()->hosted()) {
-            throw Writes::unavailable('Restoring a backup');
-        }
+        $user = service('currentUser')->resolve();
+
+        return is_array($user) && empty($user['guest']) && ($user['username'] ?? '') !== '' ? (string)$user['username'] : null;
     }
 
     private function uploads(): RestoreUploads

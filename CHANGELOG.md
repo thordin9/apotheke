@@ -12,6 +12,25 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** FrankenPHP worker mode is on for the hosted container (`APOTHEKE_PHP_WORKER=1` in `edge/wrangler.jsonc`); in the interleaved classic/worker preview it was 11.7% faster at p50 on `/api/v1/me` (measured before #293 and #298; not re-measured). To go back to classic mode, `git revert` the enable commit and release (Worker mode rollback in `docs/deployment-and-operations.md`) ([#297](https://github.com/thordin9/apotheke/pull/297))
 
+## [3.41.0] - 2026-11-13
+
+### Added
+
+- **backup:** restore a backup on the hosted database; each restore first keeps a backup of the whole catalog (the newest `RESTORE_KEEP_BACKUPS`, default 5), listed on the backup page and by `GET /api/v1/backups`; restoring is a permission of its own (Restore), which every role with Backup keeps ([#305](https://github.com/thordin9/apotheke/pull/305))
+- **auth:** new installations give editors the Backup and Restore permissions and viewers Backup; existing installations keep their roles, and an admin grants these to editors and viewers in the role editor or with *Reset built-in roles* ([#305](https://github.com/thordin9/apotheke/pull/305))
+
+## [3.40.0] - 2026-11-13
+
+### Added
+
+- **edge:** each installation's database object and R2 key prefix come from its own container object's name, passed as props to `d1.internal` and `r2.internal`; multipart markers and the unfinished-upload sweep are per installation. `primary` keeps its names, prefix and keys. A failed route lookup is retried after 5 seconds instead of on every request ([#303](https://github.com/thordin9/apotheke/pull/303))
+
+## [3.39.0] - 2026-11-12
+
+### Added
+
+- **edge:** the Worker routes each request by host through the control plane's `installation_routes`; a missing row, an unbound `DB` or a failed lookup falls back to `primary` as before, and paused or removed installations get a status page without starting a container ([#302](https://github.com/thordin9/apotheke/pull/302))
+
 ## [3.38.2] - 2026-11-12
 
 ### Fixed
@@ -1669,7 +1688,10 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.38.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.41.0...HEAD
+[3.41.0]: https://github.com/thordin9/apotheke/compare/v3.40.0...v3.41.0
+[3.40.0]: https://github.com/thordin9/apotheke/compare/v3.39.0...v3.40.0
+[3.39.0]: https://github.com/thordin9/apotheke/compare/v3.38.2...v3.39.0
 [3.38.2]: https://github.com/thordin9/apotheke/compare/v3.38.1...v3.38.2
 [3.38.1]: https://github.com/thordin9/apotheke/compare/v3.38.0...v3.38.1
 [3.38.0]: https://github.com/thordin9/apotheke/compare/v3.37.2...v3.38.0

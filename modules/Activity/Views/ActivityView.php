@@ -18,7 +18,7 @@ final class ActivityView
 {
     private const FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Purchase price', 'purchase_date' => 'Purchase date', 'expires_on' => 'Expires', 'serial' => 'Serial no.', 'barcode' => 'Barcode', 'tags' => 'Tags', 'min_qty' => 'Running low at'];
 
-    private const ICONS = ['restored' => 'undo', 'merged' => 'merge', 'attachment' => 'paperclip', 'created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
+    private const ICONS = ['restored' => 'undo', 'catalog_restored' => 'archive', 'merged' => 'merge', 'attachment' => 'paperclip', 'created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
 
     /**
      * @param string $currency the currency setting
@@ -126,6 +126,10 @@ final class ActivityView
                 break;
             case 'restored':
                 $t = 'Restored (deleting was undone)';
+                break;
+            case 'catalog_restored':
+                // Backup's restore: the whole catalog replaced for everyone; the catalog before it kept as a backup.
+                $t = 'Replaced the whole catalog with a backup' . (!empty($d['backup']) ? ' · the catalog before it was kept as a backup' : '');
                 break;
             case 'deleted':
                 $t = 'Deleted' . (!empty($d['location']) ? ' from <b>' . $h($d['location']) . '</b>' : '');

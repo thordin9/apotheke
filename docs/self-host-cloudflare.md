@@ -43,8 +43,8 @@ front end on `www.example.com` and the API on `api.example.com` in the examples.
   saved before is gone.
 * **Storage: landed in the repo; this page's bind-and-create steps are still to be written.** See
   [ADR-002](adr/002-edge-storage.md) and [Deployment and operations](deployment-and-operations.md#cloudflare-deploys-getapothekecom).
-  On d1, restoring a backup is not available yet. Until restore works and a backup has been tested end to end, do not
-  keep data you cannot afford to lose on a storage-mode install; Docker remains the recommended way to self-host for that.
+  On d1, a backup can be restored. Until a backup has been tested end to end on your install, do not keep data you
+  cannot afford to lose on a storage-mode install; Docker remains the recommended way to self-host for that.
 
 ## Prerequisites
 
@@ -169,9 +169,8 @@ To try it locally first: `cd edge/app && npx --no-install wrangler dev --config 
 
 > In storage mode (D1, Installation Durable Object and R2 bound) the API keeps the catalogue and files across cold
 > starts. The steps below deploy the Worker and container. Bindings follow [ADR-002](adr/002-edge-storage.md) and the
-> project's deploy runbook; this page's own D1 and R2 steps still need writing. On d1, restoring a backup is not
-> available yet, so do not keep data you cannot afford to lose until restore works and a backup has been tested end
-> to end. A deploy without those bindings is still stateless: each cold start is a new install.
+> project's deploy runbook; this page's own D1 and R2 steps still need writing. Do not keep data you cannot afford to
+> lose until a backup has been downloaded and restored end to end. A deploy without those bindings is still stateless: each cold start is a new install.
 
 ### Settings
 
@@ -255,8 +254,7 @@ To try it locally: copy `edge/.dev.vars.example` to `edge/.dev.vars` (git-ignore
 Hosted storage (D1, the Installation Durable Object's SQLite, and R2) is described in
 [ADR-002](adr/002-edge-storage.md). Bindings for a storage-mode deploy are in the project's runbook
 ([Deployment and operations](deployment-and-operations.md#p4-edge-storage-flip-checklist)). This page's own steps for
-creating the database and the bucket and binding them still need to be written. On d1, restoring a backup is not
-available yet.
+creating the database and the bucket and binding them still need to be written.
 
 ## Custom domains
 
@@ -297,7 +295,7 @@ back is to check out the previous release tag and deploy it again. Don't delete 
 In storage mode, use the app's own backup (☰ → *Backup & restore*, or `php bin/backup.php` where you can run it) to
 get one zip with the database and the stored photos and files
 ([Backup and restore](deployment-and-operations.md#backup-and-restore)). On d1, creating that zip pages each table and
-records `"driver":"d1"` (#287); restoring a backup is not available yet. A platform-level copy (`wrangler d1 export`
+records `"driver":"d1"` (#287); restoring it keeps the catalog before it under the installation's `backups/`. A platform-level copy (`wrangler d1 export`
 plus the R2 objects) is a possible extra; the exact steps are not written here yet. Keep a copy of your `APP_KEY` and
 your local config changes. A deploy without storage bindings still keeps no data across cold starts.
 
