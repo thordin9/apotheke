@@ -4,7 +4,8 @@
 #  - with no arguments (or "apotheke") execs FrankenPHP (Caddy + PHP in one process) as www-data; tini stays PID 1
 #    and forwards SIGTERM, on which FrankenPHP drains its requests and exits
 #  - FRANKENPHP_NUM_THREADS (1-64, default 2) sets the PHP threads, i.e. the requests served at once
-#  - APOTHEKE_PHP_WORKER=1 runs PHP in FrankenPHP worker mode (the hosted container); default classic mode
+#  - APOTHEKE_PHP_WORKER=1 runs PHP in FrankenPHP worker mode (opt-in; edge/wrangler.jsonc sets the hosted value);
+#    default classic mode. APOTHEKE_WORKER_MAX_REQUESTS (default 1000, 0 = no cap) recycles each worker
 #  - next to FrankenPHP it runs the background jobs worker (apotheke-jobs-worker: `php spark jobs:work`, restarted with
 #    a backoff) as www-data; APOTHEKE_JOBS_WORKER=0 turns it off, and then FrankenPHP is exec'd as before. SIGTERM
 #    stops both; the worker never stops FrankenPHP, and if FrankenPHP exits on its own the container stops
