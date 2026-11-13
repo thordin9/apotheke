@@ -8,9 +8,11 @@ import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
-const workerStub = 'export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } } export class WorkerEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }';
+const workerStub = 'export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } } export class WorkerEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } } export class WorkflowEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }';
+const workflowsStub = 'export class NonRetryableError extends Error { constructor(message, name) { super(message); this.name = name ?? "NonRetryableError"; } }';
 register('data:text/javascript,' + encodeURIComponent(`export async function resolve(s, c, next) {
   if (s === 'cloudflare:workers') return { url: 'data:text/javascript,${encodeURIComponent(workerStub)}', shortCircuit: true };
+  if (s === 'cloudflare:workflows') return { url: 'data:text/javascript,${encodeURIComponent(workflowsStub)}', shortCircuit: true };
   if (s.startsWith('./') && !s.endsWith('.ts') && c.parentURL) return next(s + '.ts', c);
   return next(s, c);
 }`));
@@ -991,3 +993,4 @@ await import(new URL('./route.test.mjs', import.meta.url).href);
 await import(new URL('./limits.test.mjs', import.meta.url).href);
 await import(new URL('./installation-isolation.test.mjs', import.meta.url).href);
 await import(new URL('./installation-secrets.test.mjs', import.meta.url).href);
+await import(new URL('./lifecycle.test.mjs', import.meta.url).href);

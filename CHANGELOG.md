@@ -10,6 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
+- **edge:** lifecycle jobs for the operator console: provision, suspend, resume, export, soft delete and purge as paused jobs that run only after an operator confirms them, with idempotent steps that refuse `primary`, and a purge only once a finished delete's export retention is over (migration `0003_lifecycle_jobs`) ([#314](https://github.com/thordin9/apotheke/pull/314))
 - **edge:** plan limits in the Worker for installations other than `primary`: monthly requests (429), monthly container active time (402), request body size (413) and stored bytes (507 to the app), with soft values as a response header. Off by default with the new Worker var `LIMITS_ENABLED` ([#315](https://github.com/thordin9/apotheke/pull/315))
 
 ## [3.43.0] - 2026-11-13

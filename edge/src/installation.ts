@@ -61,6 +61,12 @@ function keyBytes(raw: string): Uint8Array | null {
 	return bytes.length === 32 ? bytes : null;
 }
 
+/** The name a lifecycle action may touch: a valid DO name that is not primary. Anything else throws (fail closed). */
+export function lifecycleName(name: unknown): string {
+	if (!validDoName(name) || name === INSTALLATION_NAME) throw new Error("lifecycle refused for this installation");
+	return name;
+}
+
 /** The only place an Installation id is made: from the EU-jurisdiction namespace, fixed when the id is created. */
 export function installationStub(ns: DurableObjectNamespace<Installation>, doName: string): DurableObjectStub<Installation> {
 	const eu = ns.jurisdiction("eu");
@@ -116,5 +122,14 @@ export class Installation extends DurableObject<Env & R2Env> {
 		// Reached only through D1Outbound; this check keeps the object closed on its own too.
 		if (!storageSelected(this.env)) return d1UnboundResponse();
 		return handleD1Request(request, sqlDatabase(this.ctx.storage));
+	}
+
+	/** Lifecycle purge (src/lifecycle.ts): deletes this installation's database. The caller names the installation, and it
+	 *  must match this object's own name when the runtime gives one. Refused for primary. */
+	async purge(doName: string): Promise<void> {
+		const name = lifecycleName(doName);
+		const own = this.ctx.id?.name;
+		if (own !== undefined && own !== name) throw new Error("lifecycle refused for this installation");
+		await this.ctx.storage.deleteAll();
 	}
 }

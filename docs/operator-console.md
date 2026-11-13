@@ -28,6 +28,7 @@ job, not of this repository's tests.
 | `subscriptions` | One row per installation: plan, manual status, `trial_end`, `period_end`, notes |
 | `usage_counters` | Per installation, month (`YYYY-MM`) and metric |
 | `operator_audit` | Every operator change, control-plane fields only. Append-only: triggers refuse updates, deletes and inserts over an existing id (`INSERT OR REPLACE`) |
+| `lifecycle_jobs` | One row per lifecycle job: kind, installation, `idempotency_key`, state (`paused`, `queued`, `running`, `done`, `failed`), current step, error code, who created and confirmed it (see [Lifecycle jobs](#lifecycle-jobs)) |
 
 Three choices differ from the first design and were accepted for this schema: routes are keyed by host (not by
 installation), `do_name` and `r2_prefix` live on `installations` (not on the route), and `subscriptions` replaces a
@@ -117,7 +118,51 @@ When a container starts, its object sets two values for its own installation:
   `apotheke-installation-app-key-v1`, the installation's `do_name` as info), written as `base64:` and 44 base64
   characters, the form the app accepts. If the secret is not a 32-byte key, the other installation does not start.
 - `ALLOWED_HOSTS`: `primary` keeps the Worker's `ALLOWED_HOSTS`. Any other installation gets its own hosts from
-  `installation_routes`, comma-separated. With no hosts, or no readable control plane, it does not start.
+  `installation_routes`, comma-separated. With no hosts, or no readable control plane, it does not start. It also
+  does not start unless its status, read when the container starts, is `provisioning` or `active` (`primary` is
+  never gated).
 
 No new Worker variables or secrets. `edge/tests/installation-secrets.test.mjs` pins `primary`'s values and checks the
 derivation against an independent HKDF with fake keys.
+
+The key and the hosts are read only when the container starts: a change to `installation_routes` applies to a
+running installation at its next start.
+
+Rotating the Worker's `APP_KEY` secret changes `primary`'s key and every derived per-installation key at once. Nothing
+re-encrypts the secrets other installations have already stored under their old key, so a rotation has to be planned
+per installation first. Until the first-admin claim (C1) replaces it, all installations get the same Worker
+`APP_PASSWORD`.
+
+## Lifecycle jobs
+
+Provision, suspend, resume, export, soft delete and purge are jobs in `lifecycle_jobs` (migration `0003`), run step by
+step by `LifecycleWorkflow` (`edge/src/lifecycle-workflow.ts`) over the step functions in `edge/src/lifecycle.ts`.
+
+- **Created paused.** A job has an `idempotency_key` of `<kind>:<installation_id>:<nonce>` (the nonce comes from the
+  console form), so the same request twice returns the same job. It starts in state `paused` and runs only after an
+  operator confirms it (`queued`); a purge is confirmed only with one of the installation's hosts typed back exactly.
+  Nothing creates, confirms or runs jobs on a schedule: no Cron, no automatic suspend and no automatic purge.
+- **Idempotent steps.** Each step checks the state it would create before acting, so a retry or a second run changes
+  nothing more. Status changes are plain `UPDATE`s on `installations` with one `operator_audit` row per job and action
+  (installation id and action only). A refusal (wrong status, `primary`, retention not over, not wired yet) is a
+  `NonRetryableError`, so the Workflow fails the job at once; an R2 call that did not finish is retried.
+- **Never `primary`.** Every function refuses the installation id `primary` and the DO name `primary`, whatever the
+  status, and so do the `purge()` and `stopContainer()` methods on the Durable Objects.
+
+| Job | Steps |
+|---|---|
+| provision | The installation row and at least one route exist (status `provisioning`); refuse if anything is stored under its R2 prefix; start the container with `BOOTSTRAP=1` and no `APP_PASSWORD`; create the first-admin claim; status `active` |
+| suspend | Status `suspended`, drop cached routes, stop and destroy the container. No data is touched. Routing can serve the cached `active` route for up to 30 seconds, but the container no longer starts (see [Per-installation APP_KEY and ALLOWED_HOSTS](#per-installation-app_key-and-allowed_hosts)) |
+| resume | Status `active`, drop cached routes. The next request starts the container |
+| export | The app's own backup, once per job, written by the app under the installation's prefix (`installations/<do_name>/`, in its backups folder); its key is kept on the job |
+| delete | Soft delete: status `deleting` (routing answers 410 once the cached route expires, within 30 seconds; the container no longer starts), stop and destroy the container, export. The job needs a retention period in days (30 is planned; the final value is the owner's decision) and has no default. The export stays under the prefix until a purge, which cannot run before the retention is over |
+| purge | Only after a soft delete that finished (its export made) and whose retention is over: now is at least the time that delete job finished plus its retention days. Before then, or after a delete that failed, creating, confirming and every step of a purge are refused and change nothing. There is no immediate purge. Then: abort unfinished multipart uploads that have a marker and delete their markers, then delete everything under `installations/<do_name>/` in pages of at most 1,000 keys (one page per step, so a retry carries on), then delete the `Installation` and container objects' storage, then status `deleted`. The row stays as a tombstone, so the DO names are never reused |
+
+Not wired yet, and failing closed until they are: the `BOOTSTRAP=1` start and the claim (C1), the backup call into
+the container, and the download link for an export (the console API, E6). Routes are cached only inside each
+`apotheke-api` isolate for at most 30 seconds, so there is no shared cache to purge yet. The Workflow is deployed with
+the operator Worker (D1), not with `apotheke-api`, whose configuration is unchanged.
+
+A purge takes one Workflow step per page of up to 1,000 keys (plus one per 100 unfinished uploads). The Workflow's
+step limit per instance therefore caps one purge at about 10 million objects (about 1 million on the Free plan's
+1,024 steps). Past the limit the instance fails without reaching its last step, and the job is left in `running`.
