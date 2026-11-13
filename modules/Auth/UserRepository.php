@@ -12,6 +12,7 @@ use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
+use Apotheke\Core\Hosted\HostedLimits;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
 use CodeIgniter\Database\Exceptions\DatabaseException;
@@ -28,14 +29,18 @@ final class UserRepository
 
     private readonly ReadCache $cache;
 
+    private readonly HostedLimits $limits;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     * @param HostedLimits|null $limits the hosted plan's account limit; none when null (self-hosted)
      */
-    public function __construct(private readonly BaseConnection $db, private readonly SessionEpoch $epoch = new SessionEpoch(), ?UnitsOfWork $units = null, ?ReadCache $cache = null)
+    public function __construct(private readonly BaseConnection $db, private readonly SessionEpoch $epoch = new SessionEpoch(), ?UnitsOfWork $units = null, ?ReadCache $cache = null, ?HostedLimits $limits = null)
     {
         $this->units = UnitsOfWork::forSite($db, $units);
         $this->cache = $cache ?? ReadCache::off();
+        $this->limits = $limits ?? HostedLimits::off();
     }
 
     /**
@@ -222,17 +227,31 @@ final class UserRepository
         }, 'active-admins');
     }
 
-    /** A new account (legacy user_create()'s INSERT); returns its id. The caller has validated every value. */
+    /**
+     * A new account (legacy user_create()'s INSERT); returns its id. The caller has validated every value.
+     * Hosted, the plan's account limit is checked in the same unit as the insert.
+     */
     public function create(string $name, string $hash, string $role, string $status, string $now): int
     {
-        $ref = $this->units->run('users', function (UnitOfWork $uow) use ($name, $hash, $role, $status, $now): Ref {
+        return $this->createIn(null, $name, $hash, $role, $status, $now)->id();
+    }
+
+    /**
+     * create() inside a caller's unit of work ($uow), or its own when null; the Ref is resolved once the unit ran.
+     * The plan's account limit is checked in that unit, before the insert.
+     */
+    public function createIn(?UnitOfWork $uow, string $name, string $hash, string $role, string $status, string $now): Ref
+    {
+        $insert = function (UnitOfWork $uow) use ($name, $hash, $role, $status, $now): Ref {
+            $this->limits->guard($uow, 'users');
+
             return $uow->insert('users', [
                 'username' => $name, 'username_key' => self::key($name), 'password_hash' => $hash,
                 'role' => $role, 'status' => $status, 'created_at' => $now,
             ], 'users insert');
-        });
+        };
 
-        return $ref->id();
+        return $uow !== null ? $insert($uow) : $this->units->run('users', $insert, $this->limits->lockKeys('users'));
     }
 
     /** Legacy login(): the sign-in time. */

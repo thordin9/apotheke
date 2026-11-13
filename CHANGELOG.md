@@ -8,6 +8,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** the installation bridge answers read-only `GET /stats`, `/users` and `/limits` for the operator console ([#317](https://github.com/thordin9/apotheke/pull/317))
+- **core:** with `APOTHEKE_HOSTED`, the plan's limits cap items, photos and user accounts inside the unit of work that adds them, and cap the upload size settings; off when self-hosted ([#317](https://github.com/thordin9/apotheke/pull/317))
+- **auth:** a one-time first-admin claim for hosted installations (`php spark accounts:claim-create`, `/claim`), valid for `HOSTED_CLAIM_HOURS` (default 72); 404 when self-hosted ([#317](https://github.com/thordin9/apotheke/pull/317))
+
 ## [3.43.0] - 2026-11-13
 
 ### Added
