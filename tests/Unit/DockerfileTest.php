@@ -266,7 +266,7 @@ final class DockerfileTest extends TestCase
         $this->assertStringContainsString("\$_SERVER['SCRIPT_NAME'] = '';", $script);
         $this->assertStringContainsString('Services::resetForWorkerMode($workerConfig);', $script);
         // hosted: on ("1"; "0" goes back to classic), and the container default (no var) is classic
-        $this->assertStringContainsString('"APOTHEKE_PHP_WORKER": "1"', (string)file_get_contents("$root/edge/wrangler.jsonc"));
+        $this->assertStringContainsString('"APOTHEKE_PHP_WORKER": "0"', (string)file_get_contents("$root/edge/wrangler.jsonc"));
         $this->assertStringContainsString('APOTHEKE_PHP_WORKER: this.env.APOTHEKE_PHP_WORKER ?? "0",', (string)file_get_contents("$root/edge/src/index.ts"));
         $this->assertStringNotContainsString('APOTHEKE_PHP_WORKER', (string)file_get_contents("$root/docker-compose.yml"));
     }

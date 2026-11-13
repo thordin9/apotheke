@@ -46,7 +46,7 @@
 		"APOTHEKE_JOBS_WORKER": "0",
 		// FrankenPHP worker mode (QA-1854): "1" boots the app once per PHP thread instead of on every request
 		// (public/frankenphp-worker.php). On for apotheke-api since the interleaved preview (#292); "0" goes back to classic.
-		"APOTHEKE_PHP_WORKER": "1"
+		"APOTHEKE_PHP_WORKER": "0"
 	},
 	// Secrets: set on the Worker with `wrangler secret put` (locally .dev.vars, git-ignored). Names only.
 	"secrets": { "required": ["APP_PASSWORD", "APP_KEY"] }
