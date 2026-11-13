@@ -229,7 +229,9 @@ final class OpsBackupsTest extends CIUnitTestCase
         $this->assertNotNull($r);
         $this->assertSame([200, true, true], [$r['status'], $r['body']['ok'], $r['body']['created']]);
         $b = $r['body']['backup'];
-        $this->assertSame(['job_id', 'id', 'key', 'prefix', 'size', 'sha256', 'parts', 'created_at'], array_keys($b));
+        $this->assertSame(['job_id', 'id', 'key', 'prefix', 'size', 'sha256', 'parts', 'files', 'created_at'], array_keys($b));
+        $this->assertSame($this->stored()->get($b['id'])['files'] ?? null, $b['files']);
+        $this->assertSame(['part-00001'], array_column($b['files'], 'key'), 'relative to prefix');
         $this->assertSame('job-1', $b['job_id']);
         $this->assertSame('backups/' . $b['id'] . '/manifest.json', $b['key']);
         $this->assertSame('backups/' . $b['id'] . '/', $b['prefix']);

@@ -18,13 +18,15 @@ use Throwable;
  * per backup:
  *
  * - `backups/<id>/part-00001` … the zip in parts of PART_BYTES, so a download reads one part at a time;
- * - `backups/<id>/manifest.json`, written last: a backup is listed only once all its parts are stored.
+ * - `backups/<id>/manifest.json`, written last: a backup is listed only once all its parts are stored. It lists each
+ *   part (`files`: key relative to `backups/<id>/`, size, sha256); manifests written before that have no `files`.
  *
  * The id is the UTC time and a random suffix (`20261112-093000-1a2b3c`), so ids sort oldest first. After each
  * new backup the oldest beyond `backup.keep` are deleted (manifest first, so a half-deleted one is never listed);
  * exports made for the hosting side are not counted and not deleted.
  *
- * @phpstan-type Manifest array{id:string,created_at:string,kind:string,size:int,sha256:string,parts:int,by:?string}
+ * @phpstan-type Part array{key:string,size:int,sha256:string}
+ * @phpstan-type Manifest array{id:string,created_at:string,kind:string,size:int,sha256:string,parts:int,by:?string,files:?list<Part>}
  */
 final class StoredBackups
 {
@@ -70,6 +72,7 @@ final class StoredBackups
         $tmp = $this->backups->tmpDir() . '/stored-' . bin2hex(random_bytes(8)) . '.zip';
         $id = gmdate('Ymd-His', strtotime($this->clock->now() . ' UTC') ?: time()) . '-' . bin2hex(random_bytes(3));
         $parts = 0;
+        $files = [];
         try {
             $this->backups->create($tmp);
             $size = (int)filesize($tmp);
@@ -84,12 +87,13 @@ final class StoredBackups
                         break;
                     }
                     $this->store->write(self::part($id, ++$parts), $bytes);
+                    $files[] = ['key' => self::partName($parts), 'size' => strlen($bytes), 'sha256' => hash('sha256', $bytes)];
                 }
             } finally {
                 fclose($fh);
             }
             $manifest = ['id' => $id, 'created_at' => $this->clock->now(), 'kind' => $kind, 'size' => $size,
-                'sha256' => (string)hash_file('sha256', $tmp), 'parts' => $parts, 'by' => $by];
+                'sha256' => (string)hash_file('sha256', $tmp), 'parts' => $parts, 'by' => $by, 'files' => $files];
             $this->store->write(self::manifestKey($id), json_encode($manifest, self::JSON));
         } catch (Throwable $e) {
             for ($n = 1; $n <= $parts; $n++) {
@@ -132,7 +136,7 @@ final class StoredBackups
             return null;
         }
         try {
-            $m = json_decode($raw, true, 4, JSON_THROW_ON_ERROR);
+            $m = json_decode($raw, true, 5, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return null;
         }
@@ -140,9 +144,41 @@ final class StoredBackups
             || !is_string($m['created_at'] ?? null) || !is_string($m['kind'] ?? null) || !is_string($m['sha256'] ?? null)) {
             return null;
         }
+        $files = null;
+        if (array_key_exists('files', $m)) {
+            $files = self::files($m['files'], $m['parts'], $m['size']);
+            if ($files === null) {
+                return null;
+            }
+        }
 
         return ['id' => $id, 'created_at' => $m['created_at'], 'kind' => $m['kind'], 'size' => $m['size'], 'sha256' => $m['sha256'],
-            'parts' => $m['parts'], 'by' => is_string($m['by'] ?? null) ? $m['by'] : null];
+            'parts' => $m['parts'], 'by' => is_string($m['by'] ?? null) ? $m['by'] : null, 'files' => $files];
+    }
+
+    /**
+     * A manifest's `files`, or null unless it is exactly one entry per part, in order: key `part-0000n` (relative to
+     * the backup's folder), a size, and a sha256, the sizes adding up to the backup's size.
+     *
+     * @return list<Part>|null
+     */
+    private static function files(mixed $files, int $parts, int $size): ?array
+    {
+        if (!is_array($files) || !array_is_list($files) || count($files) !== $parts) {
+            return null;
+        }
+        $out = [];
+        $total = 0;
+        foreach ($files as $i => $f) {
+            if (!is_array($f) || ($f['key'] ?? null) !== self::partName($i + 1) || !is_int($f['size'] ?? null) || $f['size'] < 0
+                || !is_string($f['sha256'] ?? null) || preg_match('/^[a-f0-9]{64}$/D', $f['sha256']) !== 1) {
+                return null;
+            }
+            $total += $f['size'];
+            $out[] = ['key' => $f['key'], 'size' => $f['size'], 'sha256' => $f['sha256']];
+        }
+
+        return $total === $size ? $out : null;
     }
 
     /**
@@ -219,7 +255,13 @@ final class StoredBackups
 
     private static function part(string $id, int $n): string
     {
-        return self::PREFIX . $id . '/part-' . sprintf('%05d', $n);
+        return self::PREFIX . $id . '/' . self::partName($n);
+    }
+
+    /** A part's key relative to its backup's folder. */
+    private static function partName(int $n): string
+    {
+        return 'part-' . sprintf('%05d', $n);
     }
 
     private static function manifestKey(string $id): string

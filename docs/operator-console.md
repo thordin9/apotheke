@@ -138,10 +138,14 @@ not this endpoint and gets the usual 404. Self-hosted, it doesn't exist.
   `X-Apotheke-Ops-Signature: t=<unix seconds>,v1=<hex>`. The key is HMAC-SHA256 of `apotheke-ops-v1` under the
   installation's `APP_KEY` bytes; `v1` is HMAC-SHA256 under that key of `POST`, the path, `t` and the body's SHA-256
   (hex), joined by newlines. It is accepted within 300 seconds of the container's clock.
-- **Answer:** 200 `{"ok":true,"created":…,"backup":{"job_id","id","key","prefix","size","sha256","parts","created_at"}}`.
+- **Answer:** 200
+  `{"ok":true,"created":…,"backup":{"job_id","id","key","prefix","size","sha256","parts","files","created_at"}}`.
   `key` is the backup's manifest, `backups/<id>/manifest.json`, relative to the installation's storage; the Worker
-  adds `installations/<do_name>/`. Errors are `{"ok":false,"code":…}`: 400 `bad_request`, 401 `unauthorized`, 405,
-  409 `backup_in_progress` (retry later), 410 `backup_gone`, 500 `backup_failed`, 503 `not_configured`.
+  adds `installations/<do_name>/`. Every object of the backup is under `prefix`. `files` lists the parts in order
+  (`{"key":"part-00001","size":…,"sha256":…}`, keys relative to `prefix`), as the manifest does; the parts joined in
+  order are the zip with `size` and `sha256`. Errors are `{"ok":false,"code":…}`: 400 `bad_request`,
+  401 `unauthorized`, 405, 409 `backup_in_progress` (retry later), 410 `backup_gone`, 500 `backup_failed`,
+  503 `not_configured`.
 - **Once per job:** the same job id returns the same backup with `created: false`. The job is recorded in the
   settings row `ops_backup_job:<id>` (outside the Control Panel's keys), claimed in a unit of work keyed by that row,
   so two requests for one job never make two backups. A claim left by a request that stopped is taken over after

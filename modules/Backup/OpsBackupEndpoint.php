@@ -86,6 +86,7 @@ final class OpsBackupEndpoint
             'size' => $m['size'],
             'sha256' => $m['sha256'],
             'parts' => $m['parts'],
+            'files' => $m['files'] ?? [],
             'created_at' => $m['created_at'],
         ]]];
     }
