@@ -8,6 +8,11 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **backup:** restore a backup on the hosted database; each restore first keeps a backup of the whole catalog (the newest `RESTORE_KEEP_BACKUPS`, default 5), listed on the backup page and by `GET /api/v1/backups`; restoring is a permission of its own (Restore), which every role with Backup keeps ([#305](https://github.com/thordin9/apotheke/pull/305))
+- **auth:** new installations give editors the Backup and Restore permissions and viewers Backup; existing installations keep their roles, and an admin grants these to editors and viewers in the role editor or with *Reset built-in roles* ([#305](https://github.com/thordin9/apotheke/pull/305))
+
 ## [3.40.0] - 2026-11-13
 
 ### Added

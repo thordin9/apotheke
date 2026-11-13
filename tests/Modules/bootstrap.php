@@ -45,3 +45,4 @@ define('PUBLICPATH', $home . 'public' . DIRECTORY_SEPARATOR);
 require $home . 'vendor/codeigniter4/framework/system/Test/bootstrap.php';
 require_once __DIR__ . '/_support/TestDatabase.php';
 require_once __DIR__ . '/_support/UowSchema.php';
+require_once __DIR__ . '/_support/MemoryR2.php';

@@ -75,8 +75,9 @@ final class RestoreConfirmJob implements JobHandler
         }
         $context->checkpoint(['done' => 0, 'total' => 1]);
         try {
-            $out = $this->uploads->asOwner($owner)->confirm($upload, function (string $zip, ?LeaseHold $hold = null) use ($settings, $upload): array {
-                return $this->restorer->restore($zip, $settings, $upload, $hold);
+            $by = $job->actor;
+            $out = $this->uploads->asOwner($owner)->confirm($upload, function (string $zip, ?LeaseHold $hold = null) use ($settings, $upload, $by): array {
+                return $this->restorer->restore($zip, $settings, $upload, $hold, $by);
             }, function () use ($context): void {
                 $context->checkpoint(['done' => 0, 'total' => 1]);
             });
