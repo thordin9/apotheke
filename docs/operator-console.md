@@ -18,13 +18,15 @@ side table and calls the same plan and status changes the console uses.
 Migrations live in [`edge/migrations/control/`](../edge/migrations/control/), numbered for
 `wrangler d1 migrations apply` (`0001_…sql`, `0002_…sql`). They are additive only: a later migration adds tables or
 columns and never drops or renames, so the previous Worker version keeps working. Applying them is part of the deploy
-job, not of this repository's tests.
+job, not of this repository's tests. The one exception is `0004`: it rebuilds `plan_limits` with the same columns and
+rows so its key `CHECK` also allows `photos_per_item` (SQLite cannot change a `CHECK` in place). It is safe to apply
+again, and the tests pin it by sha256 like the others.
 
 | Table | Purpose |
 |---|---|
 | `installations` | One row per installation: `id`, `do_name` (1-63 lower-case letters and digits in `-`-separated groups), `r2_prefix` (always `installations/<do_name>/`; neither ever changes: triggers refuse an update and a `REPLACE` over an existing installation), lifecycle `status` (`provisioning`, `active`, `suspended`, `deleting`, `deleted`), owner contact, notes |
 | `installation_routes` | Host (lower case, no port, no empty label or label starting or ending with `-`) → installation; several hosts may point at one installation |
-| `plans`, `plan_limits` | Plans and their soft and hard limits per key (`items`, `storage_bytes`, `photos`, `users`, `autofill_calls_month`, `requests_month`, `container_hours_month`, `sleep_after_ms`, `import_file_bytes`). No row for a key means no limit |
+| `plans`, `plan_limits` | Plans and their soft and hard limits per key (`items`, `storage_bytes`, `photos`, `users`, `autofill_calls_month`, `requests_month`, `container_hours_month`, `sleep_after_ms`, `import_file_bytes`, `photos_per_item`). No row for a key means no limit. `photos` is the total across all items; `photos_per_item` is the most photos one item may have (no plan has a value yet; the Worker does not enforce it) |
 | `subscriptions` | One row per installation: plan, manual status, `trial_end`, `period_end`, notes |
 | `usage_counters` | Per installation, month (`YYYY-MM`) and metric |
 | `operator_audit` | Every operator change, control-plane fields only. Append-only: triggers refuse updates, deletes and inserts over an existing id (`INSERT OR REPLACE`) |

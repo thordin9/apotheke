@@ -18,11 +18,19 @@ function migrated() {
   return db;
 }
 
+// The one exception to additive only: 0004 rebuilds plan_limits (same columns and rows) to allow one more key in its
+// CHECK, which SQLite cannot alter in place. Only these exact statements are allowed, and only in that file.
+const REBUILDS = { '0004_plan_limits_photos_per_item.sql': ['DROP TABLE plan_limits;', 'ALTER TABLE plan_limits_0004 RENAME TO plan_limits;'] };
+
 test('control migrations are numbered wrangler-style and additive only', () => {
   assert.ok(files.length >= 2);
   files.forEach((f, i) => assert.match(f, new RegExp(`^${String(i + 1).padStart(4, '0')}_[a-z0-9_]+\\.sql$`)));
   for (const f of files) {
-    const sql = readFileSync(new URL(f, dir), 'utf8').replace(/--.*$/gm, '');
+    let sql = readFileSync(new URL(f, dir), 'utf8').replace(/--.*$/gm, '');
+    for (const allowed of REBUILDS[f] ?? []) {
+      assert.equal(sql.split(allowed).length, 2, `${f}: ${allowed}`);
+      sql = sql.replace(allowed, '');
+    }
     assert.doesNotMatch(sql, /\b(DROP|RENAME|DELETE\s+FROM|UPDATE\s+\w+\s+SET|REPLACE|BEGIN\s+TRANSACTION|COMMIT)\b/i, f);
   }
 });
@@ -46,6 +54,7 @@ const PINNED = {
   '0001_control_plane.sql': 'a066b939768e2180e782e2e83fc53d03f611b6b7edac3b6991f4d5301eb4ecb7',
   '0002_seed_primary.sql': '7c0ecfebc8603b75300154ac1ba66adabebc550ddb0fdbb445df5994a9db8dcc',
   '0003_lifecycle_jobs.sql': '932738cbb9f76105a4d9f8a1333341ad0cf0c3d503bfebe3de53693571d6fd83',
+  '0004_plan_limits_photos_per_item.sql': 'c2720cf2f3b4fa03bd6655d483d076be0c3cbe235c0e1ff5ab469c3d5f2a3c78',
 };
 
 test('applied migrations are pinned by sha256', () => {
@@ -157,4 +166,40 @@ test('lifecycle_jobs: kinds and states fixed, created paused, key is <kind>:<ins
   refused(db, job('j2', 'resume', 'resume:t:n2', `, 'queued', NULL`), /CHECK/);
   refused(db, job('j2', 'resume', 'resume:t:n2', `, 'paused-ish', 'op'`), /CHECK/);
   for (const s of ['paused', 'queued', 'running', 'done', 'failed']) db.exec(job(`s-${s}`, 'export', `export:t:${s}`, `, '${s}', 'op'`));
+});
+
+test('0004 plan_limits: photos_per_item allowed, columns, checks and rows kept, nothing seeded', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec('PRAGMA foreign_keys = ON');
+  for (const f of files.filter((f) => f < '0004')) db.exec(readFileSync(new URL(f, dir), 'utf8'));
+  const cols = () => db.prepare(`PRAGMA table_info('plan_limits')`).all().map((c) => ({ ...c }));
+  const fks = () => db.prepare(`PRAGMA foreign_key_list('plan_limits')`).all().map((k) => [k.from, k.table, k.to]);
+  const before = [cols(), fks()];
+  refused(db, `INSERT INTO plan_limits (plan_id, limit_key, hard_value) VALUES ('internal', 'photos_per_item', 4)`, /CHECK/);
+  db.exec(`INSERT INTO plans (id, name) VALUES ('starter', 'Starter')`);
+  db.exec(`INSERT INTO plan_limits (plan_id, limit_key, soft_value, hard_value) VALUES ('starter', 'items', 400, 500), ('starter', 'photos', NULL, 1000)`);
+  db.exec(readFileSync(new URL('0004_plan_limits_photos_per_item.sql', dir), 'utf8'));
+  assert.deepEqual([cols(), fks()], before);
+  const rows = () => db.prepare('SELECT * FROM plan_limits ORDER BY plan_id, limit_key').all().map((r) => ({ ...r }));
+  assert.deepEqual(rows(), [{ plan_id: 'starter', limit_key: 'items', soft_value: 400, hard_value: 500 },
+    { plan_id: 'starter', limit_key: 'photos', soft_value: null, hard_value: 1000 }]);
+  db.exec(`INSERT INTO plan_limits (plan_id, limit_key, soft_value, hard_value) VALUES ('starter', 'photos_per_item', 3, 4)`);
+  refused(db, `INSERT INTO plan_limits (plan_id, limit_key, hard_value) VALUES ('starter', 'photos_each', 4)`, /CHECK/);
+  refused(db, `INSERT INTO plan_limits (plan_id, limit_key, soft_value, hard_value) VALUES ('starter', 'users', 5, 4)`, /CHECK/);
+  refused(db, `INSERT INTO plan_limits (plan_id, limit_key, hard_value) VALUES ('starter', 'items', -1)`, /CHECK/);
+  refused(db, `INSERT INTO plan_limits (plan_id, limit_key, hard_value) VALUES ('nope', 'photos_per_item', 4)`, /FOREIGN KEY/);
+  refused(db, `INSERT INTO plan_limits (plan_id, limit_key, hard_value) VALUES ('starter', 'items', 1)`, /UNIQUE|PRIMARY KEY/);
+  assert.equal(db.prepare(`SELECT count(*) AS n FROM sqlite_master WHERE name LIKE 'plan_limits_0004%'`).get().n, 0);
+  assert.equal(db.prepare(`SELECT count(*) AS n FROM plan_limits WHERE plan_id = 'internal'`).get().n, 0);
+});
+
+test('0004 applied twice: same schema and rows', () => {
+  const db = migrated();
+  db.exec(`INSERT INTO plan_limits (plan_id, limit_key, soft_value, hard_value) VALUES ('internal', 'photos_per_item', 8, 12), ('internal', 'users', NULL, 3)`);
+  const state = () => [db.prepare('SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY name').all().map((r) => ({ ...r })),
+    db.prepare('SELECT * FROM plan_limits ORDER BY limit_key').all().map((r) => ({ ...r }))];
+  const before = state();
+  db.exec(readFileSync(new URL('0004_plan_limits_photos_per_item.sql', dir), 'utf8'));
+  assert.deepEqual(state(), before);
+  assert.equal(before[1].length, 2);
 });

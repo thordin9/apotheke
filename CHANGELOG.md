@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** plan limit key `photos_per_item` (most photos per item) in the control plane's `plan_limits`, allowed by migration `0004_plan_limits_photos_per_item`; no plan has a value yet and the Worker does not enforce it ([#319](https://github.com/thordin9/apotheke/pull/319))
+
 ## [3.45.0] - 2026-11-13
 
 ### Added
