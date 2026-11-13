@@ -51,7 +51,7 @@ final class SignInController extends AuthPages
     {
         $this->firstAdmin();
         $settings = $this->settings();
-        if (!$settings->signInEnabled() || $settings->get('auth_register_disabled')) {
+        if (!$settings->registrationOpen()) {
             /** @var ErrorPage $error */
             $error = service('errorPage');
 
@@ -111,7 +111,7 @@ final class SignInController extends AuthPages
         return AuthViews::login($this->layout(), [
             'appName' => (string)$settings->get('app_name'),
             'tagline' => (string)$settings->get('app_tagline'),
-            'registrationOpen' => $settings->signInEnabled() && !$settings->get('auth_register_disabled'),
+            'registrationOpen' => $settings->registrationOpen(),
             'guestBrowsing' => $settings->signInEnabled() && !$settings->get('auth_guest_disabled'),
             'usernameMax' => Accounts::USERNAME_MAX,
         ], $error, $username, $note);
