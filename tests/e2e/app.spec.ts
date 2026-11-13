@@ -871,28 +871,33 @@ test('a double click sends one sign-in', async ({ page }) => {
         el.click();
         el.click();
     });
+    await expect(button).toBeDisabled();
     await expect(button).toHaveAttribute('aria-busy', 'true');
     release();
     await expect(page.locator('#sign-in-error')).toHaveText('Wrong user name or password.');
+    await expect(button).toBeEnabled();
     await expect(button).not.toHaveAttribute('aria-busy');
     expect(posts).toBe(1);
 });
 
 test('a signed-in session replaces the sign-in offer', async ({ page }) => {
+    const name = 'ada<img src=x onerror=alert(1)>';
     let gets = 0;
     await page.route(API_SESSION, (route) => {
         gets += 1;
         return route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify(sessionOk('kept-token', true, 'ada')),
+            body: JSON.stringify(sessionOk('kept-token', true, name)),
         });
     });
     await page.goto('/app/');
     await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toBeVisible();
     expect(gets).toBe(0);
     await page.getByRole('button', { name: 'Accept' }).click();
-    await expect(page.locator('#signed-in')).toHaveText('Signed in as ada.');
+    const signedIn = page.locator('#signed-in');
+    await expect(signedIn).toHaveText(`Signed in as ${name}.`);
+    expect(await signedIn.evaluate((el) => el.querySelector('img'))).toBeNull();
     await expect(page.locator('#app').getByRole('link', { name: 'Sign in' })).toHaveCount(0);
     expect(gets).toBe(1);
 });

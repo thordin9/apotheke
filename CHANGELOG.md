@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **frontend:** docs and tests now describe the /app/ sign-in link and signed-in state ([#296](https://github.com/thordin9/apotheke/pull/296))
+
 ## [3.42.4] - 2026-11-13
 
 ### Fixed

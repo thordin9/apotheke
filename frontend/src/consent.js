@@ -389,11 +389,6 @@ async function signIn(form, onSignedIn) {
         }
         if (res.ok) {
             signedIn = true;
-            try {
-                rememberCsrf(await res.clone().json());
-            } catch {
-                rememberCsrf(null);
-            }
             if (error) error.textContent = '';
             clearFieldErrors();
             if (typeof onSignedIn === 'function') onSignedIn();
