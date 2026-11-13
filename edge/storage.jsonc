@@ -6,10 +6,15 @@
 // APOTHEKE_D1_DATABASE_ID; the merge fails if the variable is missing or not a UUID.
 {
 	// D1, created in the EU jurisdiction (`wrangler d1 create apotheke-api --jurisdiction eu`; fixed at creation).
-	// The app's own migration runner applies migrations/ through the bridge, so the deploy runs no
-	// `wrangler d1 migrations apply`. A control-plane schema would later go in edge/migrations/control/, with
-	// "migrations_dir": "migrations/control" on this binding.
-	"d1_databases": [{ "binding": "DB", "database_name": "apotheke-api", "database_id": "<APOTHEKE_D1_DATABASE_ID>" }],
+	// The app's own migration runner applies migrations/ through the bridge. Control-plane migrations in
+	// edge/migrations/control/ are applied by the deploy job (`wrangler d1 migrations apply apotheke-api --remote`)
+	// before `wrangler deploy`.
+	"d1_databases": [{
+		"binding": "DB",
+		"database_name": "apotheke-api",
+		"database_id": "<APOTHEKE_D1_DATABASE_ID>",
+		"migrations_dir": "migrations/control"
+	}],
 	// R2 in the EU jurisdiction (`wrangler r2 bucket create apotheke-api-storage --jurisdiction eu`; fixed at creation).
 	"r2_buckets": [{ "binding": "STORAGE", "bucket_name": "apotheke-api-storage", "jurisdiction": "eu" }],
 	// Hosted mode: one Durable Object per installation, SQLite-backed. Appended to the existing bindings and

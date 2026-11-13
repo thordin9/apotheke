@@ -8,6 +8,7 @@ const { doStorage } = await import(new URL('./do-storage.mjs', import.meta.url).
 
 const { D1Outbound, Installation, ApothekeContainer, default: publicWorker } = await import('../src/index.ts');
 const { installationStub, INSTALLATION_NAME } = await import('../src/installation.ts');
+const AS_PRIMARY = { props: { doName: 'primary', prefix: 'installations/primary/' } };
 
 /** A namespace whose root refuses id creation: ids may only come from jurisdiction("eu"). */
 function namespace(storage, calls = []) {
@@ -39,13 +40,13 @@ function setup() {
   const storage = doStorage();
   const calls = [];
   const env = fullEnv({ INSTALLATION: namespace(storage, calls) });
-  return { storage, calls, env, outbound: new D1Outbound({}, env) };
+  return { storage, calls, env, outbound: new D1Outbound(AS_PRIMARY, env) };
 }
 const SCHEMA = 'CREATE TABLE uow_guard (ok INTEGER NOT NULL); CREATE TABLE item (id INTEGER PRIMARY KEY, qty INTEGER NOT NULL, version INTEGER NOT NULL);';
 
 test('P4-5b: every Installation id comes from the EU jurisdiction, by the Worker-chosen name', async () => {
   const calls = [];
-  installationStub(namespace(doStorage(), calls));
+  installationStub(namespace(doStorage(), calls), INSTALLATION_NAME);
   assert.deepEqual(calls, [['jurisdiction', 'eu'], ['eu.idFromName', INSTALLATION_NAME], ['eu.get', INSTALLATION_NAME]]);
   assert.equal(INSTALLATION_NAME, 'primary', 'matches the container object and the R2 prefix installations/primary/');
 });
@@ -65,7 +66,7 @@ test('P4-5b: in storage mode d1.internal is the Installation SQLite, and its dat
   assert.deepEqual(await post(outbound, '/exec', { sql: SCHEMA }), [200, { ok: true, count: 1 }]);
   assert.equal((await post(outbound, '/query', { sql: 'INSERT INTO item (id, qty, version) VALUES (?, ?, ?)', params: [1, 5, 1] }))[0], 200);
   // A new outbound and a new object on the same storage (container slept, object evicted) still see the row.
-  const again = new D1Outbound({}, fullEnv({ INSTALLATION: namespace(storage) }));
+  const again = new D1Outbound(AS_PRIMARY, fullEnv({ INSTALLATION: namespace(storage) }));
   assert.deepEqual(await post(again, '/query', { sql: 'SELECT qty FROM item WHERE id = ?', params: [1] }), [200, { ok: true, rows: [{ qty: 5 }] }]);
   const [status, body] = await post(outbound, '/batch', [{ sql: 'UPDATE item SET qty = qty + 1 WHERE id = ?', params: [1] }, { sql: 'SELECT qty FROM item' }]);
   assert.equal(status, 200);
@@ -81,7 +82,8 @@ test('P4-5b: a batch is all or nothing, and a guard failure returns only the mar
   try {
     const [s1, b1] = await post(outbound, '/batch', [{ sql: 'UPDATE item SET qty = 99 WHERE id = 1' }, { sql: 'INSERT INTO nope VALUES (1)' }]);
     assert.equal(s1, 500);
-    assert.deepEqual(b1, { ok: false, code: 'write_failed', error: 'the batch' });
+    assert.deepEqual({ ...b1, sqlite: undefined, reason: undefined }, { ok: false, code: 'write_failed', error: 'the batch', sqlite: undefined, reason: undefined });
+    assert.match(b1.reason, /no such table: nope/);
     const [s2, b2] = await post(outbound, '/batch', [
       { sql: 'UPDATE item SET qty = 7 WHERE id = 1 AND version = ?', params: [9] },
       { sql: 'INSERT INTO uow_guard (ok) SELECT NULL WHERE changes() <> ?', params: [1] },
@@ -90,6 +92,44 @@ test('P4-5b: a batch is all or nothing, and a guard failure returns only the mar
     assert.deepEqual(b2, { ok: false, code: 'guard_failed', error: 'NOT NULL constraint failed: uow_guard.ok' });
   } finally { console.error = original; }
   assert.deepEqual(storage.db.prepare('SELECT qty, version FROM item').all().map((r) => ({ ...r })), [{ qty: 5, version: 1 }]);
+});
+
+test('the Installation SQLite refuses the pragmas the runtime refuses (page_count, dbstat), and allows table_info and page_size', async () => {
+  const { outbound } = setup();
+  await post(outbound, '/exec', { sql: SCHEMA });
+  const original = console.error;
+  console.error = () => {};
+  try {
+    for (const sql of ['SELECT page_count * page_size AS n FROM pragma_page_count(), pragma_page_size()', 'PRAGMA page_count', 'SELECT SUM(pgsize) AS n FROM dbstat']) {
+      assert.deepEqual(await post(outbound, '/query', { sql }), [500, { ok: false, code: 'write_failed', error: 'the batch', sqlite: 'SQLITE_AUTH', reason: 'not authorized' }], sql);
+    }
+  } finally { console.error = original; }
+  assert.deepEqual(await post(outbound, '/query', { sql: 'SELECT name FROM pragma_table_info(?)', params: ['uow_guard'] }), [200, { ok: true, rows: [{ name: 'ok' }] }]);
+  const [status, body] = await post(outbound, '/query', { sql: 'SELECT page_size AS n FROM pragma_page_size()' });
+  assert.equal(status, 200);
+  assert.ok(body.rows[0].n > 0);
+});
+
+test('a failed d1.internal request logs and returns its statement kind, table and SQLite class, never a literal or a bound value', async () => {
+  const { outbound } = setup();
+  await post(outbound, '/exec', { sql: SCHEMA });
+  const lines = [];
+  const original = console.error;
+  console.error = (...a) => { lines.push(a.map(String).join(' ')); };
+  let status, body;
+  try {
+    [status, body] = await post(outbound, '/query', { sql: "INSERT INTO item (id, qty, version) VALUES (1, 'literal-xyz', ?) RETURNING nosuch", params: ['bound-xyz'] });
+  } finally { console.error = original; }
+  assert.equal(status, 500);
+  assert.equal(body.code, 'write_failed');
+  assert.equal(lines.length, 1);
+  const logged = JSON.parse(lines[0].slice('d1.internal request failed '.length));
+  assert.equal(logged.request, 'query INSERT item');
+  assert.match(logged.reason, /no such column: nosuch/);
+  assert.deepEqual([body.sqlite, body.reason], [logged.sqlite, logged.reason]);
+  for (const text of [lines[0], JSON.stringify(body)]) {
+    assert.doesNotMatch(text, /literal-xyz|bound-xyz|VALUES/);
+  }
 });
 
 /** Requests whose bodies arrive only after the gate opens, so every caller is in flight before any batch runs. */
@@ -139,7 +179,7 @@ test('P4-5b: concurrent relative writes all land (no lost update)', async () => 
 
 test('P4-5b: d1.internal is closed unless STORAGE, DB and INSTALLATION are all bound', async () => {
   for (const env of [{}, { DB: untouchable }, { INSTALLATION: untouchable }, { DB: untouchable, INSTALLATION: untouchable }, { STORAGE: untouchable, INSTALLATION: untouchable }, { STORAGE: untouchable, DB: untouchable }, { DB: untouchable, STORAGE_BACKEND: 'r2' }]) {
-    const res = await new D1Outbound({}, env).fetch(d1('/query', { sql: 'SELECT 1' }));
+    const res = await new D1Outbound(AS_PRIMARY, env).fetch(d1('/query', { sql: 'SELECT 1' }));
     assert.equal(res.status, 503, Object.keys(env).join());
     assert.deepEqual(await res.json(), { ok: false, code: 'unbound', error: 'D1 is not bound' });
   }
@@ -157,7 +197,7 @@ test('P4-5b: the container starts only with the whole fragment, and PHP is not y
   const start = async (env) => {
     let started;
     const container = { running: false, start(o) { started = o; this.running = true; }, setInactivityTimeout: async () => {}, monitor: () => new Promise(() => {}), getTcpPort: () => ({ fetch: async () => new Response('ok') }), interceptOutboundHttp: async () => {} };
-    const ctx = { container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
+    const ctx = { id: { name: 'primary' }, container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
     const original = console.error;
     console.error = () => {};
     try { return [(await new ApothekeContainer(ctx, { APP_PASSWORD: 'p', APP_KEY: 'k', ...env }).fetch(new Request('https://api.example.test/healthz'))).status, started]; } finally { console.error = original; }

@@ -56,13 +56,47 @@ function isGuardError(e: unknown): boolean {
 	return false;
 }
 
-const fail = (e: unknown): Response => {
-	// Details (message, stack, D1/SQLite text) stay in the Worker log only, never in the body.
-	console.error("d1.internal request failed", e);
+/** The errors in a thrown value's cause chain (at most four). */
+function chain(e: unknown): unknown[] {
+	const seen: unknown[] = [e];
+	for (let i = 0; i < 3; i++) {
+		const cause = (seen[i] as { cause?: unknown })?.cause;
+		if (cause == null) break;
+		seen.push(cause);
+	}
+	return seen;
+}
+
+/** Only SQLite's fixed diagnostic phrases and plain identifiers are kept, not SQL text or values. */
+export function describeError(e: unknown): { sqlite: string; reason: string } {
+	const texts = chain(e).map((c) => (typeof c === "string" ? c : typeof (c as { message?: unknown })?.message === "string" ? (c as { message: string }).message : ""));
+	const code = texts.map((t) => /\bSQLITE_[A-Z_]+\b/.exec(t)?.[0]).find((c) => c !== undefined);
+	const first = (texts.find((t) => t !== "") ?? "").split("\n")[0];
+	const fixed = /^(?:D1_ERROR: )?(not authorized|database is locked|database or disk is full|too many SQL variables|string or blob too big|interrupted|datatype mismatch|FOREIGN KEY constraint failed)(?=: SQLITE_[A-Z_]+|$)/.exec(first)?.[1];
+	const named = /^(?:D1_ERROR: )?((?:no such table|no such column|NOT NULL constraint failed|UNIQUE constraint failed): [A-Za-z_][A-Za-z0-9_.]*(?:, [A-Za-z_][A-Za-z0-9_.]*)*)(?=: SQLITE_[A-Z_]+|$)/.exec(first)?.[1];
+	return { sqlite: code ?? "Error", reason: fixed ?? named ?? "database request failed" };
+}
+
+/** What a request ran, without SQL text or values: the statement kind and table of a query, the size of a batch. */
+export function describeRequest(path: string, body: unknown): string {
+	if (path === "/batch") return `batch of ${Array.isArray(body) ? body.length : 0}`;
+	const sql = typeof (body as { sql?: unknown })?.sql === "string" ? (body as { sql: string }).sql : "";
+	const kind = /^\s*([A-Za-z]+)/.exec(sql)?.[1]?.toUpperCase() ?? "?";
+	const table = kind === "PRAGMA"
+		? /^\s*PRAGMA\s+(?:\w+\.)?(\w+)/i.exec(sql)?.[1]
+		: /\b(?:FROM|INTO|UPDATE|JOIN|TABLE(?:\s+IF\s+(?:NOT\s+)?EXISTS)?)\s+"?([A-Za-z_][A-Za-z0-9_]*)/i.exec(sql)?.[1];
+	return `${path.slice(1)} ${kind}${table ? ` ${table}` : ""}`;
+}
+
+const fail = (e: unknown, what: string): Response => {
+	// The log and the body name the statement kind, table, SQLite class and a message without quoted parts; never the
+	// SQL text or a bound value.
+	const { sqlite, reason } = describeError(e);
+	console.error("d1.internal request failed", JSON.stringify({ request: what, sqlite, reason }));
 	if (isGuardError(e)) {
 		return json({ ok: false, code: "guard_failed", error: GUARD_MARKER }, 500);
 	}
-	return json({ ok: false, code: "write_failed", error: "the batch" }, 500);
+	return json({ ok: false, code: "write_failed", error: "the batch", sqlite, reason }, 500);
 };
 
 /**
@@ -119,7 +153,7 @@ export async function handleD1Request(request: Request, db: D1Like): Promise<Res
 		}
 		return json({ ok: false, code: "not_found", error: "not found" }, 404);
 	} catch (e) {
-		return fail(e);
+		return fail(e, describeRequest(path, body));
 	}
 }
 

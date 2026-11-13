@@ -247,10 +247,9 @@ fail on every backend.
 
 ## Request state (FrankenPHP)
 
-The hosted container can run FrankenPHP in **worker mode** (QA-1854, #292). It ships off (`APOTHEKE_PHP_WORKER=0` in
-`edge/wrangler.jsonc`); turning it on (`1`) is a later step, after an interleaved classic/worker preview of the merged
-head. With `1`, the entrypoint picks
-`docker/frankenphp/php-worker.caddy`, and `public/frankenphp-worker.php` boots the app once per PHP thread and serves requests in a loop, with CodeIgniter's worker reset in between
+The hosted container runs FrankenPHP in **worker mode** (QA-1854, #292): `edge/wrangler.jsonc` sets
+`APOTHEKE_PHP_WORKER=1` (turned on after the interleaved classic/worker preview; `0` goes back to classic). The
+entrypoint then picks `docker/frankenphp/php-worker.caddy`, and `public/frankenphp-worker.php` boots the app once per PHP thread and serves requests in a loop, with CodeIgniter's worker reset in between
 (`Config\WorkerMode::$persistentServices`, factories, session close, transaction cleanup). An answered error returns
 to the loop (`PlainHandler`) instead of exiting, so a 404 does not restart the worker. Self-hosted images stay in
 **classic mode** by default (`php-classic.caddy`: each request starts with fresh PHP state, as under php-fpm).
@@ -281,15 +280,16 @@ The storage code is written for worker mode:
 
 - The app schema stays in `migrations/` and is applied by the app's own runner (`PdoMigrationRunner` with an edge
   dialect) through the bridge. There is one path for D1 and for Durable Object SQLite, and no
-  `wrangler d1 migrations` step. The runner records versions in `schema_migrations`, sends multi-statement SQL
-  through `exec()`, skips the connection `PRAGMA`s, `user_version` and `VACUUM INTO`, and splits large data
-  migrations into chunks of about 1,000 rows.
+  `wrangler d1 migrations` step for the app schema. The runner records versions in `schema_migrations`, sends
+  multi-statement SQL through `exec()`, skips the connection `PRAGMA`s, `user_version` and `VACUUM INTO`, and
+  splits large data migrations into chunks of about 1,000 rows.
 - In hosted mode each installation's Durable Object migrates its own storage the first time it starts on a new
   image, using the same runner.
 - `uow_guard` and `uow_refs` are added as ordinary migrations. They are harmless on every backend.
 - `edge/migrations/control/` holds the control-plane schema (installations, routes, plans and limits, subscriptions,
-  usage, audit; see [operator console](../operator-console.md)), applied with `wrangler d1 migrations apply`. It is
-  never mixed with the app schema.
+  usage, audit; see [operator console](../operator-console.md)). It is never mixed with the app schema. The deploy
+  job applies it with `wrangler d1 migrations apply apotheke-api --remote` after merging `edge/storage.jsonc`
+  (which sets `migrations_dir` to `migrations/control` on the `DB` binding) and before `wrangler deploy`.
 - Tables that only the CI4 app has stay registered in `Backups::UNCARRIED_MIGRATIONS` and `upg_ci4_only()`. The
   2.6.x tables keep their shape, so rolling back to the Docker image stays possible from a backup zip.
 

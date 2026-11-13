@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Backup;
 
+use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Storage\LeaseDenied;
 use CodeIgniter\Database\BaseConnection;
@@ -36,10 +37,14 @@ final class RestoreFence
      */
     private const SQLITE_CLAIM_WAIT_MS = 60000;
 
-    /** @param BaseConnection<object|resource, object|resource> $db */
+    /**
+     * On the hosted database (D1) the transaction is one batch: the DELETE and the INSERT commit together or not at
+     * all, and no other request runs between them.
+     *
+     * @param BaseConnection<object|resource, object|resource> $db
+     */
     public static function claim(BaseConnection $db, string $token): void
     {
-        Writes::refuseOnD1($db, 'Restoring a backup');
         $stamp = self::stamp();
         $sqlite = $db->connID instanceof SQLite3 ? $db->connID : null;
         $previous = 5000;
@@ -68,6 +73,8 @@ final class RestoreFence
     /**
      * Fail unless this token still owns the fence. The UPDATE is the check, so it is
      * part of the caller's transaction and locks the row until that transaction ends.
+     * On the hosted database it is called outside a transaction: the UPDATE is one batch
+     * with its changed-row count.
      *
      * @param BaseConnection<object|resource, object|resource> $db
      */
@@ -83,6 +90,15 @@ final class RestoreFence
     public static function release(BaseConnection $db, string $token): void
     {
         $db->query('DELETE FROM restore_marker WHERE run = ? AND sha256 = ?', [self::RUN, $token]);
+    }
+
+    /**
+     * The fence as a unit-of-work step on the hosted database: the unit fails unless $token still owns it.
+     */
+    public static function assert(UnitOfWork $uow, string $token): void
+    {
+        $uow->assert("EXISTS (SELECT 1 FROM restore_marker WHERE run = 'fence' AND sha256 = ?)", [$token], 'restore fence',
+            static fn (): LeaseDenied => new LeaseDenied('The lease is held.'));
     }
 
     /** @return array{sql:string,params:list<string>} */

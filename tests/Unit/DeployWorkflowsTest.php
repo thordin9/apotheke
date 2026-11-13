@@ -93,11 +93,25 @@ final class DeployWorkflowsTest extends TestCase
         $yml = $this->workflow('deploy-edge.yml');
         $steps = $this->steps($yml, 'deploy');
         $n = count($steps);
-        $merge = $steps[$n - 3];
+        $merge = $steps[$n - 4];
         $this->assertStringStartsWith('name: Storage config', $merge);
-        $this->assertStringContainsString('APOTHEKE_D1_DATABASE_ID: ${{ vars.APOTHEKE_D1_DATABASE_ID }}', $merge);
+        $this->assertStringContainsString('APOTHEKE_D1_DATABASE_ID: ${{ secrets.APOTHEKE_D1_DATABASE_ID }}', $merge);
         $this->assertStringContainsString("run: node scripts/edge-storage-config.mjs edge/wrangler.jsonc edge/storage.jsonc\n", $merge);
-        $this->assertStringNotContainsString('secrets.', $merge);
+        $this->assertStringNotContainsString('CLOUDFLARE_API_TOKEN', $merge);
+        $migrate = $steps[$n - 3];
+        $this->assertStringStartsWith('name: Apply control-plane D1 migrations', $migrate);
+        $this->assertStringContainsString("if: steps.token.outputs.set == 'true'\n", $migrate);
+        $this->assertStringContainsString("working-directory: edge\n", $migrate);
+        $this->assertStringContainsString('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}', $migrate);
+        $this->assertStringContainsString('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}', $migrate);
+        $this->assertStringContainsString('wrangler d1 migrations apply apotheke-api --remote --config wrangler.jsonc', $migrate);
+        $this->assertStringContainsString('migrations_dir!=="migrations/control"', $migrate);
+        $this->assertStringContainsString('Account > D1 > Edit', $migrate);
+        $this->assertStringContainsString('code: 10000', $migrate);
+        $this->assertStringContainsString('title=Cloudflare refused the token', $migrate);
+        $this->assertStringContainsString('exit "$code"', $migrate);
+        $this->assertStringNotContainsString('continue-on-error', $migrate);
+        $this->assertStringNotContainsString('--preview', $migrate);
         $smoke = $steps[$n - 1];
         $this->assertStringStartsWith('name: Smoke check', $smoke);
         $this->assertStringContainsString('/healthz', $smoke);
@@ -110,8 +124,16 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertStringContainsString("\n        shell: bash\n", $smoke);
         $this->assertStringContainsString('exit 1', $smoke);
         $this->assertDoesNotMatchRegularExpression('/secrets\.|CLOUDFLARE_/', $smoke);
-        // no wrangler d1 migrations apply: the app's own runner applies migrations/ through the bridge
-        $this->assertStringNotContainsString('migrations apply', implode('', $steps) . implode('', $this->steps($yml, 'check')));
+        // The check job never applies remote D1 migrations (no token, dummy id). The deploy job applies
+        // edge/migrations/control/ after the merge and before wrangler deploy.
+        $this->assertStringNotContainsString('migrations apply', implode('', $this->steps($yml, 'check')));
+        $this->assertStringContainsString('migrations apply', implode('', $steps));
+        $checkJob = $this->job($yml, 'check');
+        $this->assertStringNotContainsString('environment:', $checkJob);
+        $this->assertStringContainsString('APOTHEKE_D1_DATABASE_ID: 00000000-0000-4000-8000-000000000000', $checkJob);
+        $this->assertStringNotContainsString('vars.APOTHEKE_D1_DATABASE_ID', $checkJob);
+        $this->assertStringNotContainsString('secrets.APOTHEKE_D1_DATABASE_ID', $checkJob);
+        $this->assertStringNotContainsString('CLOUDFLARE_ACCOUNT_ID', $checkJob);
         // Merged for real only in the deploy job; the check job merges once more, for its dry run only (ADR-002), with a
         // dummy D1 id and no secret or variable, after the default dry run.
         $this->assertSame(2, substr_count($yml, 'edge-storage-config.mjs edge/'), 'the deploy job and the merged dry run');
@@ -130,6 +152,7 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertStringNotContainsString('r2_buckets', self::file('edge/wrangler.jsonc'));
         $storage = self::file('edge/storage.jsonc');
         $this->assertStringContainsString('"database_id": "<APOTHEKE_D1_DATABASE_ID>"', $storage);
+        $this->assertStringContainsString('"migrations_dir": "migrations/control"', $storage);
         $this->assertStringContainsString('"jurisdiction": "eu"', $storage);
         // ADR-002 decision 5 (#203): hosted mode keeps cookies host-only, so the flipped config drops COOKIE_DOMAIN
         // (the merge script applies drop_vars); the default config keeps it.
@@ -221,6 +244,17 @@ final class DeployWorkflowsTest extends TestCase
             $this->assertStringContainsString('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}', $t);
             $this->assertStringNotContainsString('vars.CLOUDFLARE_ACCOUNT_ID', $this->workflow($file));
         }
+        if ($file === 'deploy-edge.yml') {
+            $this->assertStringContainsString('APOTHEKE_D1_DATABASE_ID: ${{ secrets.APOTHEKE_D1_DATABASE_ID }}', $t);
+            $this->assertStringContainsString('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}', $t);
+            $this->assertStringContainsString('if [ -n "$APOTHEKE_D1_DATABASE_ID" ]; then echo "::add-mask::$APOTHEKE_D1_DATABASE_ID"; fi', $t);
+            $yml = $this->workflow($file);
+            $this->assertLessThan(
+                strpos($yml, '- name: Storage config'),
+                strpos($yml, '::add-mask::$APOTHEKE_D1_DATABASE_ID'),
+                'the D1 id is masked before the merge or wrangler can print it'
+            );
+        }
         $this->assertMatchesRegularExpression('/if \[ -z "\$CLOUDFLARE_API_TOKEN" \]; then\n\s+echo "set=false" >> "\$GITHUB_OUTPUT"\n.*\n\s+else\n\s+echo "set=true" >> "\$GITHUB_OUTPUT"\n\s+fi/', $t);
         $this->assertStringNotContainsString('if:', $t);
         $this->assertStringNotContainsString('exit 1', $t, 'a missing token skips, green');
@@ -239,7 +273,11 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertSame(count($steps) - ($file === 'deploy-edge.yml' ? 2 : 1), $deploy);
 
         $secretSteps = array_filter($steps, static fn (string $s): bool => str_contains($s, 'secrets.'));
-        $this->assertSame([1, $deploy], array_keys($secretSteps), 'only the token check and the deploy step see the token');
+        if ($file === 'deploy-edge.yml') {
+            $this->assertSame([1, $deploy - 2, $deploy - 1, $deploy], array_keys($secretSteps), 'the token check, storage merge, control-plane migrations, and the deploy step see secrets');
+        } else {
+            $this->assertSame([1, $deploy], array_keys($secretSteps), 'only the token check and the deploy step see the token');
+        }
         foreach ($this->steps($this->workflow($file), 'deploy') as $step) {
             if (str_contains($step, 'npm ci')) {
                 $this->assertStringNotContainsString('secrets.', $step);

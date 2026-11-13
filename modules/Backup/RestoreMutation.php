@@ -31,19 +31,34 @@ final class RestoreMutation
         return $store->putIfMissing($key, $bytes);
     }
 
-    /** @param BaseConnection<object|resource, object|resource> $db */
+    /**
+     * On the hosted database (D1, no interactive transaction) the order keeps the same guarantee: the object's
+     * version is read first, then the fence is checked (one batch), then the PUT is conditional on that version. A
+     * restore that claims the fence after the check writes the key only after its claim, so it changes the version
+     * and this PUT fails; one that claimed before the check fails the check.
+     *
+     * @param BaseConnection<object|resource, object|resource> $db
+     */
     public static function replace(BaseConnection $db, string $token, R2Storage $store, string $key, string $bytes): void
     {
-        Writes::refuseOnD1($db, 'Restoring a backup');
-        Writes::transaction($db, static function () use ($db, $token, $store, $key, $bytes): void {
-            RestoreFence::rejectUnless($db, $token);
-            $version = $store->version($key);
+        $put = static function (?array $version) use ($store, $key, $bytes): void {
             $stored = $version === null
                 ? $store->putIfMissing($key, $bytes)
                 : $store->putIfVersion($key, $version[1], $bytes);
             if (!$stored) {
                 throw new LeaseDenied('The lease is held.');
             }
+        };
+        if (Writes::onD1($db)) {
+            $version = $store->version($key);
+            RestoreFence::rejectUnless($db, $token);
+            $put($version);
+
+            return;
+        }
+        Writes::transaction($db, static function () use ($db, $token, $store, $key, $put): void {
+            RestoreFence::rejectUnless($db, $token);
+            $put($store->version($key));
         });
     }
 }

@@ -137,6 +137,9 @@ final class D1MigrationRunner
         if ($fresh) {
             $log('fresh D1 database; no legacy user_version adopt path');
         }
+        if (FreshInstallRoles::applies($fresh, $done)) {
+            $d1->run(FreshInstallRoles::statements());
+        }
 
         return $done;
     }

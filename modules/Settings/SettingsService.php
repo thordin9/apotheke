@@ -350,7 +350,7 @@ final class SettingsService
      * the autofill address clears the stored token.
      *
      * @param ?int $maxBytes larger input is refused; null = no limit (the CLI, like legacy)
-     * @param \Closure():void|null $guard runs inside the settings unit, before its writes
+     * @param \Closure(?\Apotheke\Core\Database\UnitOfWork):void|null $guard runs inside the settings unit, before its writes
      * @return array{applied:int,errors:array<string,string>,ignored:list<string>,token_cleared:bool}
      */
     public function import(string $json, ?int $maxBytes = self::IMPORT_MAX_BYTES, ?\Closure $guard = null): array
@@ -392,7 +392,7 @@ final class SettingsService
      * old token is dropped so it can never follow the address elsewhere.
      *
      * @param array<string,mixed> $values
-     * @param \Closure():void|null $guard runs inside the settings unit, before its writes.
+     * @param \Closure(?\Apotheke\Core\Database\UnitOfWork):void|null $guard runs inside the settings unit, before its writes.
      *        A restore passes it so the token clear is part of that same unit.
      * @return bool whether the autofill token was cleared
      */

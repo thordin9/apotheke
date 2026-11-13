@@ -492,6 +492,9 @@ jobs:
           curl -fsS -o /dev/null http://127.0.0.1:9095/healthz
           docker logs apotheke-threads 2>&1 | grep -F ', 4 PHP threads'
           docker rm -f apotheke-threads >/dev/null
+      - name: FrankenPHP worker mode (no worker restart after errors, recycling; L-1980, L-1979)
+        if: matrix.server == 'frankenphp'
+        run: bash scripts/docker-worker-checks.sh apotheke:ci
       - name: HEALTHCHECK turns healthy
         run: |
           set -euo pipefail
