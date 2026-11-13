@@ -22,6 +22,47 @@ test('header Sign in stays header ink and underlines on hover', async ({ browser
     await context.close();
 });
 
+test('install commands fit a phone without sideways scroll', async ({ browser }) => {
+    const commands = "git clone https://github.com/thordin9/apotheke.git\ncd apotheke\necho 'APP_PASSWORD=change-me' > .env\ndocker compose up -d --build";
+    for (const width of [320, 390, 421]) {
+        const context = await browser.newContext({ viewport: { width, height: 844 } });
+        const page = await context.newPage();
+        await page.goto('/');
+        await page.getByRole('button', { name: 'Decline' }).click();
+        const fit = await page.locator('#install pre').evaluate((el, expected) => {
+            const code = el.querySelector('code');
+            if (!code) return false;
+            const selection = document.getSelection();
+            if (!selection) return false;
+            const range = document.createRange();
+            range.selectNodeContents(code);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            const copied = selection.toString();
+            selection.removeAllRanges();
+            if (copied !== expected || el.scrollWidth > el.clientWidth) return false;
+            const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+            let node = walker.nextNode();
+            while (node) {
+                const text = node.textContent || '';
+                const words = /\S+/g;
+                let match = words.exec(text);
+                while (match) {
+                    const word = document.createRange();
+                    word.setStart(node, match.index);
+                    word.setEnd(node, match.index + match[0].length);
+                    if (word.getClientRects().length !== 1) return false;
+                    match = words.exec(text);
+                }
+                node = walker.nextNode();
+            }
+            return true;
+        }, commands);
+        expect(fit).toBe(true);
+        await context.close();
+    }
+});
+
 test('the privacy page describes the sign-in session cookie', async ({ page }) => {
     await page.goto('/privacy/');
     await page.getByRole('button', { name: 'Decline' }).click();

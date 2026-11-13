@@ -52,6 +52,10 @@
   ! Cache-Control
   Cache-Control: public, max-age=86400
 
+/favicon.ico
+  ! Cache-Control
+  Cache-Control: public, max-age=86400
+
 # SPA. Detach the landing CSP first so the two policies are not both applied.
 /app/*
   ! Content-Security-Policy
