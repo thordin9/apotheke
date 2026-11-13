@@ -482,12 +482,21 @@ L-1979). The hosted container always uses 1000, since `edge/src/index.ts` doesn'
 every boot, so a restart shows in the container log (CI's `scripts/docker-worker-checks.sh` counts them). The hosted `apotheke-api` container sets it (`1`, QA-1854,
 #297). Self-hosted images keep classic mode unless you set it. The nginx image has no worker mode.
 
-**Worker mode rollback (hosted).** Revert the enable commit with `git revert <squash sha>` (the squash commit of #297 on
-`main`) in a normal pull request, then publish a release. Don't hand-edit only `"APOTHEKE_PHP_WORKER": "1"` to `"0"` in
-`edge/wrangler.jsonc`: that alone fails `tests/Unit/DockerfileTest.php`, `scripts/deploy-scripts.test.mjs` and the
-`edge/worker-configuration.d.ts` types check, which the revert puts back together. The rollback takes effect with that
-release's deploy, and the running container switches at its next start (after a deploy or a sleep). To confirm, check
-the container log after that start: the entrypoint line reads `… 2 PHP threads, classic mode`, and no
+**Worker mode rollback (hosted).** Turn worker mode off with one small "disable worker mode" commit in a normal pull
+request, then publish a release. Don't `git revert` the enable commit: by then the revert would also drop the unrelated
+changes merged with it. The commit touches exactly these files (line numbers as of #297):
+
+* `edge/wrangler.jsonc:49`: `"APOTHEKE_PHP_WORKER": "1"` to `"0"`.
+* `edge/worker-configuration.d.ts:10`: regenerate it with `cd edge && npx wrangler types --config=wrangler.jsonc`.
+  The file becomes `APOTHEKE_PHP_WORKER: "0";` with a new hash on line 2. CI's `wrangler types --check` fails without it.
+* `tests/Unit/DockerfileTest.php:269`: the pin `'"APOTHEKE_PHP_WORKER": "1"'` to `"0"`.
+* `scripts/deploy-scripts.test.mjs:615`: `assert.equal(c.vars.APOTHEKE_PHP_WORKER, "1")` to `"0"`.
+
+Those four changes are all CI needs. They were proved on a scratch branch off #297 with worker mode off: PROOF_RUN.
+A CHANGELOG bullet under `[Unreleased]` (with the pull request link) is the usual extra. The rollback takes effect
+with that release's deploy, and the running container switches at its next start (after a deploy or a sleep). To
+confirm, check the container log after that start: the entrypoint line reads
+`apotheke: frankenphp on :9091 (/var/www/app/public), 2 PHP threads, classic mode`, and no
 `apotheke: PHP worker started` lines follow.
 
 **Request body limits.** Sizes are binary: 1 MiB = 1,048,576 bytes (nginx's `22m` is the same 22 MiB). The same

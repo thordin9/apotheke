@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Changed
 
-- **edge:** FrankenPHP worker mode is on for the hosted container (`APOTHEKE_PHP_WORKER=1` in `edge/wrangler.jsonc`); in the interleaved classic/worker preview it was 11.7% faster at p50 on `/api/v1/me` (measured before #293 and #298; not re-measured). To go back to classic mode, `git revert` the enable commit and release (Worker mode rollback in `docs/deployment-and-operations.md`) ([#297](https://github.com/thordin9/apotheke/pull/297))
+- **edge:** FrankenPHP worker mode is on for the hosted container (`APOTHEKE_PHP_WORKER=1` in `edge/wrangler.jsonc`); in the interleaved classic/worker preview it was 11.7% faster at p50 on `/api/v1/me` (measured before #293 and #298; not re-measured). To go back to classic mode, ship a small disable-worker-mode commit in a release (Worker mode rollback in `docs/deployment-and-operations.md`) ([#297](https://github.com/thordin9/apotheke/pull/297))
 
 ## [3.41.0] - 2026-11-13
 
