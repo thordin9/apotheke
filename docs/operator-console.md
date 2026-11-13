@@ -130,8 +130,15 @@ running installation at its next start.
 
 Rotating the Worker's `APP_KEY` secret changes `primary`'s key and every derived per-installation key at once. Nothing
 re-encrypts the secrets other installations have already stored under their old key, so a rotation has to be planned
-per installation first. Until the first-admin claim (C1) replaces it, all installations get the same Worker
-`APP_PASSWORD`.
+per installation first.
+
+## Hosted installation env
+
+`primary` gets the Worker's `APP_PASSWORD` and the same container env as before, with no new variables. Any other
+installation gets no `APP_PASSWORD`; it gets `APOTHEKE_HOSTED=1` and `APOTHEKE_INSTALLATION` set to its own `do_name`,
+so the app starts without a shared password and its first admin comes from the first-admin claim (C1). Both values are
+set only from the container object's own name, never from a request. A hosted container needs an app and entrypoint
+that start without `APP_PASSWORD` when `APOTHEKE_HOSTED=1`.
 
 ## Lifecycle jobs
 
