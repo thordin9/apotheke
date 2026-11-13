@@ -10,8 +10,9 @@ name: Deploy edge
 # Without the CLOUDFLARE_API_TOKEN secret the deploy is skipped and the run stays green; so is the whole deploy job (before
 # the environment's review) until the repository variable EDGE_STORAGE_READY is true.
 # P4 storage: the deploy job (so only with EDGE_STORAGE_READY=true) merges edge/storage.jsonc (D1 DB, R2 STORAGE in the
-# eu jurisdiction, the Installation Durable Object) into edge/wrangler.jsonc, deploys, then checks /healthz. The pull
-# request checks dry-run both the default config and the merged one (with a dummy D1 id, no secret).
+# eu jurisdiction, the Installation Durable Object) into edge/wrangler.jsonc, applies control-plane D1 migrations in
+# edge/migrations/control/ (`wrangler d1 migrations apply apotheke-api --remote`), deploys, then checks /healthz. The
+# pull request checks dry-run both the default config and the merged one (with a dummy D1 id, no secret).
 # Flip checklist: docs/deployment-and-operations.md#p4-edge-storage-flip-checklist.
 on:
   pull_request:
@@ -161,9 +162,11 @@ jobs:
         id: token
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          APOTHEKE_D1_DATABASE_ID: ${{ secrets.APOTHEKE_D1_DATABASE_ID }}
         run: |
           if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then echo "::add-mask::$CLOUDFLARE_ACCOUNT_ID"; fi
+          if [ -n "$APOTHEKE_D1_DATABASE_ID" ]; then echo "::add-mask::$APOTHEKE_D1_DATABASE_ID"; fi
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
             echo "set=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=Deploy skipped::The deploy-edge environment has no CLOUDFLARE_API_TOKEN secret; nothing was deployed."
@@ -198,18 +201,44 @@ jobs:
         working-directory: edge
         run: npm ci --ignore-scripts --no-audit --no-fund
       # P4 storage (behind EDGE_STORAGE_READY, like the whole job): the bindings live in edge/storage.jsonc and are
-      # merged into this run's checkout only, with the D1 id from a repository variable (not a secret). No
-      # `wrangler d1 migrations apply`: the app's own runner applies migrations/ through the bridge.
+      # merged into this run's checkout only, with the D1 id from a repository variable (not a secret). The app's own
+      # runner still applies migrations/ through the bridge. Control-plane migrations in edge/migrations/control/ are
+      # applied next, after this merge (so wrangler.jsonc has migrations_dir) and before wrangler deploy.
       - name: Storage config (merge edge/storage.jsonc; D1 DB, R2 STORAGE in eu, Installation Durable Object)
         if: steps.token.outputs.set == 'true'
         env:
-          APOTHEKE_D1_DATABASE_ID: ${{ vars.APOTHEKE_D1_DATABASE_ID }}
+          APOTHEKE_D1_DATABASE_ID: ${{ secrets.APOTHEKE_D1_DATABASE_ID }}
         run: node scripts/edge-storage-config.mjs edge/wrangler.jsonc edge/storage.jsonc
+      # Idempotent: a second run applies nothing. A failure stops the deploy. Uses the existing
+      # CLOUDFLARE_API_TOKEN secret; no new token. The guard refuses to apply if the merged config has no
+      # migrations_dir, so wrangler cannot fall back to edge/migrations/ (the default next to wrangler.jsonc).
+      - name: Apply control-plane D1 migrations
+        if: steps.token.outputs.set == 'true'
+        working-directory: edge
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+        # wrangler prints "Executing on remote database <name> (<uuid>)"; the uuid is masked in the earlier step.
+        # A refused apply (authentication error 10000 / permission) names the missing Account > D1 > Edit, then fails.
+        run: |
+          node -e 'const t=require("fs").readFileSync("wrangler.jsonc","utf8").replace(/^\s*\/\/.*$/gm,"").replace(/,(\s*[}\]])/g,(m,b)=>b); const d=(JSON.parse(t).d1_databases||[]).find((x)=>x.database_name==="apotheke-api"); if(!d||d.migrations_dir!=="migrations/control"){console.log("::error title=Control-plane migrations::merged wrangler.jsonc has no apotheke-api migrations_dir migrations/control; nothing was applied."); process.exit(1)}'
+          log=$(mktemp); trap 'rm -f "$log"' EXIT
+          code=0
+          npx --no-install wrangler d1 migrations apply apotheke-api --remote --config wrangler.jsonc > "$log" 2>&1 || code=$?
+          cat "$log"
+          if [ "$code" = 0 ]; then exit 0; fi
+          if grep -qiE 'Authentication error|code: 10000|code: 10001|Unauthorized|\b403\b|not authorized|permission' "$log"; then
+            echo "::error title=Cloudflare refused the token::Applying control-plane D1 migrations was refused (authentication or 403). The CLOUDFLARE_API_TOKEN secret likely lacks Account > D1 > Edit."
+          else
+            echo "::error title=Control-plane migrations failed::wrangler d1 migrations apply for apotheke-api failed (exit $code); see the log above."
+          fi
+          exit "$code"
       - name: Deploy (Worker guard, then wrangler deploy of apotheke-api and its container only)
         if: steps.token.outputs.set == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: bash scripts/cf-deploy.sh apotheke-api edge
       # The custom domain is attached outside CI (before the flip); the first request may cold-start the container.
       # Each try is capped at 20 s (N-1542), 18 tries 10 s apart: at most about 9 minutes, well inside the job's

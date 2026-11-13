@@ -55,6 +55,19 @@ final class D1DriverBridgeTest extends CIUnitTestCase
         return $db;
     }
 
+    /** A refused statement fails with the generic message; the SQLite class and phrase are kept only as its cause. */
+    public function testARefusedStatementKeepsTheSqliteClassAsItsCause(): void
+    {
+        try {
+            (new \Apotheke\Core\Database\D1HttpExecutor($this->url))->query("SELECT page_count AS n FROM pragma_page_count() WHERE 'literal-xyz' <> ?", ['bound-xyz']);
+            $this->fail('the runtime refuses page_count');
+        } catch (\Apotheke\Core\Exceptions\WriteFailed $e) {
+            $this->assertSame('Database write failed: the batch', $e->getMessage());
+            $this->assertNotNull($e->getPrevious());
+            $this->assertSame('SQLITE_AUTH: not authorized', $e->getPrevious()->getMessage());
+        }
+    }
+
     public function testTheRealHandlerGivesExactIdsCountsAndRows(): void
     {
         $db = $this->db();

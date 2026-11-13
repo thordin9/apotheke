@@ -11,6 +11,87 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Changed
 
 - **frontend:** URL resolution in check-dist was tightened ([#295](https://github.com/thordin9/apotheke/pull/295))
+- **ci:** the Cloudflare account identifier for the frontend deploy comes from a `deploy-site` environment secret ([#306](https://github.com/thordin9/apotheke/pull/306))
+
+## [3.42.2] - 2026-11-13
+
+### Fixed
+
+- **auth:** a first install on the hosted database that stops part way and finishes on a later start gives editors and viewers the new built-in permissions, as an install that did not stop does ([#309](https://github.com/thordin9/apotheke/pull/309))
+
+### Maintenance
+
+- ci: apply control-plane D1 migrations before the edge deploy ([#300](https://github.com/thordin9/apotheke/pull/300))
+
+### Added
+
+- **ci:** the edge deploy applies control-plane D1 migrations in `edge/migrations/control/` to `apotheke-api` before `wrangler deploy` (idempotent; a failed apply stops the deploy), and the Cloudflare account id and D1 database id come from `deploy-edge` environment secrets ([#300](https://github.com/thordin9/apotheke/pull/300))
+
+## [3.42.1] - 2026-11-13
+
+### Fixed
+
+- **backup:** a restore on the hosted database no longer fails with "The backup could not be restored" after keeping the backup before it: the size check measured the database with a pragma the hosted database refuses; it now measures the stored values, and only when `RESTORE_DB_MAX_MB` is set. A failed restore logs its step and the database error class on the server ([#308](https://github.com/thordin9/apotheke/pull/308))
+
+## [3.42.0] - 2026-11-13
+
+### Added
+
+- **edge:** turn on FrankenPHP worker mode for apotheke-api ([#297](https://github.com/thordin9/apotheke/pull/297))
+
+### Changed
+
+- **edge:** FrankenPHP worker mode is on for the hosted container (`APOTHEKE_PHP_WORKER=1` in `edge/wrangler.jsonc`); in the interleaved classic/worker preview it was 11.7% faster at p50 on `/api/v1/me` (measured before #293 and #298; not re-measured). To go back to classic mode, ship a small disable-worker-mode commit in a release (Worker mode rollback in `docs/deployment-and-operations.md`) ([#297](https://github.com/thordin9/apotheke/pull/297))
+
+## [3.41.0] - 2026-11-13
+
+### Added
+
+- **backup:** restore a backup on the hosted database; each restore first keeps a backup of the whole catalog (the newest `RESTORE_KEEP_BACKUPS`, default 5), listed on the backup page and by `GET /api/v1/backups`; restoring is a permission of its own (Restore), which every role with Backup keeps ([#305](https://github.com/thordin9/apotheke/pull/305))
+- **auth:** new installations give editors the Backup and Restore permissions and viewers Backup; existing installations keep their roles, and an admin grants these to editors and viewers in the role editor or with *Reset built-in roles* ([#305](https://github.com/thordin9/apotheke/pull/305))
+
+## [3.40.0] - 2026-11-13
+
+### Added
+
+- **edge:** each installation's database object and R2 key prefix come from its own container object's name, passed as props to `d1.internal` and `r2.internal`; multipart markers and the unfinished-upload sweep are per installation. `primary` keeps its names, prefix and keys. A failed route lookup is retried after 5 seconds instead of on every request ([#303](https://github.com/thordin9/apotheke/pull/303))
+
+## [3.39.0] - 2026-11-12
+
+### Added
+
+- **edge:** the Worker routes each request by host through the control plane's `installation_routes`; a missing row, an unbound `DB` or a failed lookup falls back to `primary` as before, and paused or removed installations get a status page without starting a container ([#302](https://github.com/thordin9/apotheke/pull/302))
+
+## [3.38.2] - 2026-11-12
+
+### Fixed
+
+- **edge:** recycle FrankenPHP workers and test worker mode in CI ([#298](https://github.com/thordin9/apotheke/pull/298))
+
+### Added
+
+- **edge:** each FrankenPHP worker recycles itself after `APOTHEKE_WORKER_MAX_REQUESTS` requests (default 1000, `0` for no cap), because FrankenPHP 1.13.4 rejects `max_requests`, and logs `apotheke: PHP worker started` on every boot; a rejected value (not a whole number, or 10 or more digits) logs a warning and uses 1000. The hosted container always uses 1000 (L-1979, N-2044) ([#298](https://github.com/thordin9/apotheke/pull/298))
+- **ci:** the FrankenPHP image job runs `scripts/docker-worker-checks.sh` in worker mode, so an answered error that restarts the worker, or a recycle that exits instead of returning, fails CI (L-1980, L-2039) ([#298](https://github.com/thordin9/apotheke/pull/298))
+
+### Changed
+
+- **tests:** the Caddyfile validate test skips worker mode when `/var/www/app/public/frankenphp-worker.php` is missing, so a host `frankenphp` on `PATH` no longer fails it (N-1981); stale worker-mode comments fixed (N-1985) ([#298](https://github.com/thordin9/apotheke/pull/298))
+
+## [3.38.1] - 2026-11-12
+
+### Fixed
+
+- **core:** a small web POST whose body fills no form fields (JSON, text) gets the consent, sign-in or CSRF answer instead of `413`; only a body past `post_max_size` is `413` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **core:** a page or form write (any method but GET, HEAD and OPTIONS, outside `/api`) whose `Origin`, or `Referer` when there is no `Origin`, is not this host or the public base answers `403` with sign-in on as well as off; `X-Forwarded-Proto` counts with `trust_proxy`, and a request without either header goes on to the CSRF token check as before ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **core:** a page or form write that sends a field as a list (`id[]=`, `name[]=`) where the form takes one value answers `422` with the usual error page, or `{ok:false,error}` for fetch, after the sign-in, same-origin and CSRF checks, instead of reading it as `Array` or `1`; the list fields (`ids[]`, `perms[]`, `col[]`, `photos[]`, `files[]`) and GET filters are unchanged ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **catalog:** an item's name over 200 characters, notes over 5,000, tags over 2,000 or serial number over 100 answer `422` with the form and a message instead of being cut short; a CSV import row with a name or notes over the limit is a row error, so `POST /api/v1/imports/{id}/commit` answers `422` `validation.failed` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **api:** in the FrankenPHP image a signed-out request under `/api` with a declared body over 64 KiB answers `413` problem+json (`upload.too_large`), and one with a body but no length `401` problem+json (`auth.required`), with the API headers and, for a listed origin, the CORS headers, instead of a bare `401`; a body over 22 MiB under `/api` is `413` problem+json too ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **docker:** a missing file under `/assets/` is a `404` with `Cache-Control: no-store` in both images (nginx and FrankenPHP); only a served asset keeps the year-long `immutable` cache ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **api:** the OpenAPI document's `info.version` is `1.0.0-p3`, the last phase its description covers, and it has a relative `servers` entry (`/`) ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **core:** an answer without a body (`204`, `304`, or an empty error such as `/upload/check`'s `401`, a CORS preflight or a signed-out `/media` request) has no `Content-Type` instead of `text/html` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **media:** `/media` answers `304` for an `If-None-Match` list, a weak tag or `*`, sends `Accept-Ranges: bytes`, and answers a single byte range with `206` and `Content-Range` (or `416` with `Content-Range: bytes */<size>`), with `If-Range`, on local and R2 storage ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **catalog:** deleting an item's last photo by fetch answers `index` `0`, the photo the redirect shows, instead of `-1` ([#294](https://github.com/thordin9/apotheke/pull/294))
+- **api:** `POST /api/v1/session` with an empty body answers `422` `validation.failed` with both fields `Required.`, like `{}`, instead of `400`; a field sent as a number or a list is `Must be text.` instead of `Required.` ([#294](https://github.com/thordin9/apotheke/pull/294))
 
 ## [3.38.0] - 2026-11-12
 
@@ -1638,7 +1719,15 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.38.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.2...HEAD
+[3.42.2]: https://github.com/thordin9/apotheke/compare/v3.42.1...v3.42.2
+[3.42.1]: https://github.com/thordin9/apotheke/compare/v3.42.0...v3.42.1
+[3.42.0]: https://github.com/thordin9/apotheke/compare/v3.41.0...v3.42.0
+[3.41.0]: https://github.com/thordin9/apotheke/compare/v3.40.0...v3.41.0
+[3.40.0]: https://github.com/thordin9/apotheke/compare/v3.39.0...v3.40.0
+[3.39.0]: https://github.com/thordin9/apotheke/compare/v3.38.2...v3.39.0
+[3.38.2]: https://github.com/thordin9/apotheke/compare/v3.38.1...v3.38.2
+[3.38.1]: https://github.com/thordin9/apotheke/compare/v3.38.0...v3.38.1
 [3.38.0]: https://github.com/thordin9/apotheke/compare/v3.37.2...v3.38.0
 [3.37.2]: https://github.com/thordin9/apotheke/compare/v3.37.1...v3.37.2
 [3.37.1]: https://github.com/thordin9/apotheke/compare/v3.37.0...v3.37.1

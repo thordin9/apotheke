@@ -51,6 +51,21 @@ final class RestoreStage
     /** JSON per staged insert, one bind (D1 allows 2 MB per value; a larger row goes alone). */
     public const CHUNK_BYTES = 512 * 1024;
 
+    /** D1: the largest string, BLOB or row (2,000,000 bytes); one staged row larger than that cannot be bound. */
+    public const MAX_VALUE_BYTES = 2_000_000;
+
+    /**
+     * One batch: the bridge's /batch and the Installation object's transactionSync set no statement count or body
+     * size of their own (edge/src/d1.ts, installation.ts), and D1 limits each statement, not the batch. These caps
+     * keep the swap, which must be one batch, well inside the 30 s statement time and the request body the PHP
+     * side builds in memory.
+     */
+    public const MAX_BATCH_STATEMENTS = 500;
+
+    public const MAX_BATCH_BYTES = 4 * 1024 * 1024;
+
+    public const ROW_TOO_LARGE = 'A row in this backup is too large for the hosted database. Nothing was changed.';
+
     /** Soft row cap per staged insert (N-1759): keeps a wide table's chunk under D1's 30 s request limit. */
     public const CHUNK_ROWS = 1000;
 
@@ -110,14 +125,44 @@ final class RestoreStage
         }
     }
 
-    /** The database's size (SQLite and D1 pages, PostgreSQL's database size). */
+    /**
+     * The database's size: PostgreSQL's database size, a SQLite file's pages, and on a batch-only database (D1 and
+     * the hosted Durable Object SQLite, which refuses the page_count pragma) the bytes of every table's values.
+     */
     public function liveBytes(): int
     {
-        $sql = $this->exec->dialect()->name === Dialect::POSTGRES
-            ? 'SELECT pg_database_size(current_database()) AS n'
-            : 'SELECT page_count * page_size AS n FROM pragma_page_count(), pragma_page_size()';
+        if ($this->exec->dialect()->name === Dialect::POSTGRES) {
+            return (int)($this->exec->query('SELECT pg_database_size(current_database()) AS n')[0]['n'] ?? 0);
+        }
+        if ($this->exec->connection() !== null) {
+            return (int)($this->exec->query('SELECT page_count * page_size AS n FROM pragma_page_count(), pragma_page_size()')[0]['n'] ?? 0);
+        }
 
-        return (int)($this->exec->query($sql)[0]['n'] ?? 0);
+        return $this->valueBytes();
+    }
+
+    /** The bytes of every value in the database's own tables (SQLite's internal and the runtime's reserved ones left out). */
+    private function valueBytes(): int
+    {
+        $columns = [];
+        $rows = $this->exec->query("SELECT m.name AS t, p.name AS c FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type = 'table'"
+            . " AND m.name NOT LIKE 'sqlite!_%' ESCAPE '!' AND m.name NOT LIKE '!_cf!_%' ESCAPE '!' AND m.name NOT LIKE '!_!_%' ESCAPE '!'");
+        foreach ($rows as $r) {
+            $t = (string)$r['t'];
+            $c = (string)$r['c'];
+            if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $t) === 1 && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $c) === 1) {
+                $columns[$t][] = 'COALESCE(LENGTH(CAST("' . $c . '" AS BLOB)), 0)';
+            }
+        }
+        if ($columns === []) {
+            return 0;
+        }
+        $sums = [];
+        foreach ($columns as $t => $cols) {
+            $sums[] = '(SELECT COALESCE(SUM(' . implode(' + ', $cols) . '), 0) FROM "' . $t . '")';
+        }
+
+        return (int)($this->exec->query('SELECT ' . implode(' + ', $sums) . ' AS n')[0]['n'] ?? 0);
     }
 
     /**
@@ -237,6 +282,9 @@ final class RestoreStage
             }
             $row = self::values($row);
             $json = self::json($pg ? array_combine($columns, $row) : $row);
+            if (strlen($json) + 2 > self::MAX_VALUE_BYTES) {
+                throw new UserError(self::ROW_TOO_LARGE);
+            }
             if ($chunk !== [] && ($bytes + strlen($json) + 1 > $maxBytes || count($chunk) >= self::CHUNK_ROWS)) {
                 if ($beat !== null) {
                     $beat();
@@ -346,7 +394,28 @@ final class RestoreStage
         $s[] = ['sql' => 'DELETE FROM restore_marker WHERE run <> ? AND run NOT IN (SELECT run FROM (SELECT run FROM restore_marker WHERE run <> ? ORDER BY ' . $this->seq() . ' DESC LIMIT ' . (self::KEEP - 1) . ') k)', 'params' => [self::LOCK, self::LOCK]];
         [$now, $p] = $this->at(0);
         $s[] = ['sql' => "INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, $now)", 'params' => [$run, $sha256, ...$p]];
+        self::oneBatch($s);
         $this->exec->run($s);
+    }
+
+    /**
+     * The swap is one batch or nothing: refused before it is sent when it would not fit (MAX_BATCH_STATEMENTS,
+     * MAX_BATCH_BYTES of SQL and bound values). It holds a few statements per table, so it always fits.
+     *
+     * @param list<array{sql:string,params:list<scalar|null>}> $statements
+     */
+    public static function oneBatch(array $statements): void
+    {
+        $bytes = 0;
+        foreach ($statements as $st) {
+            $bytes += strlen($st['sql']);
+            foreach ($st['params'] as $p) {
+                $bytes += strlen((string)$p);
+            }
+        }
+        if (count($statements) > self::MAX_BATCH_STATEMENTS || $bytes > self::MAX_BATCH_BYTES) {
+            throw new LogicException('The restore swap does not fit in one batch.');
+        }
     }
 
     /** Whether the swap of run $run committed (it is the last one marked). */

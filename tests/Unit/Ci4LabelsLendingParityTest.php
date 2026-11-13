@@ -70,6 +70,12 @@ final class Ci4LabelsLendingParityTest extends TestCase
         $this->assertSame(['ok' => true, 'redirect' => '/item/2'], $l['barcode fetch']['json']);
         $this->assertSame([303, '/item/1#lending'], [$l['lend']['status'], $l['lend']['location']]);
         $this->assertSame(422, $l['lend without a name']['status']);
+        // A field sent as a list is a 422 that changes nothing (one value per field).
+        foreach (['lend array name', 'return array back'] as $case) {
+            $this->assertSame(422, $l[$case]['status'], $case);
+            $this->assertStringContainsString('Each field takes one value', (string)$l[$case]['body'], $case);
+        }
+        $this->assertSame(303, $l['return after the array']['status']);
         $this->assertSame(422, $l['lend bad date']['status']);
         $this->assertSame(422, $l['lend in the future']['status']);
         $this->assertSame(422, $l['lend due before lent']['status']);
@@ -273,6 +279,7 @@ final class Ci4LabelsLendingParityTest extends TestCase
         $as('return from the list', 'POST', '/item/2/return', ['back' => '/lent']);
         $as('return fetch', 'POST', '/item/3/return', ['back' => '/elsewhere'], $fetch);
         $as('return array back', 'POST', '/item/4/return', ['back' => ['/lent']]);
+        $as('return after the array', 'POST', '/item/4/return');
         $as('return the rest', 'POST', '/item/6/return');
         $as('return the long name', 'POST', '/item/5/return');
         $as('lent list empty', 'GET', '/lent');

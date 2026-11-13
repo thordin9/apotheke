@@ -216,6 +216,11 @@ final class PdoMigrationRunner
             if ($driver === 'sqlite') {
                 $pdo->exec('PRAGMA user_version = ' . LEGACY_SCHEMA_VERSION);
             }
+            if (FreshInstallRoles::applies($fresh, $done)) {
+                foreach (FreshInstallRoles::statements() as $st) {
+                    $pdo->prepare($st['sql'])->execute($st['params']);
+                }
+            }
             if ($fresh && !empty($opt['seed'])) {
                 $n = seed_defaults($pdo);
                 if ($n) {
