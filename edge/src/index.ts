@@ -5,7 +5,7 @@
 // R2 for files and the Installation Durable Object's SQLite for the database.
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { d1UnboundResponse, type D1Env } from "./d1";
-import { INSTALLATION_NAME, installationAppKey, installationPrefix, installationStub, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
+import { INSTALLATION_NAME, installationAppKey, installationPrefix, installationStub, lifecycleName, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
 import { routeFor, routeResponse } from "./route";
 import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env } from "./r2";
 
@@ -90,23 +90,24 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		return this.readying;
 	}
 
-	/** Starts the container unless it is running, sets the inactivity timeout and waits for /healthz. */
 	/** APP_KEY and ALLOWED_HOSTS for this object's installation. primary (or an unnamed object) gets the Worker's own
 	 *  values unchanged. Another installation gets its derived key and its own hosts from installation_routes, or
-	 *  does not start. */
+	 *  does not start (also when its status is not provisioning or active). */
 	private async installationEnv(): Promise<{ appKey: string; allowedHosts: string }> {
 		const doName = this.ctx.id?.name ?? INSTALLATION_NAME;
 		const appKey = await installationAppKey(doName, this.env.APP_KEY);
 		if (doName === INSTALLATION_NAME) return { appKey, allowedHosts: this.env.ALLOWED_HOSTS ?? "" };
 		if (!validDoName(doName) || !this.env.DB) throw new Error("no installation hosts");
 		const { results } = await this.env.DB
-			.prepare("SELECT r.host FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE i.do_name = ? ORDER BY r.host")
+			// Read fresh at every start: a suspended or deleted installation does not start, even through a cached route.
+			.prepare("SELECT r.host FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE i.do_name = ? AND i.status IN ('provisioning', 'active') ORDER BY r.host")
 			.bind(doName)
 			.all<{ host: string }>();
 		if (results.length === 0) throw new Error("no installation hosts");
 		return { appKey, allowedHosts: results.map((r) => r.host).join(",") };
 	}
 
+	/** Starts the container unless it is running, sets the inactivity timeout and waits for /healthz. */
 	private async startAndWait(c: NonNullable<DurableObjectState["container"]>, backend: ReturnType<typeof storageBackend>): Promise<number> {
 		const t0 = Date.now();
 		const site = await this.installationEnv();
@@ -163,6 +164,21 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 			await c.destroy().catch((e: unknown) => console.error("destroy failed", String(e)));
 		}
 		throw new Error("container not ready");
+	}
+
+	/** Lifecycle (src/lifecycle.ts): stops and destroys this installation's container. Data is not touched. Refused for
+	 *  primary and for an unnamed object, whatever the control plane says. */
+	async stopContainer(): Promise<void> {
+		lifecycleName(this.ctx.id?.name);
+		this.ready = false;
+		const c = this.ctx.container;
+		if (c?.running) await c.destroy();
+	}
+
+	/** Lifecycle purge: stops the container, then deletes this object's own storage. Refused like stopContainer. */
+	async purge(): Promise<void> {
+		await this.stopContainer();
+		await this.ctx.storage.deleteAll();
 	}
 
 	async fetch(request: Request): Promise<Response> {
