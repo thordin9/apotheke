@@ -143,7 +143,7 @@ final class Restorer
      * @param ?SqlExecutor $staged the executor of a staged restore (batch-only databases), null for one transaction
      * @param int $dbMaxBytes a staged restore's database size limit (0: none)
      * @param ?StoredBackups $stored where the backup made before each restore is kept (null: none is made)
-     * @param ?Closure(string):void $log the server log line of a failed restore (null: error_log)
+     * @param ?Closure(string):void $log where the server log line of a failed restore goes (null: none)
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -515,10 +515,11 @@ final class Restorer
                 ? $c::class . ': ' . $c->getMessage() : $c::class;
         }
         $line = '[apotheke] restore failed at ' . $this->step . ($causes === [] ? '' : ': ' . implode(' <- ', $causes));
+        if ($this->log === null) {
+            return;
+        }
         try {
-            ($this->log ?? static function (string $line): void {
-                error_log($line);
-            })($line);
+            ($this->log)($line);
         } catch (Throwable) {
             // Best effort: a log that cannot be written does not change the restore's answer.
         }
