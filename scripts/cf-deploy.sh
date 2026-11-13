@@ -13,7 +13,7 @@ case "$worker" in
   *) echo "::error title=Worker guard::$worker is not a Worker this repository deploys"; exit 1 ;;
 esac
 : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is not set}"
-: "${CLOUDFLARE_ACCOUNT_ID:?CLOUDFLARE_ACCOUNT_ID is not set (variable of the GitHub environment)}"
+: "${CLOUDFLARE_ACCOUNT_ID:?CLOUDFLARE_ACCOUNT_ID is not set (secret of the GitHub environment)}"
 node "$root/scripts/cf-worker-guard.mjs" "$worker" "$dir/wrangler.jsonc" -- "$@"
 log=$(mktemp); trap 'rm -f "$log"' EXIT
 cd "$dir"
@@ -22,7 +22,7 @@ WRANGLER_SEND_METRICS=false npx --no-install wrangler deploy --config wrangler.j
 cat "$log"
 if [ "$code" = 0 ]; then exit 0; fi
 if grep -qiE 'Authentication error|code: 10000|code: 10001|Unauthorized|\b403\b|not authorized|permission' "$log"; then
-  echo "::error title=Cloudflare refused the token::Deploying $worker was refused (authentication or 403). The token of this environment likely lacks: $perms. Check the CLOUDFLARE_API_TOKEN secret and the CLOUDFLARE_ACCOUNT_ID variable."
+  echo "::error title=Cloudflare refused the token::Deploying $worker was refused (authentication or 403). The token of this environment likely lacks: $perms. Check the CLOUDFLARE_API_TOKEN secret and the CLOUDFLARE_ACCOUNT_ID secret."
 elif grep -qF 'required secrets have not been set' "$log"; then
   echo "::error title=Worker secrets missing::$worker needs its secrets set once outside CI (wrangler secret put APP_PASSWORD and APP_KEY, see docs/deployment-and-operations.md)."
 elif grep -qiE 'registry|containers?/|image push' "$log"; then

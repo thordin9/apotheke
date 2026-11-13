@@ -72,8 +72,13 @@ Accounts live in the `users` table (migration 0018); passwords are `password_has
 `auth_enabled` is the switch: off means no sign-in and every visitor is an admin; on means everybody signs in with a
 user name and password and the **role** decides what they may do. Roles live in `roles` (migration 0022): a key, a
 name and a JSON list of permissions from `Auth\Permissions` (view, create, edit, delete, move, bulk, lend,
-import, export, stocktake, labels, settings, users, backup). Built-in: admin (always everything; cannot be changed or
-deleted), editor, viewer and guest (anonymous visitors while guest browsing is on; never settings/users/backup).
+import, export, stocktake, labels, settings, users, backup, restore). Built-in: admin (always everything; cannot be changed or
+deleted), editor, viewer and guest (anonymous visitors while guest browsing is on; never settings/users/backup/restore).
+`backup` downloads a backup of the whole catalog and lists and downloads the kept ones; `restore` replaces the whole
+catalog. The `perms` column keeps `backup` for a role with both (so a role that had `backup` before the split may restore),
+`backup-only` and `restore-only` for a role with one of them. A new installation starts with editor having both and
+viewer `backup` (applied by the migration runner when it creates the roles table on an empty database); an existing
+installation keeps its rows, and an admin grants them in the role editor or with *Reset built-in roles*.
 `route_perm()` names the permission every route needs, handlers check finer cases (`require_perm('move')` when the
 location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, a forbidden JSON request
 `{"ok":false,"error":…}` with 403, an anonymous visitor is sent to `/login` (JSON: 401). `<body>` carries
@@ -158,7 +163,8 @@ in the export, so a file cannot turn sign-in off. `php bin/settings.php import` 
 (the command runs on the server).
 
 Full backups (`backup.zip`) also contain the settings (never the password) and a restore applies them with the same
-rule: only an admin restore changes those sign-in settings. A Backup or Users account does not. The zip has no
+rule: only an admin restore changes those sign-in settings. A Backup, Restore or Users account does not, and an account
+without Settings restores no settings at all. The zip has no
 accounts or roles; a file that adds a `users` or `roles` table is refused. Backups made before
 this version restore without touching the settings.
 

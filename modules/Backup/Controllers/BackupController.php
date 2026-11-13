@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Apotheke\Backup\Controllers;
 
-use Apotheke\Core\Database\Writes;
 use Apotheke\Backup\Backups;
 use Apotheke\Backup\Restorer;
 use Apotheke\Backup\Views\BackupView;
@@ -40,7 +39,13 @@ final class BackupController extends CatalogController
         $toast = $restored !== null ? ($restored === 'token-cleared'
             ? 'Backup restored. The AI autofill token was cleared because the service address changed: enter it again under AI autofill.' : 'Backup restored') : null;
 
-        return $this->html($this->pages()->page($this->backups()->counts(), null, null, $toast, $this->restorer()->hosted()));
+        /** @var \Apotheke\Backup\StoredBackups $stored */
+        $stored = service('storedBackups');
+
+        $download = $this->may('backup');
+
+        return $this->html($this->pages()->page($this->backups()->counts(), null, null, $toast, $this->restorer()->hosted(), $download ? $stored->all() : [],
+            $this->may('restore'), true, $download));
     }
 
     /** GET /backup.zip: written to DATA_DIR/tmp, sent in chunks, then removed. */
@@ -69,9 +74,6 @@ final class BackupController extends CatalogController
     /** POST /backup/restore: keep the upload for an hour and show what it holds. */
     public function upload(): ResponseInterface
     {
-        if (($hosted = $this->hostedRefusal()) !== null) {
-            return $hosted;   // before the upload is stored
-        }
         $backups = $this->backups();
         $f = $this->request->getFile('backup');
         if (!$f instanceof UploadedFile || $f->getError() === UPLOAD_ERR_NO_FILE) {
@@ -100,15 +102,12 @@ final class BackupController extends CatalogController
             return $this->fail($e->getMessage());
         }
 
-        return $this->html($this->pages()->page($backups->counts(), null, ['token' => $token] + $b));
+        return $this->html($this->pages()->page($backups->counts(), null, ['token' => $token] + $b, null, $this->restorer()->hosted(), [], true, $this->may('settings')));
     }
 
     /** POST /backup/restore/confirm */
     public function confirm(): ResponseInterface
     {
-        if (($hosted = $this->hostedRefusal()) !== null) {
-            return $hosted;
-        }
         $backups = $this->backups();
         $token = self::str($this->request->getPost('token'));
         $file = rtrim($backups->dataDir(), '/') . '/tmp/restore-' . $token . '.zip';
@@ -121,12 +120,12 @@ final class BackupController extends CatalogController
             $b = $restorer->open($file);
             $b['zip']->close();
 
-            return $this->sessionPage($this->pages()->page($backups->counts(), 'Tick the box to confirm that the catalog will be replaced.', ['token' => $token] + $b), 422);
+            return $this->sessionPage($this->pages()->page($backups->counts(), 'Tick the box to confirm that the whole catalog will be replaced for everyone.', ['token' => $token] + $b, null, $this->restorer()->hosted(), [], true, $this->may('settings')), 422);
         }
         @set_time_limit(300);
         try {
             // N-443, stricter than legacy: the backup's settings only for a user who may change settings.
-            $restored = $restorer->restore($file, $this->may('settings'));
+            $restored = $restorer->restore($file, $this->may('settings'), null, null, $this->actor());
         } catch (UserError $e) {
             // As legacy: a restore refused while another runs (409, L-450) keeps its upload, so it
             // can be confirmed again; any other failure removes it now, not at the hourly sweep (N-567).
@@ -134,7 +133,7 @@ final class BackupController extends CatalogController
                 @unlink($file);
             }
 
-            return $this->sessionPage($this->pages()->page($backups->counts(), $e->getMessage()), $e->getCode() === 409 ? 409 : 422);
+            return $this->sessionPage($this->pages()->page($backups->counts(), $e->getMessage(), null, null, $restorer->hosted()), $e->getCode() === 409 ? 409 : 422);
         } catch (\Throwable $e) {
             @unlink($file);
             throw $e;
@@ -144,13 +143,13 @@ final class BackupController extends CatalogController
         return $this->redirectTo('/backup?restored=' . ($restored['token_cleared'] ? 'token-cleared' : '1'));
     }
 
-    /** GET /backup/restore/check: 204 when the request's user may restore, else 401 (nobody signed in) or 403. */
+    /** GET /backup/restore/check: 204 when the request's user may restore (the restore permission), else 401 (nobody signed in) or 403. */
     public function check(): ResponseInterface
     {
         /** @var PermissionGate $gate */
         $gate = service('permissionGate');
         try {
-            $gate->require('backup');
+            $gate->require('restore');
             $status = 204;
         } catch (UserError $e) {
             $status = $e->getMessage() === 'Not signed in' ? 401 : 403;
@@ -158,6 +157,14 @@ final class BackupController extends CatalogController
 
         return $this->response->setStatusCode($status)->setBody('')
             ->removeHeader('Cache-Control')->setHeader('Cache-Control', 'no-store');
+    }
+
+    /** The signed-in account's name, for the restore's activity row (null: nobody, or the guest). */
+    private function actor(): ?string
+    {
+        $user = service('currentUser')->resolve();
+
+        return is_array($user) && empty($user['guest']) && ($user['username'] ?? '') !== '' ? (string)$user['username'] : null;
     }
 
     /** Does the request's user have $permission? */
@@ -195,14 +202,6 @@ final class BackupController extends CatalogController
     }
 
     /** Legacy's $fail: 422 and the page with the message. */
-    /** The hosted database: the page with the notice and a 501, nothing stored or restored. */
-    private function hostedRefusal(): ?ResponseInterface
-    {
-        return $this->restorer()->hosted()
-            ? $this->sessionPage($this->pages()->page($this->backups()->counts(), Writes::unavailable('Restoring a backup')->getMessage(), null, null, true), 501)
-            : null;
-    }
-
     private function fail(string $message): ResponseInterface
     {
         return $this->sessionPage($this->pages()->page($this->backups()->counts(), $message), 422);

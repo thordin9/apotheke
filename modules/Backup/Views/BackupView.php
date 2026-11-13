@@ -21,6 +21,21 @@ final class BackupView
     {
     }
 
+    /** The database a backup was made on, as the preview names it (an unknown name reads as SQLite, as legacy). */
+    public static function driverLabel(string $driver): string
+    {
+        return match ($driver) {
+            'pgsql' => 'PostgreSQL',
+            'd1' => 'hosted database',
+            default => 'SQLite',
+        };
+    }
+
+    private static function size(int $bytes): string
+    {
+        return $bytes >= 1048576 ? round($bytes / 1048576, 1) . ' MB' : max(1, (int)round($bytes / 1024)) . ' KB';
+    }
+
     private static function h(?string $s): string
     {
         return Page::e($s);
@@ -49,9 +64,13 @@ final class BackupView
      *
      * @param array<string,int> $current
      * @param array{token:string,tables:array<string,int>,photos:int,created_at:string,driver:string,warnings:list<string>}|null $preview
-     * @param bool $hosted the hosted database: no restore, a notice instead
+     * @param bool $hosted the hosted database: no command-line restore hint
+     * @param list<array{id:string,created_at:string,kind:string,size:int,by:?string}> $kept the kept backups, newest first
+     * @param bool $restore whether the user may restore (the restore permission): else no restore section
+     * @param bool $settings whether a restore puts back the backup's settings too (the settings permission)
+     * @param bool $download whether the user may download (the backup permission): else no download section
      */
-    public function page(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null, bool $hosted = false): string
+    public function page(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null, bool $hosted = false, array $kept = [], bool $restore = true, bool $settings = true, bool $download = true): string
     {
         $head = $this->page->start('Backup & restore', 'page-backup');
         $tok = self::h($this->page->csrf());
@@ -69,14 +88,15 @@ final class BackupView
   <?php if ($preview !== null): ?>
   <section class="panel panel-warn" id="restore-preview" aria-labelledby="rp-title">
     <h2 id="rp-title">Restore this backup?</h2>
-    <p>Backup from <b><?= self::h($preview['created_at'] !== '' ? $this->activity->time($preview['created_at']) : 'an unknown date') ?></b> (<?= self::h($preview['driver'] === 'pgsql' ? 'PostgreSQL' : 'SQLite') ?>), with <b><?= self::h(Backups::summaryText($preview['tables'], $preview['photos'])) ?></b>.</p>
+    <p>Backup from <b><?= self::h($preview['created_at'] !== '' ? $this->activity->time($preview['created_at']) : 'an unknown date') ?></b> (<?= self::h(self::driverLabel($preview['driver'])) ?>), with <b><?= self::h(Backups::summaryText($preview['tables'], $preview['photos'])) ?></b>.</p>
     <?= self::tableRows($current, $preview['tables']) ?>
     <?php foreach ($preview['warnings'] as $w): ?><p class="hint warn">⚠ <?= self::h($w) ?></p><?php endforeach; ?>
-    <p class="hint"><b>Everything currently in the catalog will be replaced.</b> Download a backup first if you might want it back.</p>
+    <p class="hint"><b>This replaces the whole catalog, for everyone who uses this installation.</b> The catalog as it is now is backed up first and kept on this page, so it can be downloaded again.</p>
+    <?php if (!$settings): ?><p class="hint" id="restore-no-settings">The backup's settings are not restored: that needs the Settings permission.</p><?php endif; ?>
     <form method="post" action="/backup/restore/confirm" class="restore-confirm">
       <input type="hidden" name="csrf" value="<?= $tok ?>">
       <input type="hidden" name="token" value="<?= self::h($preview['token']) ?>">
-      <label class="check check-ok"><input type="checkbox" name="confirm" value="1" required id="restore-ok"> Yes, replace my catalog with this backup</label>
+      <label class="check check-ok"><input type="checkbox" name="confirm" value="1" required id="restore-ok"> Yes, replace the whole catalog for everyone with this backup</label>
       <div class="row-btns">
         <a class="btn" href="/backup">Cancel</a>
         <button class="btn btn-danger-solid" id="restore-go">Restore</button>
@@ -84,26 +104,37 @@ final class BackupView
     </form>
   </section>
   <?php endif; ?>
+  <?php if ($download): ?>
   <section class="panel" aria-labelledby="bk-title">
     <h2 id="bk-title"><?= Icons::svg('download') ?> Download a backup</h2>
-    <p class="hint">One zip file with all items, locations, categories, tags<?= isset($current['activity']) ? ', history' : '' ?> and photos. It works with both SQLite and PostgreSQL installs.</p>
+    <p class="hint">One zip file with the whole installation's catalog, not only yours: all items, locations, categories, tags<?= isset($current['activity']) ? ', history' : '' ?> and photos. It works with both SQLite and PostgreSQL installs.</p>
     <?= self::tableRows($current) ?>
     <a class="btn btn-primary btn-block" href="/backup.zip" id="backup-dl" download><?= Icons::svg('archive') ?> Download backup (.zip)</a>
   </section>
+  <?php endif; ?>
+  <?php if ($kept !== []): ?>
+  <section class="panel" aria-labelledby="kb-title" id="kept-backups">
+    <h2 id="kb-title"><?= Icons::svg('archive') ?> Kept backups</h2>
+    <p class="hint">The whole catalog is backed up before each restore. Each backup is the whole installation's catalog; the newest are kept.</p>
+    <ul class="kept-list">
+      <?php foreach ($kept as $k): ?><li><a href="/api/v1/backups/<?= self::h($k['id']) ?>" download><?= self::h($this->activity->time($k['created_at'])) ?></a> <span class="hint">· before a restore<?= $k['by'] !== null ? ' by ' . self::h($k['by']) : '' ?> · <?= self::h(self::size($k['size'])) ?></span></li><?php endforeach; ?>
+    </ul>
+  </section>
+  <?php endif; ?>
+  <?php if ($restore): ?>
   <section class="panel" aria-labelledby="rs-title">
     <h2 id="rs-title"><?= Icons::svg('archive') ?> Restore from a backup</h2>
-    <?php if ($hosted): ?>
-    <p class="hint" id="restore-hosted" role="status">Not available on hosted yet.</p>
-    <?php else: ?>
     <p class="hint">Choose an Apotheke backup zip. You'll see what it contains before anything changes.</p>
     <form method="post" action="/backup/restore" enctype="multipart/form-data" id="restore-form" class="restore-form">
       <input type="hidden" name="csrf" value="<?= $tok ?>">
       <label class="btn btn-block filepick"><input type="file" name="backup" accept=".zip,application/zip" required id="restore-file" class="file"> <span id="restore-name">Choose backup file…</span></label>
       <button class="btn btn-block" id="restore-check">Check backup</button>
     </form>
+    <?php if (!$hosted): ?>
     <p class="hint">Large backups can also be restored on the server: <code>php bin/restore.php backup.zip</code>.</p>
     <?php endif; ?>
   </section>
+  <?php endif; ?>
 </main>
 <?php if ($toast !== null): ?><div class="toast" role="status"><?= self::h($toast) ?></div><?php endif; ?>
 <?php

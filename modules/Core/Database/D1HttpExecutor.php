@@ -122,10 +122,32 @@ final class D1HttpExecutor implements SqlExecutor, D1Executor
             throw new WriteFailed(
                 'Database write failed: ' . ($guard ? 'a guard in the unit' : 'the batch'),
                 $guard ? BatchExecutor::GUARD_FAILED : 0,
+                self::diagnostic($r),
             );
         }
 
         return $r;
+    }
+
+    /**
+     * A bridge diagnostic is kept as a cause for server logs, never as the user-facing exception's message.
+     *
+     * @param array<string,mixed> $r
+     */
+    private static function diagnostic(array $r): ?\RuntimeException
+    {
+        $code = $r['sqlite'] ?? null;
+        $reason = $r['reason'] ?? null;
+        if (!is_string($code) || preg_match('/^(?:SQLITE_[A-Z_]+|Error)$/D', $code) !== 1 || !is_string($reason)) {
+            return null;
+        }
+        $fixed = ['not authorized', 'database is locked', 'database or disk is full', 'too many SQL variables',
+            'string or blob too big', 'interrupted', 'datatype mismatch', 'FOREIGN KEY constraint failed', 'database request failed'];
+        if (!in_array($reason, $fixed, true) && preg_match('/^(?:no such table|no such column|NOT NULL constraint failed|UNIQUE constraint failed): [A-Za-z_][A-Za-z0-9_.]*(?:, [A-Za-z_][A-Za-z0-9_.]*)*$/D', $reason) !== 1) {
+            $reason = 'database request failed';
+        }
+
+        return new \RuntimeException($code . ': ' . $reason);
     }
 
     private function filePost(string $url, string $json): string
