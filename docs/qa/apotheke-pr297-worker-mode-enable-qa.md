@@ -1,0 +1,30 @@
+# QA: PR #297 turn on FrankenPHP worker mode for apotheke-api
+
+PR: https://github.com/thordin9/apotheke/pull/297 · **Reviewed head: `09fe86c9e377f05ca136fbbf4a187f48c8b22e5f`** · Main: `e8ac7f6e` (v3.41.0) · QA: Apotheke QA 2, 2026-11-13 (EET). Replaces the PASS at `425aeee1` (doc sha `9d2d08d8…`, now void).
+
+**Verdict: PASS at `09fe86c9`.** No High or Medium findings are open. L-2139 and N-2141 are closed. N-2140 stays a follow-up. One new Note (N-2146) does not block.
+
+## Gate
+- [x] **Head and CI:** 0 behind `e8ac7f6e`, mergeable `clean`. CI 43358404684, Deploy edge 43358404527 and Deploy frontend 43358404552: 23 checks passed, including Tests (PHP 8.4, sqlite) and (PHP 8.4, pgsql), Docker + FrankenPHP smoke, the edge check and dry run, and CodeQL; 2 deploys skipped.
+- [x] **Merge-only (`8dc0247b`, parents `425aeee1`, `e8ac7f6e`):** a plain `--no-ff` merge of main. Per-file +/- of `e8ac7f6e...8dc0247b` equals `56c530b9...425aeee1` (12 files, same counts). For the 8 files later untouched by the delta, the unique diff matches (self-host-cloudflare and configuration: same changed lines, hunk numbers only).
+  - CHANGELOG at the merge: released sections are byte-identical to main; [Unreleased] is only `### Changed` and the #297 bullet with the full PR URL (still the revert wording).
+  - `deployment-and-operations.md` still +13/−5. The two storage-mode / d1-restore paragraphs are main's text with only the aside `; current release v3.37.0, FrankenPHP worker mode off` removed (both occurrences). The previous unique diff had the older "restoring a backup is refused" wording, which main had already replaced.
+- [x] **Delta (2 commits, 4 files):** `779d4592` (L-2139) and `09fe86c9` (proof links). `edge/src` and app code are unchanged against the merge. Differences in `main...head` vs the merge-only counts are only in the files those commits touch:
+  - `docs/HANDOFF.md` +2/−1 → +5/−4 (exactly `779d4592`'s +3/−3): line 10 latest release v3.41.0 (verified: latest GitHub release and `VERSION`); remaining v3.37.0 "worker mode off" text removed at lines 51 and 81.
+  - `docs/deployment-and-operations.md` +13/−5 → +23/−5: `779d4592` +15/−6 rewrites the rollback paragraph; `09fe86c9` +2/−1 replaces a `PROOF_RUN` placeholder with the two run links. Vs-main deletions stay −5 because the later commits mainly replace lines this PR had already added.
+  - CHANGELOG and `configuration.md` keep +4/−0 and +1/−1: each is a one-line wording change in `779d4592` (disable-commit instead of revert), and released CHANGELOG sections stay byte-identical to main. [Unreleased] still holds only the #297 bullet with the full PR URL.
+- [x] **L-2139 closed:** rollback is a disable-worker-mode commit, not a revert, listing every file and line (paragraph at `deployment-and-operations.md:485`). Line numbers at this head point at the right lines: `edge/wrangler.jsonc:49`, `edge/worker-configuration.d.ts:10` (hash on line 2), `tests/Unit/DockerfileTest.php:269`, `scripts/deploy-scripts.test.mjs:615`. CHANGELOG and `configuration.md:112` link to it. Confirmation is the entrypoint line `… 2 PHP threads, classic mode` with no `apotheke: PHP worker started` lines.
+  - **Local simulated squash (head tree, already 0 behind main):** the four documented steps, including `cd edge && npx wrangler types --config=wrangler.jsonc` (wrangler 4.157.0). The four-file tree matches proof commit `933eb783` byte-for-byte, including types hash `bc6d57c9…` on line 2. Then: `wrangler types --check` up to date; DockerfileTest 17 OK (2 skip); `deploy-scripts.test.mjs` 33/33; PHPUnit sqlite (root suite, includes the module suite) 638 OK, 32 skip, 1 incomplete.
+  - Nothing else in tests, scripts, workflows, Dockerfile or Caddyfile pins the hosted default to `"1"`. `scripts/docker-worker-checks.sh` sets `APOTHEKE_PHP_WORKER=1` on purpose to exercise worker mode. `edge/src/index.ts` still defaults the container to `"0"` when the var is unset. Docs that describe the post-merge default (`self-host-cloudflare.md`, ADR 002) are not CI pins; the paragraph already calls CHANGELOG the usual extra.
+  - **Proof runs (commit `933eb783`, parent `779d4592`; `09fe86c9` only adds the doc links, so the four-file diff is the same):** still reachable; draft #307 is closed unmerged and `scratch/l2139-disable-worker-proof` is deleted. The commit touches only the four listed files, each `"1"` → `"0"` plus the regenerated types. CI 43353674824 conclusion `success` (`run_attempt` 2): attempt 1 failed only Tests (PHP 8.4, pgsql) on `StagedRestoreTest::testThePreflightRefusesBeforeAnythingIsStaged` data set "pgsql transaction" (`StagedRestoreTest.php:110`), which is N-2058; attempt 2 was green, including sqlite and pgsql. Deploy edge 43353674860 success (check and dry run; deploy skipped).
+- [x] **N-2059** still in the PR body (worker-mode line, one boot line per thread, no `unexpected termination`; refers to L-2041). **N-2141 closed:** the body now says "QA 2 round (`e56bf994` → this head)" and "QA 2 round 2 (`425aeee1` → this head)".
+- [x] **Commits and title:** the 6 non-merge subjects are 54–66 chars and the title is 59. The merges use git's default subject (77 chars, exempt).
+  - PR body and diff scan (counts only): 0 tokens, 0 UUIDs, 0 account or D1 ids. The hex strings are wrangler's types hashes. The preview app id is a placeholder.
+
+## Findings
+- **L-2139 (closed):** the rollback paragraph lists every file and line of a disable-worker-mode commit, and the documented steps pass the pinning tests and `wrangler types --check`. The proof runs match.
+- **N-2140:** stays a follow-up: a `docker-worker-checks.sh` run with an invalid `APOTHEKE_WORKER_MAX_REQUESTS` that expects the warning line.
+- **N-2146 (`docs/HANDOFF.md:71`):** the open-PR line still starts "Backup restore on d1 is still open," which was already on main, but this commit rewrote the rest of the line and line 81 already says restore runs on `d1` (#305). Follow-up: drop that prefix.
+
+## Merge
+Plain squash-merge at this head once the docs(qa) commit of this doc is hash-checked. If main moves first: catch-up, merge-only read, reissue. Ids used: 2139–2141, 2146.
