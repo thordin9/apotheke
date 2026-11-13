@@ -2,6 +2,7 @@
 // database. The container reaches it only through http://d1.internal (D1Outbound), and only while the storage
 // mode is selected. The object answers the same /query, /batch and /exec as the D1 bridge (d1.ts).
 import { DurableObject } from "cloudflare:workers";
+import { handleBridgeRead, type ControlDb } from "./bridge";
 import { d1UnboundResponse, handleD1Request, type D1Like, type D1LikeStatement } from "./d1";
 import { storageSelected, type R2Env } from "./r2";
 
@@ -95,6 +96,10 @@ export class Installation extends DurableObject<Env & R2Env> {
 	async fetch(request: Request): Promise<Response> {
 		// Reached only through D1Outbound; this check keeps the object closed on its own too.
 		if (!storageSelected(this.env)) return d1UnboundResponse();
-		return handleD1Request(request, sqlDatabase(this.ctx.storage));
+		const db = sqlDatabase(this.ctx.storage);
+		// GET /stats, /users and /limits (bridge.ts); the installation is this object's own name, never the request's.
+		const name = this.ctx.id?.name;
+		const control = (this.env as { DB?: ControlDb }).DB;
+		return (await handleBridgeRead(request, db, control, validDoName(name) ? name : undefined)) ?? handleD1Request(request, db);
 	}
 }
