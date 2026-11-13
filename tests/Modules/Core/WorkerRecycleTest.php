@@ -81,5 +81,7 @@ final class WorkerRecycleTest extends CIUnitTestCase
         );
         $this->assertStringContainsString("'apotheke: PHP worker started (recycles after '", $script);
         $this->assertStringContainsString("WorkerRecycle::invalid(getenv('APOTHEKE_WORKER_MAX_REQUESTS'))", $script);
+        // N-2093: the rejected-cap warning is written to the container log (stderr), not dropped.
+        $this->assertStringContainsString("file_put_contents('php://stderr', \$invalidMax . \"\\n\");", $script);
     }
 }
