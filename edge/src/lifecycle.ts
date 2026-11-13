@@ -4,6 +4,7 @@
 // confirmed it. primary is refused by every function here, whatever its row says.
 // Pure functions over injected dependencies; the Workflow that runs them is lifecycle-workflow.ts.
 import type { WorkflowStep } from "cloudflare:workers";
+import { NonRetryableError } from "cloudflare:workflows";
 import { INSTALLATION_NAME, installationPrefix, lifecycleName } from "./installation";
 import { sweepExpiredMultipartUploads } from "./r2";
 
@@ -44,7 +45,9 @@ export interface FirstAdminClaim {
 	create(doName: string, jobId: string): Promise<void>;
 }
 
-/** Drops cached routes for these hosts, so a status change shows at once. */
+/** Drops cached routes for these hosts. Today routes are cached only inside each apotheke-api isolate, for up to 30 s,
+ *  so a status change can take that long to show in routing (the container itself refuses to start unless the
+ *  installation is provisioning or active). */
 export interface RouteCache {
 	purge(hosts: string[]): Promise<void>;
 }
@@ -59,8 +62,18 @@ export type LifecycleDeps = {
 	routeCache: RouteCache;
 };
 
-/** A refusal or a conflict. code is stored on the failed job; the message never holds tenant data. */
-export class LifecycleError extends Error {
+/** A refusal or a conflict: never retried (NonRetryableError), the job fails at once. code is stored on the failed job;
+ *  the message never holds tenant data. */
+export class LifecycleError extends NonRetryableError {
+	readonly code: string;
+	constructor(code: string) {
+		super(`lifecycle: ${code}`);
+		this.code = code;
+	}
+}
+
+/** A transient failure (an R2 call that did not finish): the Workflow retries the step. */
+export class LifecycleRetry extends Error {
 	readonly code: string;
 	constructor(code: string) {
 		super(`lifecycle: ${code}`);
@@ -96,6 +109,20 @@ async function target(db: D1Database, installationId: string): Promise<Target> {
 	return { id: row.id, doName, prefix: row.r2_prefix, status: row.status, hosts: results.map((r) => r.host) };
 }
 
+/** A purge needs a delete job for the installation that finished (so its export was made) and whose retention has run
+ *  out: now >= the time it finished plus its retention_days. Otherwise it is refused, with nothing changed. A finished
+ *  job is never updated again, so its updated_at is when it finished. */
+async function retentionOver(db: D1Database, installationId: string): Promise<void> {
+	const row = await db
+		.prepare(`SELECT 1 AS ok FROM lifecycle_jobs WHERE installation_id = ? AND kind = 'delete' AND state = 'done'
+			AND json_extract(result_json, '$.key') IS NOT NULL AND CAST(json_extract(params_json, '$.retention_days') AS INTEGER) >= 1
+			AND ${NOW} >= strftime('%Y-%m-%dT%H:%M:%SZ', updated_at, '+' || CAST(json_extract(params_json, '$.retention_days') AS INTEGER) || ' days')
+			LIMIT 1`)
+		.bind(installationId)
+		.first<{ ok: number }>();
+	if (!row) throw new LifecycleError("retention");
+}
+
 async function job(db: D1Database, jobId: string): Promise<Job> {
 	const row = await db.prepare("SELECT * FROM lifecycle_jobs WHERE id = ?").bind(jobId).first<Job>();
 	if (!row) throw new LifecycleError("job_not_found");
@@ -111,6 +138,7 @@ export async function createJob(
 	if (!(JOB_KINDS as readonly string[]).includes(req.kind)) throw new LifecycleError("bad_kind");
 	if (!/^[A-Za-z0-9_-]{8,128}$/.test(req.nonce) || req.createdBy === "") throw new LifecycleError("bad_request");
 	await target(db, req.installationId);
+	if (req.kind === "purge") await retentionOver(db, req.installationId);
 	let params: string | null = null;
 	if (req.kind === "delete") {
 		if (!Number.isInteger(req.retentionDays) || (req.retentionDays as number) < 1) throw new LifecycleError("retention_required");
@@ -131,7 +159,10 @@ export async function confirmJob(db: D1Database, jobId: string, operator: string
 	const j = await job(db, jobId);
 	const t = await target(db, j.installation_id);
 	if (operator === "") throw new LifecycleError("bad_request");
-	if (j.kind === "purge" && (confirmHost === undefined || !t.hosts.includes(confirmHost))) throw new LifecycleError("confirm_host");
+	if (j.kind === "purge") {
+		if (confirmHost === undefined || !t.hosts.includes(confirmHost)) throw new LifecycleError("confirm_host");
+		await retentionOver(db, t.id);
+	}
 	await db.batch([
 		db.prepare(`UPDATE lifecycle_jobs SET state = 'queued', confirmed_by = ?, confirmed_at = ${NOW}, updated_at = ${NOW} WHERE id = ? AND state = 'paused'`).bind(operator, j.id),
 		audit(db, { ...j, confirmed_by: operator }, "confirm"),
@@ -155,6 +186,7 @@ async function begin(db: D1Database, jobId: string, step: string, allowed: strin
 	const t = await target(db, j.installation_id);
 	if (j.state !== "running") throw new LifecycleError("not_running");
 	if (!allowed.includes(t.status)) throw new LifecycleError("status_conflict");
+	if (j.kind === "purge") await retentionOver(db, t.id);
 	await db.prepare(`UPDATE lifecycle_jobs SET step = ?, updated_at = ${NOW} WHERE id = ? AND step IS NOT ?`).bind(step, j.id, step).run();
 	return { j, t };
 }
@@ -191,6 +223,7 @@ export async function startJob(db: D1Database, jobId: string): Promise<JobKind> 
 	const j = await job(db, jobId);
 	await target(db, j.installation_id);
 	if (j.state !== "queued" && j.state !== "running") throw new LifecycleError("not_confirmed");
+	if (j.kind === "purge") await retentionOver(db, j.installation_id);
 	await db.prepare(`UPDATE lifecycle_jobs SET state = 'running', updated_at = ${NOW} WHERE id = ? AND state = 'queued'`).bind(j.id).run();
 	return j.kind;
 }
@@ -274,7 +307,7 @@ export const steps = {
 			// Every marker counts as expired: the installation is being purged. Handled markers are deleted, so each page lists
 			// from the start.
 			const r = await sweepExpiredMultipartUploads(d.bucket, t.prefix, Date.now(), { limit: 100, retentionMs: Number.NEGATIVE_INFINITY });
-			if (r.interrupted) throw new LifecycleError("r2_interrupted");
+			if (r.interrupted) throw new LifecycleRetry("r2_interrupted");
 			return r.markersDeleted;
 		});
 	},
@@ -339,7 +372,7 @@ export async function runJob(d: LifecycleDeps, jobId: string, step: Runner): Pro
 		}
 		await step.do("done", () => finishJob(d.db, jobId));
 	} catch (e) {
-		const code = e instanceof LifecycleError ? e.code : "error";
+		const code = e instanceof LifecycleError || e instanceof LifecycleRetry ? e.code : "error";
 		await step.do("failed", () => failJob(d.db, jobId, code));
 		throw e;
 	}

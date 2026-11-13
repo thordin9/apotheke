@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-const { createJob, confirmJob, runJob, steps, PURGE_PAGE } = await import('../src/lifecycle.ts');
+const { createJob, confirmJob, runJob, steps, PURGE_PAGE, LifecycleError, LifecycleRetry } = await import('../src/lifecycle.ts');
+const { NonRetryableError } = await import('cloudflare:workflows');
 const { lifecycleDeps, LifecycleWorkflow } = await import('../src/lifecycle-workflow.ts');
 const { lifecycleName, Installation } = await import('../src/installation.ts');
 const { ApothekeContainer } = await import('../src/index.ts');
@@ -121,6 +122,16 @@ const status = (w, id = 't-a') => w.raw.prepare('SELECT status FROM installation
 const jobRow = (w, id) => ({ ...w.raw.prepare('SELECT state, error_code, result_json FROM lifecycle_jobs WHERE id = ?').get(id) });
 const audits = (w, id = 't-a') => w.raw.prepare('SELECT action FROM operator_audit WHERE installation_id = ? ORDER BY rowid').all(id).map((r) => r.action);
 const refusedAs = (code) => (e) => e.code === code;
+/** Moves a finished delete job's end back by `days`, as if that much time had passed. */
+const age = (w, jobId, days) => w.raw.exec(`UPDATE lifecycle_jobs SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-${days} days') WHERE id = '${jobId}'`);
+/** A running purge job written straight into the table, past createJob and confirmJob. */
+const forcedPurge = (w, id = 't-a', jobId = 'forced-purge') => {
+  w.raw.exec(`INSERT INTO lifecycle_jobs (id, installation_id, kind, idempotency_key, state, created_by, confirmed_by)
+    VALUES ('${jobId}', '${id}', 'purge', 'purge:${id}:${jobId}', 'running', 'op@example.test', 'op@example.test')`);
+  return jobId;
+};
+const purgeSteps = (w, jobId) => [steps.purgeUploads(w.deps, jobId, 0), steps.purgeObjects(w.deps, jobId, 0), steps.purgeStorage(w.deps, jobId), steps.purgeStatus(w.deps, jobId)];
+const withoutJobs = (x) => ({ ...x, db: { ...x.db, lifecycle_jobs: [] }, writes: 0 });
 
 test('E4 jobs: the same idempotency key gives the same job; a job is created paused and never runs unconfirmed', async () => {
   const w = world();
@@ -241,9 +252,8 @@ test('E4 a status conflict fails the job without touching anything', async () =>
   assert.deepEqual({ ...after, db: { ...after.db, lifecycle_jobs: [] }, writes: 0 }, { ...before, db: { ...before.db, lifecycle_jobs: [] }, writes: 0 });
   assert.equal(jobRow(w, suspend.id).error_code, 'status_conflict');
   w.raw.exec(`UPDATE installations SET status = 'active' WHERE id = 't-a'`);
-  // A purge is only for a soft-deleted installation.
-  const purge = await confirmed(w, 'purge', 't-a', { confirmHost: 'a.example.test' });
-  await assert.rejects(runJob(w.deps, purge.id, once), refusedAs('status_conflict'));
+  // A purge is only for a soft-deleted installation whose export retention has run out.
+  await assert.rejects(confirmed(w, 'purge', 't-a', { confirmHost: 'a.example.test' }), refusedAs('retention'));
   assert.equal(status(w), 'active');
 });
 
@@ -262,9 +272,10 @@ test('E4 purge: 0 objects, markers and unfinished uploads under the prefix, empt
   for (const p of ['installations/primary/', 'installations/tenant-b/', 'installations/tenant-ab/']) await w.bucket.put(`${p}keep.jpg`, 'x');
   const outside = w.snapshot().objects.filter((k) => !k.startsWith(prefix));
 
-  await assert.rejects(confirmed(w, 'purge', 't-a'), refusedAs('confirm_host'));
+  await assert.rejects(confirmed(w, 'purge', 't-a'), refusedAs('retention'));
   const del = await confirmed(w, 'delete', 't-a', { retentionDays: 30 });
   await runJob(w.deps, del.id, once);
+  age(w, del.id, 30);
   await assert.rejects(confirmed(w, 'purge', 't-a', { confirmHost: 'b.example.test' }), refusedAs('confirm_host'));
   const purge = await confirmed(w, 'purge', 't-a', { confirmHost: 'a.example.test' });
   const names = [];
@@ -294,7 +305,9 @@ test('E4 purge: a page that fails part way is retried and carries on; nothing ou
   const id = 'upload-stuck';
   w.bucket.uploads.set(id, `${prefix}big.bin`);
   await w.bucket.put(await multipartMarkerKey(prefix, id), JSON.stringify({ id, key: `${prefix}big.bin` }));
-  w.raw.exec(`UPDATE installations SET status = 'deleting' WHERE id = 't-a'`);
+  const delJob = await confirmed(w, 'delete', 't-a', { retentionDays: 1 });
+  await runJob(w.deps, delJob.id, once);
+  age(w, delJob.id, 1);
   const purge = await confirmed(w, 'purge', 't-a', { confirmHost: 'a.example.test' });
   const list = w.bucket.list.bind(w.bucket);
   w.bucket.list = async (o) => { assert.equal(o.prefix.startsWith(prefix), true); return list(o); };
@@ -426,4 +439,125 @@ test('E4 ships paused: no cron, workflow or new binding on apotheke-api, and the
   const src = (f) => readFileSync(new URL(f, import.meta.url), 'utf8');
   for (const f of ['../wrangler.jsonc', '../storage.jsonc']) assert.doesNotMatch(src(f), /"(workflows|triggers|crons)"/, f);
   assert.doesNotMatch(src('../src/index.ts'), /lifecycle-workflow|LifecycleWorkflow/);
+});
+
+test('E4 purge after a failed delete is refused: no export, nothing removed (M-2157 P1)', async () => {
+  const w = world();
+  await w.bucket.put('installations/tenant-a/photo.jpg', 'x');
+  w.deps.container.backup = async () => { throw new LifecycleError('pending_backup_endpoint'); };
+  const del = await confirmed(w, 'delete', 't-a', { retentionDays: 1 });
+  await assert.rejects(runJob(w.deps, del.id, once), refusedAs('pending_backup_endpoint'));
+  assert.equal(status(w), 'deleting');
+  assert.equal(jobRow(w, del.id).state, 'failed');
+  age(w, del.id, 400);
+  const before = w.snapshot();
+  await assert.rejects(confirmed(w, 'purge', 't-a', { confirmHost: 'a.example.test' }), refusedAs('retention'));
+  const forced = forcedPurge(w);
+  const paused = forcedPurge(w, 't-a', 'forced-paused');
+  w.raw.exec(`UPDATE lifecycle_jobs SET state = 'paused', confirmed_by = NULL WHERE id = '${paused}'`);
+  const start = w.snapshot();
+  await assert.rejects(confirmJob(w.deps.db, paused, 'op@example.test', 'a.example.test'), refusedAs('retention'));
+  for (const p of purgeSteps(w, forced)) await assert.rejects(p, refusedAs('retention'));
+  assert.deepEqual(w.snapshot(), { ...start, writes: start.writes }, 'refused steps change nothing');
+  await assert.rejects(runJob(w.deps, forced, twice(w)), refusedAs('retention'));
+  assert.deepEqual(withoutJobs(w.snapshot()), withoutJobs(before));
+  assert.ok(w.snapshot().objects.includes('installations/tenant-a/photo.jpg'));
+  assert.deepEqual(w.snapshot().doStorage, ['primary', 'tenant-a', 'tenant-b']);
+  assert.equal(status(w), 'deleting');
+  // A failed delete stays refused even if its export key was recorded before the failure.
+  w.raw.exec(`UPDATE lifecycle_jobs SET result_json = '{"key":"installations/tenant-a/backups/x.zip"}' WHERE id = '${del.id}'`);
+  age(w, del.id, 400);
+  await assert.rejects(confirmed(w, 'purge', 't-a', { confirmHost: 'a.example.test' }), refusedAs('retention'));
+});
+
+test('E4 purge waits for the delete job\'s retention: the export stays until then (M-2157 P2)', async () => {
+  const w = world();
+  await w.bucket.put('installations/tenant-a/photo.jpg', 'x');
+  const del = await confirmed(w, 'delete', 't-a', { retentionDays: 30 });
+  await runJob(w.deps, del.id, once);
+  const exportKey = JSON.parse(jobRow(w, del.id).result_json).key;
+  assert.ok(w.snapshot().objects.includes(exportKey));
+  const forced = forcedPurge(w);
+  for (const days of [0, 29]) {
+    age(w, del.id, days);
+    const before = w.snapshot();
+    await assert.rejects(confirmed(w, 'purge', 't-a', { confirmHost: 'a.example.test' }), refusedAs('retention'), `after ${days} days`);
+    for (const p of purgeSteps(w, forced)) await assert.rejects(p, refusedAs('retention'));
+    assert.deepEqual(w.snapshot(), before, `after ${days} days nothing changes`);
+  }
+  assert.ok(w.snapshot().objects.includes(exportKey), 'the export is intact');
+  age(w, del.id, 30);
+  const purge = await confirmed(w, 'purge', 't-a', { confirmHost: 'a.example.test' });
+  await runJob(w.deps, purge.id, twice(w));
+  assert.equal(status(w), 'deleted');
+  assert.deepEqual(w.snapshot().objects.filter((k) => k.startsWith('installations/tenant-a/')), []);
+});
+
+test('E4 purge pages never run on an installation that is not deleting or deleted (L-2160)', async () => {
+  const w = world();
+  const del = await confirmed(w, 'delete', 't-a', { retentionDays: 1 });
+  await runJob(w.deps, del.id, once);
+  age(w, del.id, 2);
+  // Retention is over, but the installation is active again (set by hand): purge must still touch nothing.
+  w.raw.exec(`UPDATE installations SET status = 'active' WHERE id = 't-a'`);
+  await w.bucket.put('installations/tenant-a/photo.jpg', 'x');
+  w.bucket.uploads.set('up-1', 'installations/tenant-a/big.bin');
+  await w.bucket.put(await multipartMarkerKey('installations/tenant-a/', 'up-1'), JSON.stringify({ id: 'up-1', key: 'installations/tenant-a/big.bin' }));
+  const forced = forcedPurge(w);
+  const before = w.snapshot();
+  for (const p of purgeSteps(w, forced)) await assert.rejects(p, refusedAs('status_conflict'));
+  assert.deepEqual(w.snapshot(), before);
+  await assert.rejects(runJob(w.deps, forced, once), refusedAs('status_conflict'));
+  const after = w.snapshot();
+  assert.deepEqual(withoutJobs(after), withoutJobs(before));
+  assert.equal(after.objects.filter((k) => k.startsWith('installations/tenant-a/')).length, 3);
+  assert.deepEqual(after.uploads, [['up-1', 'installations/tenant-a/big.bin']]);
+  assert.deepEqual(after.doStorage, ['primary', 'tenant-a', 'tenant-b']);
+  assert.deepEqual(after.containerStorage, ['tenant-a', 'tenant-b']);
+  assert.equal(status(w), 'active');
+});
+
+test('E4 refusals are NonRetryableError, so the Workflow does not retry them; an unfinished R2 call is retried (L-2159)', async () => {
+  const w = world();
+  const resume = await confirmed(w, 'resume');
+  w.raw.exec(`UPDATE installations SET status = 'deleting' WHERE id = 't-a'`);
+  const errors = [];
+  for (const p of [createJob(w.deps.db, { kind: 'suspend', installationId: 'primary', nonce: 'nonce-primary', createdBy: 'op' }),
+    createJob(w.deps.db, { kind: 'purge', installationId: 't-a', nonce: 'nonce-retention', createdBy: 'op' }),
+    steps.resumeStatus(w.deps, resume.id), runJob(w.deps, resume.id, once)]) {
+    await p.then(() => assert.fail('expected a refusal'), (e) => errors.push(e));
+  }
+  assert.deepEqual(errors.map((e) => [e instanceof NonRetryableError, e.code]),
+    [[true, 'refused'], [true, 'retention'], [true, 'not_running'], [true, 'status_conflict']]);
+  const del = await confirmed(w, 'delete', 't-a', { retentionDays: 1 });
+  await runJob(w.deps, del.id, once);
+  age(w, del.id, 1);
+  const id = 'upload-1';
+  w.bucket.uploads.set(id, 'installations/tenant-a/a.bin');
+  await w.bucket.put(await multipartMarkerKey('installations/tenant-a/', id), JSON.stringify({ id, key: 'installations/tenant-a/a.bin' }));
+  w.bucket.resumeMultipartUpload = () => ({ abort: async () => { throw new Error('R2 unavailable'); } });
+  const purge = await confirmed(w, 'purge', 't-a', { confirmHost: 'a.example.test' });
+  const e = await runJob(w.deps, purge.id, once).then(() => null, (x) => x);
+  assert.ok(e instanceof LifecycleRetry && !(e instanceof NonRetryableError));
+  assert.equal(jobRow(w, purge.id).error_code, 'r2_interrupted');
+});
+
+test('E4 purge confirmation needs an exact host; an export outside the prefix is refused (N-2162)', async () => {
+  const w = world();
+  const del = await confirmed(w, 'delete', 't-a', { retentionDays: 1 });
+  await runJob(w.deps, del.id, once);
+  age(w, del.id, 1);
+  const job = await createJob(w.deps.db, { kind: 'purge', installationId: 't-a', nonce: 'nonce-host-1', createdBy: 'op' });
+  for (const host of ['A.EXAMPLE.TEST', 'a.example', 'example.test', 'a.example.test ', 'a.example.test.', '', 'b.example.test']) {
+    await assert.rejects(confirmJob(w.deps.db, job.id, 'op', host), refusedAs('confirm_host'), host);
+  }
+  assert.equal(jobRow(w, job.id).state, 'paused');
+
+  for (const key of ['installations/tenant-b/backups/x.zip', 'installations/tenant-a/', 'installations/tenant-ab/x.zip', 'backups/x.zip', 42]) {
+    const v = world();
+    v.deps.container.backup = async () => ({ key });
+    const exp = await confirmed(v, 'export');
+    await assert.rejects(runJob(v.deps, exp.id, once), refusedAs('bad_export'), String(key));
+    assert.equal(jobRow(v, exp.id).result_json, null);
+  }
 });

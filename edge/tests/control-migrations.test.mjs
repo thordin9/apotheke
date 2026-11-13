@@ -45,6 +45,7 @@ test('primary is seeded with its existing DO name and R2 prefix, plan internal, 
 const PINNED = {
   '0001_control_plane.sql': 'a066b939768e2180e782e2e83fc53d03f611b6b7edac3b6991f4d5301eb4ecb7',
   '0002_seed_primary.sql': '7c0ecfebc8603b75300154ac1ba66adabebc550ddb0fdbb445df5994a9db8dcc',
+  '0003_lifecycle_jobs.sql': '932738cbb9f76105a4d9f8a1333341ad0cf0c3d503bfebe3de53693571d6fd83',
 };
 
 test('applied migrations are pinned by sha256', () => {

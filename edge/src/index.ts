@@ -92,14 +92,15 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 
 	/** APP_KEY and ALLOWED_HOSTS for this object's installation. primary (or an unnamed object) gets the Worker's own
 	 *  values unchanged. Another installation gets its derived key and its own hosts from installation_routes, or
-	 *  does not start. */
+	 *  does not start (also when its status is not provisioning or active). */
 	private async installationEnv(): Promise<{ appKey: string; allowedHosts: string }> {
 		const doName = this.ctx.id?.name ?? INSTALLATION_NAME;
 		const appKey = await installationAppKey(doName, this.env.APP_KEY);
 		if (doName === INSTALLATION_NAME) return { appKey, allowedHosts: this.env.ALLOWED_HOSTS ?? "" };
 		if (!validDoName(doName) || !this.env.DB) throw new Error("no installation hosts");
 		const { results } = await this.env.DB
-			.prepare("SELECT r.host FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE i.do_name = ? ORDER BY r.host")
+			// Read fresh at every start: a suspended or deleted installation does not start, even through a cached route.
+			.prepare("SELECT r.host FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE i.do_name = ? AND i.status IN ('provisioning', 'active') ORDER BY r.host")
 			.bind(doName)
 			.all<{ host: string }>();
 		if (results.length === 0) throw new Error("no installation hosts");
