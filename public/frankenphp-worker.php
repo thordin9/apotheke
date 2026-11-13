@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 /**
- * FrankenPHP worker entry (worker mode, hosted container only: APOTHEKE_PHP_WORKER=1, see
- * docker/frankenphp/php-worker.caddy). The framework boots once per PHP thread and then serves requests in a
+ * FrankenPHP worker entry (worker mode, opt-in with APOTHEKE_PHP_WORKER=1; edge/wrangler.jsonc sets the hosted value;
+ * see docker/frankenphp/php-worker.caddy). The framework boots once per PHP thread and then serves requests in a
  * loop; between requests CodeIgniter's worker reset drops every service not in Config\WorkerMode::$persistentServices,
  * the factories, the request's event listeners, closes the session and rolls back an open transaction.
  *
@@ -14,9 +14,13 @@ declare(strict_types=1);
  *
  * An answered error must not end the worker: Apotheke\Core\Exceptions\PlainHandler returns instead of exit() when
  * APOTHEKE_PHP_WORKER is defined (an exit would restart the worker with FrankenPHP's failure backoff).
+ *
+ * Each worker logs one "apotheke: PHP worker started" line when it boots, so a restart shows in the container log, and
+ * it recycles itself after APOTHEKE_WORKER_MAX_REQUESTS requests (Apotheke\Core\Http\WorkerRecycle, L-1979).
  */
 
 use Apotheke\Core\Http\OriginalsGuard;
+use Apotheke\Core\Http\WorkerRecycle;
 use CodeIgniter\Boot;
 use CodeIgniter\Config\Factories;
 use CodeIgniter\Config\Services;
@@ -50,6 +54,13 @@ ignore_user_abort(true);
 $guard = new OriginalsGuard();
 /** @var WorkerMode $workerConfig */
 $workerConfig = config(WorkerMode::class);
+$maxRequests = WorkerRecycle::limit(getenv('APOTHEKE_WORKER_MAX_REQUESTS'));
+$invalidMax = WorkerRecycle::invalid(getenv('APOTHEKE_WORKER_MAX_REQUESTS'));
+if ($invalidMax !== null) {
+    file_put_contents('php://stderr', $invalidMax . "\n");
+}
+// One line per worker boot on the container's stderr (error_log() from a worker script does not reach the log).
+file_put_contents('php://stderr', 'apotheke: PHP worker started (recycles after ' . ($maxRequests === 0 ? 'no limit' : $maxRequests . ' requests') . ")\n");
 
 $handler = static function () use ($app, $guard, $workerConfig): void {
     $path = rawurldecode((string)(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/'));
@@ -90,7 +101,8 @@ $handler = static function () use ($app, $guard, $workerConfig): void {
     }
 };
 
-while (frankenphp_handle_request($handler)) {
+// After $maxRequests the loop ends and the script returns: FrankenPHP starts this worker again.
+for ($served = 0; WorkerRecycle::keepServing($served, $maxRequests) && frankenphp_handle_request($handler); $served++) {
     if (Services::has('session')) {
         Services::session()->close();
     }

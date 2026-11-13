@@ -425,7 +425,7 @@ test.describe('page-view counting', () => {
         // Reopening with consent shows the choice, focuses the first button, and Accept again counts nothing extra.
         await settings.click();
         await expect(page.locator('#consent')).toBeVisible();
-        await expect(page.locator('#consent-choice')).toHaveText(/accepted\. Decline deletes/);
+        await expect(page.locator('#consent-choice')).toHaveText(/accepted\. Decline removes the consent cookie immediately/);
         await expect(page.getByRole('button', { name: 'Decline' })).toBeFocused();
         await page.getByRole('button', { name: 'Accept' }).click();
         await expect(page.locator('#consent')).toBeHidden();
@@ -440,7 +440,7 @@ test.describe('page-view counting', () => {
         await settings.click();
         await page.getByRole('button', { name: 'Decline' }).click();
         await expect(page.locator('#consent')).toBeHidden();
-        expect(await context.cookies()).toEqual([]);
+        await expect.poll(async () => context.cookies()).toEqual([]);
         await expectNothingStored(page, context);
         await navigateInApp(page);
         await page.goto('/privacy/');
@@ -471,7 +471,7 @@ test('withdrawing on the sign-in page turns sign-in back off', async ({ browser 
 
     await page.getByRole('button', { name: 'Cookie settings' }).click();
     await page.getByRole('button', { name: 'Decline' }).click();
-    expect(await context.cookies()).toEqual([]);
+    await expect.poll(async () => context.cookies()).toEqual([]);
     await expect(page.locator('#sign-in-note')).toHaveText('Accept cookies to sign in.');
     await expect(page.locator('#sign-in-submit')).toBeDisabled();
     await expect(page.locator('#sign-in-user')).toBeDisabled();

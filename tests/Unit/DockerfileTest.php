@@ -11,6 +11,9 @@ use PHPUnit\Framework\TestCase;
  */
 final class DockerfileTest extends TestCase
 {
+    /** The worker script's path in the FrankenPHP image (docker/frankenphp/php-worker.caddy). */
+    private const WORKER_SCRIPT = '/var/www/app/public/frankenphp-worker.php';
+
     private const FROM = 'FROM php:${PHP_VERSION}-fpm-alpine';
 
     public function testArgDefaultPinsAFullPatchTag(): void
@@ -229,7 +232,7 @@ final class DockerfileTest extends TestCase
     }
 
     /**
-     * QA-1854: FrankenPHP worker mode only when APOTHEKE_PHP_WORKER is on (the hosted Worker ships it off); classic mode
+     * QA-1854: FrankenPHP worker mode only when APOTHEKE_PHP_WORKER is on (the hosted Worker sets it); classic mode
      * stays the default of both images, and the nginx image has no worker mode.
      */
     public function testFrankenphpWorkerModeIsOptIn(): void
@@ -262,8 +265,8 @@ final class DockerfileTest extends TestCase
         $this->assertStringContainsString('->matches($path)', $script, 'camera originals stay a 404, as in index.php');
         $this->assertStringContainsString("\$_SERVER['SCRIPT_NAME'] = '';", $script);
         $this->assertStringContainsString('Services::resetForWorkerMode($workerConfig);', $script);
-        // hosted: shipped off ("0"; "1" turns it on), and the container default (no var) is classic
-        $this->assertStringContainsString('"APOTHEKE_PHP_WORKER": "0"', (string)file_get_contents("$root/edge/wrangler.jsonc"));
+        // hosted: on ("1"; "0" goes back to classic), and the container default (no var) is classic
+        $this->assertStringContainsString('"APOTHEKE_PHP_WORKER": "1"', (string)file_get_contents("$root/edge/wrangler.jsonc"));
         $this->assertStringContainsString('APOTHEKE_PHP_WORKER: this.env.APOTHEKE_PHP_WORKER ?? "0",', (string)file_get_contents("$root/edge/src/index.ts"));
         $this->assertStringNotContainsString('APOTHEKE_PHP_WORKER', (string)file_get_contents("$root/docker-compose.yml"));
     }
@@ -275,36 +278,71 @@ final class DockerfileTest extends TestCase
         if ($bin === null) {
             $this->markTestSkipped('frankenphp is not on PATH');
         }
-        $caddy = dirname(__DIR__, 2) . '/docker/frankenphp/Caddyfile';
-        foreach ([['1', null], ['0', null], [null, null], ['1', 'worker'], [null, 'classic']] as [$flag, $mode]) {
-            $env = [
-                'PORT' => '9091',
-                'FRANKENPHP_NUM_THREADS' => '2',
-                'PATH' => (string)getenv('PATH'),
-                'HOME' => (string)getenv('HOME'),
-            ];
-            if ($mode !== null) {
-                // as the entrypoint sets them (QA-1854)
-                $env += ['APOTHEKE_PHP_MODE' => $mode, 'FRANKENPHP_REGULAR_THREADS' => $mode === 'worker' ? '1' : '2', 'FRANKENPHP_MAX_THREADS' => $mode === 'worker' ? '3' : '2'];
-            }
-            if ($flag !== null) {
-                $env['APOTHEKE_EDGE_CLIENT_IP'] = $flag;
-            }
-            $proc = proc_open(
-                [$bin, 'validate', '--config', $caddy, '--adapter', 'caddyfile'],
-                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-                $pipes,
-                null,
-                $env,
-            );
-            $this->assertIsResource($proc, 'flag ' . ($flag ?? 'unset'));
-            $stdout = stream_get_contents($pipes[1]);
-            $stderr = stream_get_contents($pipes[2]);
-            fclose($pipes[1]);
-            fclose($pipes[2]);
-            $code = proc_close($proc);
-            $this->assertSame(0, $code, 'validate failed for APOTHEKE_EDGE_CLIENT_IP=' . ($flag ?? '(unset)') . ', mode ' . ($mode ?? '(unset)') . "\n" . $stdout . $stderr);
+        foreach ([['1', null], ['0', null], [null, null], [null, 'classic']] as [$flag, $mode]) {
+            $this->assertCaddyfileValidates($bin, $flag, $mode);
         }
+    }
+
+    /**
+     * Worker mode names the worker script by its path in the image (php-worker.caddy), and frankenphp validate
+     * requires that file, so outside the image (frankenphp on PATH, no /var/www/app) this is skipped (N-1981).
+     * The image build validates both modes in place (Dockerfile.frankenphp).
+     */
+    public function testFrankenphpValidatesTheCaddyfileInWorkerMode(): void
+    {
+        $bin = $this->frankenphpBinary();
+        if ($bin === null) {
+            $this->markTestSkipped('frankenphp is not on PATH');
+        }
+        if (!is_file(self::WORKER_SCRIPT)) {
+            $this->markTestSkipped(self::WORKER_SCRIPT . ' is missing (runs inside the image only)');
+        }
+        $this->assertCaddyfileValidates($bin, '1', 'worker');
+    }
+
+    private function assertCaddyfileValidates(string $bin, ?string $flag, ?string $mode): void
+    {
+        $caddy = dirname(__DIR__, 2) . '/docker/frankenphp/Caddyfile';
+        $env = [
+            'PORT' => '9091',
+            'FRANKENPHP_NUM_THREADS' => '2',
+            'PATH' => (string)getenv('PATH'),
+            'HOME' => (string)getenv('HOME'),
+        ];
+        if ($mode !== null) {
+            // as the entrypoint sets them (QA-1854)
+            $env += ['APOTHEKE_PHP_MODE' => $mode, 'FRANKENPHP_REGULAR_THREADS' => $mode === 'worker' ? '1' : '2', 'FRANKENPHP_MAX_THREADS' => $mode === 'worker' ? '3' : '2'];
+        }
+        if ($flag !== null) {
+            $env['APOTHEKE_EDGE_CLIENT_IP'] = $flag;
+        }
+        $proc = proc_open(
+            [$bin, 'validate', '--config', $caddy, '--adapter', 'caddyfile'],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            $env,
+        );
+        $this->assertIsResource($proc, 'flag ' . ($flag ?? 'unset'));
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $code = proc_close($proc);
+        $this->assertSame(0, $code, 'validate failed for APOTHEKE_EDGE_CLIENT_IP=' . ($flag ?? '(unset)') . ', mode ' . ($mode ?? '(unset)') . "\n" . $stdout . $stderr);
+    }
+
+    /** A missing asset is a 404 that is never cached; only a served file has the year-long immutable cache. */
+    public function testOnlyServedAssetsAreCachedForAYear(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $caddy = (string)file_get_contents($root . '/docker/frankenphp/Caddyfile');
+        $this->assertStringContainsString("\t\theader @assetfile Cache-Control \"public, max-age=31536000, immutable\"\n\t\tfile_server @assetfile\n\t\theader @assets Cache-Control no-store\n\t\trespond @assets 404\n", $caddy);
+        $this->assertStringNotContainsString('header @assets Cache-Control "public', $caddy);
+        $nginx = (string)file_get_contents($root . '/docker/nginx.conf');
+        $this->assertSame(1, preg_match('/map \$status \$apotheke_asset_cache \{\s*200\s+"public, max-age=31536000, immutable";\s*206\s+"public, max-age=31536000, immutable";\s*304\s+"public, max-age=31536000, immutable";\s*default "no-store";\s*\}/', $nginx));
+        $this->assertStringContainsString('add_header Cache-Control $apotheke_asset_cache always;', $nginx);
+        $this->assertStringContainsString('check "missing asset not cached"      no-store', (string)file_get_contents($root . '/scripts/docker-checks.sh'));
     }
 
     public function testNginx421HasTheAppsText(): void

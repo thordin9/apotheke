@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace Apotheke\Core\Http;
 
 /**
- * With sign-in off, a state-changing request must come from the app's own pages
- * (SEC-M3). Port of legacy method_is_safe() and request_same_origin().
+ * A state-changing page or form request must come from the app's own pages
+ * (SEC-M3), with sign-in on or off. Port of legacy method_is_safe() and
+ * request_same_origin(), with Referer read when there is no Origin.
  */
 final class SameOrigin
 {
@@ -23,8 +24,9 @@ final class SameOrigin
     /**
      * Sec-Fetch-Site decides when the browser sends it (same-origin, or none for
      * a typed or bookmarked address). Otherwise Origin must be this request's
-     * scheme and host, or PUBLIC_URL's origin. Without either header (curl,
-     * scripts, old clients) the request is allowed.
+     * scheme and host, or PUBLIC_URL's origin; without Origin, a Referer's origin
+     * must be. Without any of them (curl, scripts, old clients) the request is
+     * allowed, and the CSRF token decides as before.
      *
      * @param array<string,mixed> $server
      */
@@ -36,10 +38,25 @@ final class SameOrigin
         }
         $origin = strtolower(trim((string)($server['HTTP_ORIGIN'] ?? '')));
         if ($origin === '') {
-            return true;
+            $origin = self::refererOrigin((string)($server['HTTP_REFERER'] ?? ''));
+            if ($origin === '') {
+                return true;
+            }
         }
 
         return in_array(self::normalise($origin), $this->ownOrigins($server, $https, $publicUrl), true);
+    }
+
+    /** The scheme://host[:port] of a Referer, or '' when there is none or it is not an absolute http(s) URL. */
+    public static function refererOrigin(string $referer): string
+    {
+        $p = trim($referer) !== '' ? parse_url(trim($referer)) : false;
+        if (!is_array($p) || !isset($p['scheme'], $p['host']) || !in_array(strtolower($p['scheme']), ['http', 'https'], true)) {
+            return '';
+        }
+        $host = str_contains($p['host'], ':') && $p['host'][0] !== '[' ? '[' . $p['host'] . ']' : $p['host'];
+
+        return strtolower($p['scheme']) . '://' . $host . (isset($p['port']) ? ':' . $p['port'] : '');
     }
 
     /**

@@ -5,7 +5,8 @@
 // R2 for files and the Installation Durable Object's SQLite for the database.
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { d1UnboundResponse, type D1Env } from "./d1";
-import { installationStub, type InstallationEnv } from "./installation";
+import { installationPrefix, installationStub, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
+import { routeFor, routeResponse } from "./route";
 import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env } from "./r2";
 
 export { Installation } from "./installation";
@@ -19,19 +20,22 @@ const READY_TIMEOUT_MS = 90_000;
  * Bound with interceptOutboundHttp so the container never holds a Cloudflare token. Answers only when
  * STORAGE, DB and INSTALLATION are all bound (edge/storage.jsonc, merged behind EDGE_STORAGE_READY).
  */
-export class D1Outbound extends WorkerEntrypoint<Env & D1Env & InstallationEnv> {
+export class D1Outbound extends WorkerEntrypoint<Env & D1Env & InstallationEnv, StorageProps> {
 	async fetch(request: Request): Promise<Response> {
 		// The database is the Installation object's SQLite, and only in storage mode. DB stays the control plane.
-		if (!storageSelected(this.env) || !this.env.INSTALLATION) return d1UnboundResponse();
-		return installationStub(this.env.INSTALLATION).fetch(request);
+		// The installation comes only from the props the container object set (wireStorage); none means no database.
+		const doName = propsDoName(this.ctx?.props);
+		if (!storageSelected(this.env) || !this.env.INSTALLATION || !doName) return d1UnboundResponse();
+		return installationStub(this.env.INSTALLATION, doName).fetch(request);
 	}
 }
 
-export class R2Outbound extends WorkerEntrypoint<Env & R2Env> {
+export class R2Outbound extends WorkerEntrypoint<Env & R2Env, StorageProps> {
 	async fetch(request: Request): Promise<Response> {
 		const bucket = selectedBucket(this.env);
-		if (!bucket) return r2UnboundResponse();
-		return handleR2Request(request, bucket);
+		const doName = propsDoName(this.ctx?.props);
+		if (!bucket || !doName) return r2UnboundResponse();
+		return handleR2Request(request, bucket, installationPrefix(doName));
 	}
 }
 
@@ -61,10 +65,13 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		}
 	}
 
-	/** Point d1.internal and r2.internal at their handlers (safe to call while the container is running). */
+	/** Point d1.internal and r2.internal at their handlers (safe to call while the container is running).
+	 *  The installation is this object's own name (getByName in the default fetch), never anything from PHP. */
 	private async wireStorage(c: NonNullable<DurableObjectState["container"]>): Promise<void> {
-		await c.interceptOutboundHttp("d1.internal", this.ctx.exports.D1Outbound({ props: {} }));
-		await c.interceptOutboundHttp("r2.internal", this.ctx.exports.R2Outbound({ props: {} }));
+		const doName = this.ctx.id?.name;
+		const props = validDoName(doName) ? { doName, prefix: installationPrefix(doName) } : {};
+		await c.interceptOutboundHttp("d1.internal", this.ctx.exports.D1Outbound({ props }));
+		await c.interceptOutboundHttp("r2.internal", this.ctx.exports.R2Outbound({ props }));
 	}
 
 	/** Starts the container if needed and waits for /healthz. Returns the cold-start time in ms (0 when warm). */
@@ -73,6 +80,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		if (!c) throw new Error("no container configured");
 		// Throws on half a storage fragment: the Worker answers 503 and the container never starts on a fallback.
 		const backend = storageBackend(this.env);
+		// Storage mode needs this object's name for its database and prefix: without it, never start.
+		if (backend === "r2" && !validDoName(this.ctx.id?.name)) throw new Error("no installation name");
 		await this.wireStorage(c);
 		if (c.running && this.ready) return 0;
 		this.readying ??= this.startAndWait(c, backend).finally(() => {
@@ -220,7 +229,8 @@ function toContainer(request: Request): Request {
 }
 
 export default {
-	async fetch(request, env): Promise<Response> {
-		return env.APOTHEKE.getByName("primary").fetch(request);
+	async fetch(request, env: Env & D1Env): Promise<Response> {
+		const route = await routeFor(new URL(request.url).host, env.DB);
+		return routeResponse(route) ?? env.APOTHEKE.getByName(route.doName).fetch(request);
 	},
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Env & D1Env>;

@@ -378,9 +378,23 @@ final class D1HostedWritesTest extends CIUnitTestCase
         $this->assertSame(1, $tokens->prune(true));
         $this->assertSame([], $this->rows('SELECT token FROM undo_tokens'));
         $this->assertNotSame('', $old);
-        $this->expectExceptionMessage('A guarded undo prune (a restore) is not available on D1.');
-        $tokens->prune(true, static function (): void {
-        });
+        // A restore's guarded prune: the guard is a step of the unit, so a failed one keeps the tokens.
+        $kept = (string)$tokens->create('delete', 'kept', $snap);
+        try {
+            $tokens->prune(true, static function (?\Apotheke\Core\Database\UnitOfWork $uow): void {
+                $uow?->assert('1 = 0', [], 'restore fence', static fn (): \RuntimeException => new \RuntimeException('fence lost'));
+            });
+            $this->fail('the guard did not fail the unit');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('fence lost', $e->getMessage());
+        }
+        $this->assertSame([['token' => $kept]], $this->rows('SELECT token FROM undo_tokens'));
+        $seen = null;
+        $this->assertSame(1, $tokens->prune(true, static function (?\Apotheke\Core\Database\UnitOfWork $uow) use (&$seen): void {
+            $seen = $uow;
+        }));
+        $this->assertInstanceOf(\Apotheke\Core\Database\UnitOfWork::class, $seen);
+        $this->assertSame([], $this->rows('SELECT token FROM undo_tokens'));
     }
 
     // --- search index -----------------------------------------------------------------------------------------
@@ -422,10 +436,6 @@ final class D1HostedWritesTest extends CIUnitTestCase
         $cases = [
             // Imports::commit() imports line by line there (D1HostedImportTest); run()'s transaction stays refused.
             'CSV import' => fn () => $this->bare(\Apotheke\ImportExport\Imports::class)->run([], true),
-            'Restoring a backup' => fn () => $this->bare(\Apotheke\Backup\Restorer::class)->restore('/nonexistent.zip', false),
-            'Restoring a backup ' => fn () => \Apotheke\Backup\RestoreFence::claim($this->db(), 'token'),
-            'Restoring a backup  ' => fn () => \Apotheke\Backup\RestoreMutation::replace($this->db(), 'token',
-                (new \ReflectionClass(\Apotheke\Core\Storage\R2Storage::class))->newInstanceWithoutConstructor(), 'k', 'b'),
         ];
         foreach ($cases as $what => $call) {
             try {

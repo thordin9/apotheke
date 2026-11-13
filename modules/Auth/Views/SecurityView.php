@@ -179,7 +179,7 @@ final class SecurityView
         $checks = static function (string $key, array $have, bool $locked) use ($h): string {
             $c = '<fieldset class="perm-grid"><legend class="vh">Permissions</legend>';
             foreach (Permissions::ALL as $p => [$label, $hint]) {
-                $dis = $locked || ($key === 'guest' && in_array($p, ['users', 'settings', 'backup'], true));
+                $dis = $locked || ($key === 'guest' && in_array($p, \Apotheke\Auth\RoleAdmin::NOT_FOR_GUESTS, true));
                 $c .= '<label class="perm"><input type="checkbox" name="perms[]" value="' . $p . '" id="perm-' . $h($key) . '-' . $p . '"' . (in_array($p, $have, true) ? ' checked' : '') . ($dis ? ' disabled' : '') . '>'
                     . '<span><b>' . $h($label) . '</b><small>' . $h($hint) . '</small></span></label>';
             }

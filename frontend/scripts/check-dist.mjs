@@ -14,7 +14,7 @@ const dist = join(frontend, 'dist');
 const failures = [];
 const fail = (msg) => failures.push(msg);
 
-const LANDING_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://analytics.services.webapp.gr; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
+const LANDING_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.services.getapotheke.com https://analytics.services.webapp.gr; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
 const API_ORIGIN = 'https://api.services.getapotheke.com';
 const SPA_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data: https://api.services.getapotheke.com; connect-src 'self' https://api.services.getapotheke.com https://analytics.services.webapp.gr; font-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
 
@@ -138,7 +138,7 @@ export const PAGE_SECURITY = {
 };
 export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=(), accelerometer=(), gyroscope=(), magnetometer=(), payment=(), usb=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()";
 
-function expectedCache(path) {
+export function expectedCache(path) {
     if (path === '/favicon.ico' || path === '/assets/icons.svg' || path.startsWith('/assets/brand/') || path.startsWith('/assets/mascot/') || path.startsWith('/assets/shots/')) {
         return 'public, max-age=86400';
     }
@@ -147,25 +147,74 @@ function expectedCache(path) {
     return 'no-cache';
 }
 
+const PAGE_BASE = 'https://getapotheke.com/';
+
 function onSiteHost(host) {
     return host === 'getapotheke.com' || host === 'www.getapotheke.com';
 }
 
-function hostFromUrl(url) {
-    const trimmed = url.trim();
-    const lower = trimmed.toLowerCase();
-    let rest = '';
-    if (lower.startsWith('https://')) rest = trimmed.slice('https://'.length);
-    else if (lower.startsWith('http://')) rest = trimmed.slice('http://'.length);
-    else if (lower.startsWith('//')) rest = trimmed.slice(2);
-    else return '';
-    let end = 0;
-    while (end < rest.length) {
-        const c = rest[end];
-        if (c === '/' || c === '?' || c === '#' || c === '"' || c === "'" || c === ')' || c === ' ' || c === '>' || c === '\\' || c === '\n' || c === '\r' || c === '\t' || c === ',') break;
-        end++;
+function parsedUrl(url, base = PAGE_BASE) {
+    try {
+        return new URL(String(url).trim(), base);
+    } catch {
+        return null;
     }
-    return rest.slice(0, end).toLowerCase().replace(/:\d+$/, '');
+}
+
+function urlHost(parsed) {
+    return parsed.host.toLowerCase();
+}
+
+function hostFromUrl(url) {
+    const parsed = parsedUrl(url);
+    if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) return '';
+    return urlHost(parsed);
+}
+
+function explicitHttps(url) {
+    return /^https:\/\//i.test(url);
+}
+
+function hasAsciiBreak(url) {
+    return /[\t\n\r]/.test(url);
+}
+
+function rawAuthority(url) {
+    const lower = url.toLowerCase();
+    let rest = '';
+    if (lower.startsWith('https://')) rest = url.slice('https://'.length);
+    else if (lower.startsWith('http://')) rest = url.slice('http://'.length);
+    else if (url.startsWith('//')) rest = url.slice(2);
+    else return '';
+    const end = rest.search(/[/?#\\]/);
+    return end < 0 ? rest : rest.slice(0, end);
+}
+
+function authorityAndPath(url) {
+    const hash = url.indexOf('#');
+    const noHash = hash < 0 ? url : url.slice(0, hash);
+    const query = noHash.indexOf('?');
+    return query < 0 ? noHash : noHash.slice(0, query);
+}
+
+function disguisedOnSite(url) {
+    const head = authorityAndPath(url);
+    if (head.includes('\\') || url.startsWith('//')) return true;
+    return /%[0-9a-f]{2}/i.test(rawAuthority(url));
+}
+
+function sourceIsCss(from) {
+    try {
+        return new URL(String(from), PAGE_BASE).pathname.toLowerCase().endsWith('.css');
+    } catch {
+        return false;
+    }
+}
+
+export function pageUrl(rel) {
+    if (rel === 'index.html') return PAGE_BASE;
+    if (rel.endsWith('/index.html')) return new URL(rel.slice(0, -'index.html'.length), PAGE_BASE).href;
+    return new URL(rel, PAGE_BASE).href;
 }
 
 function decodeHtmlEntities(text) {
@@ -553,12 +602,22 @@ function htmlUrls(html) {
 
 let spaMount = '/app';
 
-export function resolves(url) {
+export function resolves(url, from = PAGE_BASE) {
     const trimmed = String(url || '').trim();
-    if (/^http:/i.test(trimmed)) return { ok: false, why: 'not https' };
-    const path = trimmed.split('#')[0].split('?')[0];
-    if (path === '' || /^(https:|mailto:)/i.test(path)) return { ok: true };
-    if (path.startsWith('//') || !path.startsWith('/')) return { ok: false, why: 'not a root-absolute path' };
+    if (hasAsciiBreak(trimmed)) return { ok: false, why: 'contains a tab or line break' };
+    if (sourceIsCss(from) && trimmed.toLowerCase().startsWith('data:')) return { ok: true };
+    const parsed = parsedUrl(trimmed, from);
+    if (!parsed) return { ok: false, why: 'not a root-absolute path' };
+    if (parsed.protocol === 'mailto:') return { ok: true };
+    if (parsed.protocol === 'http:') return { ok: false, why: 'not https' };
+    if (parsed.protocol !== 'https:') return { ok: false, why: 'not a root-absolute path' };
+    if (disguisedOnSite(trimmed)) return { ok: false, why: 'not a root-absolute path' };
+    if (!onSiteHost(urlHost(parsed))) {
+        if (explicitHttps(trimmed)) return { ok: true };
+        return { ok: false, why: 'not a root-absolute path' };
+    }
+    const path = parsed.pathname;
+    if (path === '') return { ok: true };
     const decision = appFallback(path, spaMount.endsWith('/') ? spaMount : spaMount + '/');
     if (decision.kind === 'shell' || decision.kind === 'redirect') {
         const shell = join(dist, 'app/index.html');
@@ -710,7 +769,7 @@ function run() {
         }
         for (const path of landingPaths) {
             const csp = headersFor(rules, path).get('content-security-policy') || '';
-            if (connectSrcHas(csp, API_ORIGIN)) fail(path + ' landing connect-src must not name the API host');
+            if (!connectSrcHas(csp, API_ORIGIN) || !connectSrcHas(csp, "'self'")) fail(path + ' connect-src must allow this site and the API host');
         }
         for (const path of ['/app/', '/app/index.html']) {
             const csp = headersFor(rules, path).get('content-security-policy');
@@ -747,10 +806,10 @@ function run() {
         for (const rel of walk(dist).filter((name) => name.endsWith('.html') || name.endsWith('.css'))) {
             const body = readFileSync(join(dist, rel), 'utf8');
             checkOffSite(rel, body, rel.endsWith('.css'));
-            if (!rel.endsWith('.html')) continue;
-            const html = body;
-            for (const url of htmlUrls(html)) {
-                const result = resolves(url);
+            const from = pageUrl(rel);
+            const urls = rel.endsWith('.css') ? cssResourceUrls(body) : htmlUrls(body);
+            for (const url of urls) {
+                const result = resolves(url, from);
                 if (!result.ok) fail(rel + ' internal URL ' + url + ' ' + result.why);
             }
         }

@@ -1237,7 +1237,29 @@ class Services extends BaseService
         return new \Apotheke\Backup\Restorer($db, static::backups(false, $settings), $settings, static::undoTokens(), static function (): array {
             return array_keys((new \Apotheke\Migrations\PdoMigrationRunner(\Apotheke\Migrations\PdoMigrationRunner::repoRoot() . '/migrations'))->available());
         }, $data, $originals, (int)$settings->get('image_thumb_max'), static::requestCleanup(),
-            static::stagedExecutor(), (int)$config->values()['uploads']['restore_db_max_mb'] * 1048576);
+            static::stagedExecutor(), (int)$config->values()['uploads']['restore_db_max_mb'] * 1048576, static::storedBackups(false, $settings),
+            // On the command line stderr is the operator's terminal, which already shows the error: the log file instead.
+            PHP_SAPI === 'cli' ? static function (string $line): void {
+                \CodeIgniter\Config\Services::logger()->error($line);
+            } : static function (string $line): void {
+                error_log($line);
+            });
+    }
+
+    /**
+     * The backups the installation keeps (Backup): the one made before each restore, in the data storage under
+     * backups/ (DATA_DIR/backups, or the installation's backups/ prefix on object storage).
+     */
+    public static function storedBackups(bool $getShared = true, ?\Apotheke\Settings\SettingsService $settings = null): \Apotheke\Backup\StoredBackups
+    {
+        if ($getShared && $settings === null) {
+            return static::getSharedInstance('storedBackups');
+        }
+        $config = static::apothekeConfig();
+        [$data] = \Apotheke\Core\Storage\StorageFactory::forApotheke($config->values());
+
+        return new \Apotheke\Backup\StoredBackups($data, static::backups(false, $settings), new \Apotheke\Core\Libraries\Clock(),
+            (int)$config->values()['uploads']['restore_keep_backups']);
     }
 
     /**
@@ -1373,7 +1395,7 @@ class Services extends BaseService
     {
         return [
             \Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => 'import',
-            \Apotheke\Backup\Jobs\RestoreConfirmJob::TYPE => 'backup',
+            \Apotheke\Backup\Jobs\RestoreConfirmJob::TYPE => 'restore',
         ];
     }
 

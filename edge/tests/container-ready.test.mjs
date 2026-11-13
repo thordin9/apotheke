@@ -28,7 +28,7 @@ function box({ running, listening, healthy = () => true }) {
       },
     }),
   };
-  const ctx = { container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
+  const ctx = { id: { name: 'primary' }, container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
   const env = { APP_PASSWORD: 'p', APP_KEY: 'k', STORAGE: { head: async () => null }, DB: {}, INSTALLATION: {}, SLEEP_AFTER_MS: '120000' };
   return { container, calls, timeouts, box: new ApothekeContainer(ctx, env) };
 }

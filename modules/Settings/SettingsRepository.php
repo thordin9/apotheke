@@ -76,7 +76,7 @@ final class SettingsRepository
      * and throws WriteFailed (M-25: the connection has DBDebug off).
      *
      * @param array<string,string> $encoded name => JSON value
-     * @param \Closure():void|null $guard runs inside this unit, before its writes
+     * @param \Closure(?UnitOfWork):void|null $guard runs inside this unit (given the unit), before its writes
      */
     public function replace(array $encoded, string $now, ?\Closure $guard = null): void
     {
@@ -91,7 +91,7 @@ final class SettingsRepository
      * and is thrown as it is; any other failure is WriteFailed, as replace().
      *
      * @param \Closure(array<string,string>):array<string,string> $plan raw rows => rows to write
-     * @param \Closure():void|null $guard runs inside this unit, before its writes, and a lost
+     * @param \Closure(?UnitOfWork):void|null $guard runs inside this unit (given the unit), before its writes, and a lost
      *        restore fence rolls the unit back with the settings rows
      */
     public function rewrite(\Closure $plan, string $now, ?\Closure $guard = null): void
@@ -99,7 +99,7 @@ final class SettingsRepository
         try {
             $this->units->run('settings', function (UnitOfWork $uow) use ($plan, $now, $guard): void {
                 if ($guard !== null) {
-                    $guard();
+                    $guard($uow);
                 }
                 foreach ($plan($this->rows(true)) as $name => $value) {
                     $uow->write('DELETE FROM settings WHERE name = ?', [$name], 'settings delete');

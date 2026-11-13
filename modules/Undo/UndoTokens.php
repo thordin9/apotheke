@@ -227,7 +227,7 @@ final class UndoTokens
      * $guard runs inside the same transaction, before the deletes and the file
      * release, so a lost restore fence keeps both.
      *
-     * @param \Closure():void|null $guard
+     * @param \Closure(?\Apotheke\Core\Database\UnitOfWork):void|null $guard given the unit on the hosted database
      */
     public function prune(bool $all = false, ?\Closure $guard = null): int
     {
@@ -236,7 +236,7 @@ final class UndoTokens
         }
         $run = function () use ($all, $guard): int {
             if ($guard !== null) {
-                $guard();
+                $guard(null);
             }
             $n = 0;
             foreach ($this->rows('SELECT token, files FROM undo_tokens' . ($all ? '' : ' WHERE expires_at <= ?'), $all ? [] : [$this->clock->now()]) as $t) {
@@ -257,20 +257,23 @@ final class UndoTokens
 
     /**
      * prune() on the hosted database (D1): the tokens are read first, deleted in one unit of work, and their files
-     * are released only after that batch committed. The guarded form belongs to a restore, which D1 does not run yet.
+     * are released only after that batch committed. A restore's $guard is the first step of that unit, so a lost
+     * restore fence keeps the tokens and their files.
+     *
+     * @param \Closure(?\Apotheke\Core\Database\UnitOfWork):void|null $guard
      */
     private function pruneBatch(bool $all, ?\Closure $guard): int
     {
-        if ($guard !== null) {
-            throw new \LogicException('A guarded undo prune (a restore) is not available on D1.');
-        }
         $tokens = !$all && $this->expiredAhead !== null ? $this->expiredAhead
             : $this->rows('SELECT token, files FROM undo_tokens' . ($all ? '' : ' WHERE expires_at <= ?'), $all ? [] : [$this->clock->now()]);
         $this->expiredAhead = null;
         if ($tokens === []) {
             return 0;
         }
-        \Apotheke\Core\Database\UnitsOfWork::forSite($this->db, null)->run('undo_tokens', static function (\Apotheke\Core\Database\UnitOfWork $uow) use ($tokens): void {
+        \Apotheke\Core\Database\UnitsOfWork::forSite($this->db, null)->run('undo_tokens', static function (\Apotheke\Core\Database\UnitOfWork $uow) use ($tokens, $guard): void {
+            if ($guard !== null) {
+                $guard($uow);
+            }
             foreach ($tokens as $t) {
                 $uow->write('DELETE FROM undo_tokens WHERE token = ?', [(string)$t['token']], 'use undo token');
             }
