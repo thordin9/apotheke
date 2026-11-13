@@ -124,3 +124,25 @@ unit, which takes the `active-admins` key like every unit that adds an active ad
 (410) and the claim row is removed. With `APP_PASSWORD` set, the app still creates the account `admin` from it when
 there is no account, as when self-hosted, so a claim on that installation is refused. Registration stays closed until
 the first account exists, and sign-in cannot be turned off.
+
+## Backup for a lifecycle job
+
+Export and soft delete lifecycle jobs (operator console E4) need the app's own backup, once per job. With
+`APOTHEKE_HOSTED`, the container answers `POST /internal/backup` for that, on the host `ops.internal` only. The
+Worker never routes that host, so the request comes only from the installation's container object through the
+container's port (`edge/src/ops-signature.ts`, `opsBackupRequest`). A request with the Worker's forwarding headers
+(`X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-For`, `X-Apotheke-Client-IP`), another host or another path is
+not this endpoint and gets the usual 404. Self-hosted, it doesn't exist.
+
+- **Request:** body `{"job_id":"<id>"}` (letters, digits, `_` and `-`, at most 64), header
+  `X-Apotheke-Ops-Signature: t=<unix seconds>,v1=<hex>`. The key is HMAC-SHA256 of `apotheke-ops-v1` under the
+  installation's `APP_KEY` bytes; `v1` is HMAC-SHA256 under that key of `POST`, the path, `t` and the body's SHA-256
+  (hex), joined by newlines. It is accepted within 300 seconds of the container's clock.
+- **Answer:** 200 `{"ok":true,"created":…,"backup":{"job_id","id","key","prefix","size","sha256","parts","created_at"}}`.
+  `key` is the backup's manifest, `backups/<id>/manifest.json`, relative to the installation's storage; the Worker
+  adds `installations/<do_name>/`. Errors are `{"ok":false,"code":…}`: 400 `bad_request`, 401 `unauthorized`, 405,
+  409 `backup_in_progress` (retry later), 410 `backup_gone`, 500 `backup_failed`, 503 `not_configured`.
+- **Once per job:** the same job id returns the same backup with `created: false`. The job is recorded in the
+  settings row `ops_backup_job:<id>` (outside the Control Panel's keys), claimed in a unit of work keyed by that row,
+  so two requests for one job never make two backups. A claim left by a request that stopped is taken over after
+  two hours. The backup is a stored backup of kind `export`; `backup.keep` doesn't prune exports.

@@ -74,6 +74,10 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   one-time first-admin claim (`accounts:claim-create`, `/claim#<token>`, only while no active admin exists); off,
   nothing changes. The container does not set `APOTHEKE_HOSTED` yet (edge `index.ts`); limit values come only from
   `plan_limits` ([operator console](operator-console.md#hosted-installations)).
+- Operator console C2 (`feat/operator-console-c2`, on C1): with `APOTHEKE_HOSTED`, `POST /internal/backup` on
+  `ops.internal` makes one stored backup per lifecycle job id (signed with a key derived from `APP_KEY`; not routed
+  from public hosts) and answers its id, size and relative key; `edge/src/ops-signature.ts` builds the request
+  ([operator console](operator-console.md#backup-for-a-lifecycle-job)).
 
 ## Open pull requests
 
