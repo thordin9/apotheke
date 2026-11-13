@@ -8,6 +8,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.42.0] - 2026-11-13
+
+### Added
+
+- **edge:** turn on FrankenPHP worker mode for apotheke-api ([#297](https://github.com/thordin9/apotheke/pull/297))
+
 ### Changed
 
 - **edge:** FrankenPHP worker mode is on for the hosted container (`APOTHEKE_PHP_WORKER=1` in `edge/wrangler.jsonc`); in the interleaved classic/worker preview it was 11.7% faster at p50 on `/api/v1/me` (measured before #293 and #298; not re-measured). To go back to classic mode, ship a small disable-worker-mode commit in a release (Worker mode rollback in `docs/deployment-and-operations.md`) ([#297](https://github.com/thordin9/apotheke/pull/297))
@@ -1688,7 +1694,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.41.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.0...HEAD
+[3.42.0]: https://github.com/thordin9/apotheke/compare/v3.41.0...v3.42.0
 [3.41.0]: https://github.com/thordin9/apotheke/compare/v3.40.0...v3.41.0
 [3.40.0]: https://github.com/thordin9/apotheke/compare/v3.39.0...v3.40.0
 [3.39.0]: https://github.com/thordin9/apotheke/compare/v3.38.2...v3.39.0
