@@ -1237,7 +1237,13 @@ class Services extends BaseService
         return new \Apotheke\Backup\Restorer($db, static::backups(false, $settings), $settings, static::undoTokens(), static function (): array {
             return array_keys((new \Apotheke\Migrations\PdoMigrationRunner(\Apotheke\Migrations\PdoMigrationRunner::repoRoot() . '/migrations'))->available());
         }, $data, $originals, (int)$settings->get('image_thumb_max'), static::requestCleanup(),
-            static::stagedExecutor(), (int)$config->values()['uploads']['restore_db_max_mb'] * 1048576, static::storedBackups(false, $settings));
+            static::stagedExecutor(), (int)$config->values()['uploads']['restore_db_max_mb'] * 1048576, static::storedBackups(false, $settings),
+            // On the command line stderr is the operator's terminal, which already shows the error: the log file instead.
+            PHP_SAPI === 'cli' ? static function (string $line): void {
+                \CodeIgniter\Config\Services::logger()->error($line);
+            } : static function (string $line): void {
+                error_log($line);
+            });
     }
 
     /**

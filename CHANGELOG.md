@@ -12,6 +12,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **auth:** a first install on the hosted database that stops part way and finishes on a later start gives editors and viewers the new built-in permissions, as an install that did not stop does ([#305](https://github.com/thordin9/apotheke/pull/305))
 
+## [3.42.1] - 2026-11-13
+
+### Fixed
+
+- **backup:** a restore on the hosted database no longer fails with "The backup could not be restored" after keeping the backup before it: the size check measured the database with a pragma the hosted database refuses; it now measures the stored values, and only when `RESTORE_DB_MAX_MB` is set. A failed restore logs its step and the database error class on the server ([#308](https://github.com/thordin9/apotheke/pull/308))
+
 ## [3.42.0] - 2026-11-13
 
 ### Added
@@ -1698,7 +1704,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.1...HEAD
+[3.42.1]: https://github.com/thordin9/apotheke/compare/v3.42.0...v3.42.1
 [3.42.0]: https://github.com/thordin9/apotheke/compare/v3.41.0...v3.42.0
 [3.41.0]: https://github.com/thordin9/apotheke/compare/v3.40.0...v3.41.0
 [3.40.0]: https://github.com/thordin9/apotheke/compare/v3.39.0...v3.40.0

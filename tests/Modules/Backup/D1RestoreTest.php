@@ -8,6 +8,7 @@ use Apotheke\Backup\Backups;
 use Apotheke\Backup\RestoreFence;
 use Apotheke\Backup\RestoreMutation;
 use Apotheke\Backup\RestoreStage;
+use Apotheke\Backup\RestoreUnit;
 use Apotheke\Backup\Restorer;
 use Apotheke\Backup\StoredBackups;
 use Apotheke\Core\Database\D1HttpExecutor;
@@ -157,6 +158,87 @@ final class D1RestoreTest extends CIUnitTestCase
         $pdo = $this->databases[] = TestDatabase::create('sqlite');
         $this->restorer($pdo, null)->restore($file, false);
         $this->assertSame($before, self::dump($pdo->db), 'the catalog as it was before the restore');
+    }
+
+    /**
+     * The hosted object's SQLite refuses the page_count pragma: the size check measures the values instead, and only
+     * when RESTORE_DB_MAX_MB is set.
+     */
+    public function testTheSizeCheckWorksOnTheHostedDatabase(): void
+    {
+        [$zip, $source] = $this->backupOf('sqlite');
+        [$d, $r2] = $this->hosted();
+        $before = self::dump($d->db);
+        try {
+            $this->restorer($d, $r2, null, null, 1)->restore($zip, false, 'run-small');
+            $this->fail('over the limit');
+        } catch (UserError $e) {
+            $this->assertSame([RestoreStage::TOO_LARGE, 413], [$e->getMessage(), $e->getCode()]);
+        }
+        $this->assertSame($before, self::dump($d->db));
+        $live = (new RestoreStage($this->exec($d)))->liveBytes();
+        $this->assertGreaterThan(0, $live);
+        $this->restorer($d, $r2, null, null, $live + 4 * 1024 * 1024)->restore($zip, false, 'run-fits');
+        $this->assertSame($source, self::dump($d->db));
+    }
+
+    /** A failed restore gives the catalog lease up: restores/unit is left expired and the next restore runs. */
+    public function testAFailedRestoreReleasesItsLeaseAndTheNextOneRuns(): void
+    {
+        [$zip, $source] = $this->backupOf('sqlite');
+        [$d, $r2] = $this->hosted();
+        try {
+            $this->restorer($d, $r2, self::stopping($this->exec($d)))->restore($zip, false, 'run-stop');
+            $this->fail('the restore was not stopped');
+        } catch (UserError $e) {
+            $this->assertSame(Restorer::FAILED, $e->getMessage());
+        }
+        $this->assertSame(['token' => '', 'expires' => 0], json_decode($r2->objects[RestoreUnit::KEY]['bytes'], true), 'released, not left held');
+        $this->restorer($d, $r2)->restore($zip, false, 'run-next');
+        $this->assertSame($source, self::dump($d->db));
+        $this->assertSame(['token' => '', 'expires' => 0], json_decode($r2->objects[RestoreUnit::KEY]['bytes'], true));
+    }
+
+    /** A failed restore writes one server log line: the step and the class of each cause, no backup data. */
+    public function testAFailedRestoreLogsItsStepAndCauses(): void
+    {
+        [$zip] = $this->backupOf('sqlite');
+        [$d, $r2] = $this->hosted();
+        $lines = [];
+        try {
+            $this->restorer($d, $r2, self::stopping($this->exec($d)), null, 0, static function (string $l) use (&$lines): void {
+                $lines[] = $l;
+            })->restore($zip, false, 'run-log');
+            $this->fail('the restore was not stopped');
+        } catch (UserError $e) {
+            $this->assertSame(Restorer::FAILED, $e->getMessage());
+        }
+        $this->assertSame(['[apotheke] restore failed at swap: RuntimeException'], $lines);
+    }
+
+    /** A confirm that fails on the hosted database answers 422 on the hosted page: no command-line restore hint. */
+    public function testAFailedConfirmShowsTheHostedPage(): void
+    {
+        [$zip] = $this->backupOf('sqlite');
+        [$d, $r2] = $this->hosted();
+        $token = bin2hex(random_bytes(16));
+        $backups = $this->backups($d, $r2);
+        @mkdir($backups->tmpDir(), 0770, true);
+        copy($zip, $backups->tmpDir() . '/restore-' . $token . '.zip');
+        Services::injectMock('settings', $this->settings($d));
+        Services::injectMock('currentUser', new \Apotheke\Auth\CurrentUser(fn (): SettingsService => $this->settings($d), new \Apotheke\Auth\UserRepository($d->db), static fn (): array => []));
+        Services::injectMock('roles', new \Apotheke\Auth\RoleRepository($d->db));
+        Services::injectMock('backups', $backups);
+        Services::injectMock('restorer', $this->restorer($d, $r2, self::stopping($this->exec($d))));
+        $request = Services::request(null, false);
+        $request->setGlobal('post', ['token' => $token, 'confirm' => '1']);
+        $c = new \Apotheke\Backup\Controllers\BackupController();
+        $c->initController($request, Services::response(null, false), Services::logger());
+        $response = $c->confirm();
+        $html = (string)$response->getBody();
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString(Restorer::FAILED, $html);
+        $this->assertStringNotContainsString('php bin/restore.php', $html);
     }
 
     /** A stop before the swap leaves the rows and the objects as they were; the copies, lock and fence go. */
@@ -324,7 +406,7 @@ final class D1RestoreTest extends CIUnitTestCase
     }
 
     /** A restorer for $d: on D1 with $r2 and the staged executor (or $exec), else on local disk. */
-    private function restorer(TestDatabase $d, ?MemoryR2 $r2, ?SqlExecutor $exec = null, ?StoredBackups $stored = null): Restorer
+    private function restorer(TestDatabase $d, ?MemoryR2 $r2, ?SqlExecutor $exec = null, ?StoredBackups $stored = null, int $limit = 0, ?\Closure $log = null): Restorer
     {
         $undo = new UndoTokens($d->db, new Clock(), 600, static function (string $f): void {
         }, static function (string $f): void {
@@ -334,7 +416,7 @@ final class D1RestoreTest extends CIUnitTestCase
         $stores = $r2 === null ? [new LocalStorage($d->dataDir()), new LocalStorage($d->config->originalsDir(), 0640)] : [$r2->storage(), $r2->storage()->forOriginals()];
 
         return new Restorer($d->db, $this->backups($d, $r2), $this->settings($d), $undo, $known, $stores[0], $stores[1], 256, new RequestCleanup(),
-            $d->driver === 'd1' ? ($exec ?? $this->exec($d)) : null, 0, $stored);
+            $d->driver === 'd1' ? ($exec ?? $this->exec($d)) : null, $limit, $stored, $log);
     }
 
     private static function jpeg(): string

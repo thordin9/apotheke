@@ -143,6 +143,7 @@ final class Restorer
      * @param ?SqlExecutor $staged the executor of a staged restore (batch-only databases), null for one transaction
      * @param int $dbMaxBytes a staged restore's database size limit (0: none)
      * @param ?StoredBackups $stored where the backup made before each restore is kept (null: none is made)
+     * @param ?Closure(string):void $log where the server log line of a failed restore goes (null: none)
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -157,8 +158,12 @@ final class Restorer
         private readonly ?SqlExecutor $staged = null,
         private readonly int $dbMaxBytes = 0,
         private readonly ?StoredBackups $stored = null,
+        private readonly ?Closure $log = null,
     ) {
     }
+
+    /** The step a restore is at, for the server log line when it fails. */
+    private string $step = 'reading the backup';
 
     /** The account a restore runs for, for its activity row (null: the command line). */
     private ?string $by = null;
@@ -399,6 +404,7 @@ final class Restorer
     {
         // N-611: a fatal error while the backup is read leaves no temp copy in tmp/.
         $this->parts = [];
+        $this->step = 'reading the backup';
         $this->cleanup->add(self::CLEANUP, function (): void {
             $this->dropParts();
         });
@@ -428,18 +434,23 @@ final class Restorer
         $tmp = $this->backups->tmpDir();
         try {
             if ($this->stored !== null) {
+                $this->step = 'keeping the backup before the restore';
                 $this->before = $this->stored->store(StoredBackups::KIND_PRE_RESTORE, $this->by);
             }
             try {
                 $this->fence();
+                $this->step = 'photos';
                 $written = $this->restorePhotos($zip, $b['photoFiles'], $tmp, $warnings, $created);
+                $this->step = 'attachments';
                 $this->restoreAttachments($zip, $b['attachmentFiles'], $tmp, $warnings, $created);
+                $this->step = 'camera originals';
                 $this->restoreOriginals($zip, $b['photoFiles'], $tmp, $warnings, $created, $links);
             } finally {
                 $zip->close();
             }
             $this->fence();
             if ($this->staged === null) {
+                $this->step = 'rows';
                 $this->restoreRows($b['json'], $b['offsets']);
             } else {
                 $this->restoreStaged($this->staged, $b['json'], $b['offsets'], $b['columns'], $run, (string)hash_file('sha256', $zipPath));
@@ -449,7 +460,11 @@ final class Restorer
             $this->discard($created);
             self::removeEmpty($folders);
             $this->cleanup->drop(self::CLEANUP);
-            throw $e instanceof UserError || $e instanceof LeaseDenied ? $e : new UserError(self::FAILED, 0, $e);
+            $out = $e instanceof UserError || $e instanceof LeaseDenied ? $e : new UserError(self::FAILED, 0, $e);
+            if ($out->getMessage() === self::FAILED) {
+                $this->logFailure($out);
+            }
+            throw $out;
         } finally {
             @unlink($b['json']);
         }
@@ -485,6 +500,29 @@ final class Restorer
         $this->logRestore($b['tables']);
 
         return ['tables' => $b['tables'], 'photos' => $written, 'warnings' => $warnings, 'token_cleared' => $cleared];
+    }
+
+    /**
+     * One server log line for a restore that failed: its step, and the class of each cause. Only the database's own
+     * diagnostic (an SQLite class and a fixed phrase or identifier, D1HttpExecutor) carries a message; nothing from
+     * the backup, no SQL and no value is written.
+     */
+    private function logFailure(Throwable $e): void
+    {
+        $causes = [];
+        for ($c = $e->getPrevious(); $c !== null && count($causes) < 4; $c = $c->getPrevious()) {
+            $causes[] = $c instanceof WriteFailed || ($c instanceof \RuntimeException && $c->getPrevious() === null && preg_match('/^(?:SQLITE_[A-Z_]+|Error): [A-Za-z0-9 ,._:]+$/D', $c->getMessage()) === 1)
+                ? $c::class . ': ' . $c->getMessage() : $c::class;
+        }
+        $line = '[apotheke] restore failed at ' . $this->step . ($causes === [] ? '' : ': ' . implode(' <- ', $causes));
+        if ($this->log === null) {
+            return;
+        }
+        try {
+            ($this->log)($line);
+        } catch (Throwable) {
+            // Best effort: a log that cannot be written does not change the restore's answer.
+        }
     }
 
     /**
@@ -1336,21 +1374,28 @@ final class Restorer
             throw new UserError(self::FAILED);
         }
         try {
-            $bytes = 0;
-            foreach ($restored as $t) {
-                $bytes += $stage->bytes($columns[$t], $this->tableRows($fh, $t, $offsets[$t]));
+            // Measured only against a limit (RESTORE_DB_MAX_MB 0 is none).
+            if ($this->dbMaxBytes > 0) {
+                $bytes = 0;
+                foreach ($restored as $t) {
+                    $bytes += $stage->bytes($columns[$t], $this->tableRows($fh, $t, $offsets[$t]));
+                }
+                $this->step = 'size check';
+                RestoreStage::preflight($stage->liveBytes(), $bytes, $this->dbMaxBytes);
             }
-            RestoreStage::preflight($stage->liveBytes(), $bytes, $this->dbMaxBytes);
             try {
                 $this->fence();
+                $this->step = 'staging copies';
                 $stage->begin($restored);
                 $staged = [];
                 foreach ($restored as $t) {
                     $this->fence();
+                    $this->step = 'staging ' . $t;
                     $staged[$t] = ['columns' => $columns[$t], 'rows' => $stage->stage($t, $columns[$t], $this->tableRows($fh, $t, $offsets[$t]), $this->fence(...))];
                 }
                 $withId = array_values(array_filter($tables, fn (string $t): bool => in_array('id', $this->backups->columns($t), true)));
                 $this->fence();
+                $this->step = 'swap';
                 $stage->swap($tables, $staged, $withId, $run, $sha256, $this->catalogFence);
             } finally {
                 try {

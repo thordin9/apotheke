@@ -82,7 +82,8 @@ test('P4-5b: a batch is all or nothing, and a guard failure returns only the mar
   try {
     const [s1, b1] = await post(outbound, '/batch', [{ sql: 'UPDATE item SET qty = 99 WHERE id = 1' }, { sql: 'INSERT INTO nope VALUES (1)' }]);
     assert.equal(s1, 500);
-    assert.deepEqual(b1, { ok: false, code: 'write_failed', error: 'the batch' });
+    assert.deepEqual({ ...b1, sqlite: undefined, reason: undefined }, { ok: false, code: 'write_failed', error: 'the batch', sqlite: undefined, reason: undefined });
+    assert.match(b1.reason, /no such table: nope/);
     const [s2, b2] = await post(outbound, '/batch', [
       { sql: 'UPDATE item SET qty = 7 WHERE id = 1 AND version = ?', params: [9] },
       { sql: 'INSERT INTO uow_guard (ok) SELECT NULL WHERE changes() <> ?', params: [1] },
@@ -91,6 +92,44 @@ test('P4-5b: a batch is all or nothing, and a guard failure returns only the mar
     assert.deepEqual(b2, { ok: false, code: 'guard_failed', error: 'NOT NULL constraint failed: uow_guard.ok' });
   } finally { console.error = original; }
   assert.deepEqual(storage.db.prepare('SELECT qty, version FROM item').all().map((r) => ({ ...r })), [{ qty: 5, version: 1 }]);
+});
+
+test('the Installation SQLite refuses the pragmas the runtime refuses (page_count, dbstat), and allows table_info and page_size', async () => {
+  const { outbound } = setup();
+  await post(outbound, '/exec', { sql: SCHEMA });
+  const original = console.error;
+  console.error = () => {};
+  try {
+    for (const sql of ['SELECT page_count * page_size AS n FROM pragma_page_count(), pragma_page_size()', 'PRAGMA page_count', 'SELECT SUM(pgsize) AS n FROM dbstat']) {
+      assert.deepEqual(await post(outbound, '/query', { sql }), [500, { ok: false, code: 'write_failed', error: 'the batch', sqlite: 'SQLITE_AUTH', reason: 'not authorized' }], sql);
+    }
+  } finally { console.error = original; }
+  assert.deepEqual(await post(outbound, '/query', { sql: 'SELECT name FROM pragma_table_info(?)', params: ['uow_guard'] }), [200, { ok: true, rows: [{ name: 'ok' }] }]);
+  const [status, body] = await post(outbound, '/query', { sql: 'SELECT page_size AS n FROM pragma_page_size()' });
+  assert.equal(status, 200);
+  assert.ok(body.rows[0].n > 0);
+});
+
+test('a failed d1.internal request logs and returns its statement kind, table and SQLite class, never a literal or a bound value', async () => {
+  const { outbound } = setup();
+  await post(outbound, '/exec', { sql: SCHEMA });
+  const lines = [];
+  const original = console.error;
+  console.error = (...a) => { lines.push(a.map(String).join(' ')); };
+  let status, body;
+  try {
+    [status, body] = await post(outbound, '/query', { sql: "INSERT INTO item (id, qty, version) VALUES (1, 'literal-xyz', ?) RETURNING nosuch", params: ['bound-xyz'] });
+  } finally { console.error = original; }
+  assert.equal(status, 500);
+  assert.equal(body.code, 'write_failed');
+  assert.equal(lines.length, 1);
+  const logged = JSON.parse(lines[0].slice('d1.internal request failed '.length));
+  assert.equal(logged.request, 'query INSERT item');
+  assert.match(logged.reason, /no such column: nosuch/);
+  assert.deepEqual([body.sqlite, body.reason], [logged.sqlite, logged.reason]);
+  for (const text of [lines[0], JSON.stringify(body)]) {
+    assert.doesNotMatch(text, /literal-xyz|bound-xyz|VALUES/);
+  }
 });
 
 /** Requests whose bodies arrive only after the gate opens, so every caller is in flight before any batch runs. */
