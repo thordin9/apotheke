@@ -282,6 +282,8 @@ class Services extends BaseService
                 }),
             \Apotheke\Auth\Commands\AccountsCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
                 => new \Apotheke\Auth\Commands\AccountsCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Auth\Commands\AccountsCli => static::accountsCli($in, $out, $err), static fn (mixed $out, mixed $err): \Apotheke\Auth\Commands\AuthStatus => static::authStatus($out, $err)),
+            \Apotheke\Auth\Commands\ClaimCreateCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
+                => new \Apotheke\Auth\Commands\ClaimCreateCommand($logger, $commands, static fn (): \Apotheke\Auth\FirstAdminClaim => static::firstAdminClaim(false)),
             \Apotheke\Catalog\Commands\SeedCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
                 => new \Apotheke\Catalog\Commands\SeedCommand($logger, $commands, static fn (): int => static::starterData(), static fn (): \Apotheke\Catalog\DemoItems => new \Apotheke\Catalog\DemoItems(
                     static::apothekeDb(), static::itemRepository(), static::taxonomy(), static::imageStore())),
@@ -554,6 +556,21 @@ class Services extends BaseService
         $db = static::apothekeDb();
 
         return new \Apotheke\Taxonomy\TaxonomyRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::unitsOfWork(), static::readCache());
+    }
+
+    /** The first-admin claim of a hosted installation (Auth, operator console C1). */
+    public static function firstAdminClaim(bool $getShared = true): \Apotheke\Auth\FirstAdminClaim
+    {
+        if ($getShared) {
+            return static::getSharedInstance('firstAdminClaim');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Auth\FirstAdminClaim($db,
+            new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache(), static::hostedLimits()),
+            static::accounts(), new \Apotheke\Core\Libraries\Clock(), static::hostedLimits(),
+            (int)static::apothekeConfig()->values()['hosted_claim_hours'], static::unitsOfWork());
     }
 
     /** Accounts for the sign-in pages (Auth), with the failed sign-in deadline from SIGN_IN_FAIL_MS (sign_in_fail_ms). Stateless. */
