@@ -8,6 +8,17 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.42.3] - 2026-11-13
+
+### Fixed
+
+- **frontend:** the privacy page describes the sign-in session cookie; Decline removes the consent cookie immediately and asks the server to end the session, and if that request can't get through the server ends it the next time the browser contacts it without consent; the landing pages may connect to the API host ([#289](https://github.com/thordin9/apotheke/pull/289))
+
+### Maintenance
+
+- ci: read the frontend account id from an environment secret ([#306](https://github.com/thordin9/apotheke/pull/306))
+- **frontend:** test: stricter URL resolution in check-dist ([#295](https://github.com/thordin9/apotheke/pull/295))
+
 ### Changed
 
 - **frontend:** URL resolution in check-dist was tightened ([#295](https://github.com/thordin9/apotheke/pull/295))
@@ -1719,7 +1730,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.3...HEAD
+[3.42.3]: https://github.com/thordin9/apotheke/compare/v3.42.2...v3.42.3
 [3.42.2]: https://github.com/thordin9/apotheke/compare/v3.42.1...v3.42.2
 [3.42.1]: https://github.com/thordin9/apotheke/compare/v3.42.0...v3.42.1
 [3.42.0]: https://github.com/thordin9/apotheke/compare/v3.41.0...v3.42.0
