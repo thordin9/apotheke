@@ -125,14 +125,44 @@ final class RestoreStage
         }
     }
 
-    /** The database's size (SQLite and D1 pages, PostgreSQL's database size). */
+    /**
+     * The database's size: PostgreSQL's database size, a SQLite file's pages, and on a batch-only database (D1 and
+     * the hosted Durable Object SQLite, which refuses the page_count pragma) the bytes of every table's values.
+     */
     public function liveBytes(): int
     {
-        $sql = $this->exec->dialect()->name === Dialect::POSTGRES
-            ? 'SELECT pg_database_size(current_database()) AS n'
-            : 'SELECT page_count * page_size AS n FROM pragma_page_count(), pragma_page_size()';
+        if ($this->exec->dialect()->name === Dialect::POSTGRES) {
+            return (int)($this->exec->query('SELECT pg_database_size(current_database()) AS n')[0]['n'] ?? 0);
+        }
+        if ($this->exec->connection() !== null) {
+            return (int)($this->exec->query('SELECT page_count * page_size AS n FROM pragma_page_count(), pragma_page_size()')[0]['n'] ?? 0);
+        }
 
-        return (int)($this->exec->query($sql)[0]['n'] ?? 0);
+        return $this->valueBytes();
+    }
+
+    /** The bytes of every value in the database's own tables (SQLite's internal and the runtime's reserved ones left out). */
+    private function valueBytes(): int
+    {
+        $columns = [];
+        $rows = $this->exec->query("SELECT m.name AS t, p.name AS c FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type = 'table'"
+            . " AND m.name NOT LIKE 'sqlite!_%' ESCAPE '!' AND m.name NOT LIKE '!_cf!_%' ESCAPE '!' AND m.name NOT LIKE '!_!_%' ESCAPE '!'");
+        foreach ($rows as $r) {
+            $t = (string)$r['t'];
+            $c = (string)$r['c'];
+            if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $t) === 1 && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/D', $c) === 1) {
+                $columns[$t][] = 'COALESCE(LENGTH(CAST("' . $c . '" AS BLOB)), 0)';
+            }
+        }
+        if ($columns === []) {
+            return 0;
+        }
+        $sums = [];
+        foreach ($columns as $t => $cols) {
+            $sums[] = '(SELECT COALESCE(SUM(' . implode(' + ', $cols) . '), 0) FROM "' . $t . '")';
+        }
+
+        return (int)($this->exec->query('SELECT ' . implode(' + ', $sums) . ' AS n')[0]['n'] ?? 0);
     }
 
     /**

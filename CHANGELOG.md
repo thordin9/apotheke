@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **backup:** a restore on the hosted database no longer fails with "The backup could not be restored" after keeping the backup before it: the size check measured the database with a pragma the hosted database refuses; it now measures the stored values, and only when `RESTORE_DB_MAX_MB` is set. A failed restore logs its step and the database error class on the server ([#308](https://github.com/thordin9/apotheke/pull/308))
+
 ## [3.42.0] - 2026-11-13
 
 ### Added
