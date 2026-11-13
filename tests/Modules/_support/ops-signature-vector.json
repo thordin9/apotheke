@@ -1,0 +1,8 @@
+{
+    "note": "Shared by OpsSignatureTest (PHP) and ops-signature.test.mjs (edge): the APP_KEY bytes are 1..32, built at run time.",
+    "method": "POST",
+    "path": "/internal/backup",
+    "body": "{\"job_id\":\"job-1\"}",
+    "t": 1794844800,
+    "header": "t=1794844800,v1=bdecb4686144342d85edeaf3f991dbab7594471006c6c1d24c7b925e01901485"
+}

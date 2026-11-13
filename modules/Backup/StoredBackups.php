@@ -21,7 +21,8 @@ use Throwable;
  * - `backups/<id>/manifest.json`, written last: a backup is listed only once all its parts are stored.
  *
  * The id is the UTC time and a random suffix (`20261112-093000-1a2b3c`), so ids sort oldest first. After each
- * new backup the oldest beyond `backup.keep` are deleted (manifest first, so a half-deleted one is never listed).
+ * new backup the oldest beyond `backup.keep` are deleted (manifest first, so a half-deleted one is never listed);
+ * exports made for the hosting side are not counted and not deleted.
  *
  * @phpstan-type Manifest array{id:string,created_at:string,kind:string,size:int,sha256:string,parts:int,by:?string}
  */
@@ -33,6 +34,9 @@ final class StoredBackups
     public const PART_BYTES = 8 * 1024 * 1024;
 
     public const KIND_PRE_RESTORE = 'pre-restore';
+
+    /** A backup the hosting side asked for (OpsBackups): kept until the hosting side removes it, never pruned here. */
+    public const KIND_EXPORT = 'export';
 
     public const FAILED = 'The current catalog could not be backed up before the restore, so nothing was restored.';
 
@@ -158,10 +162,10 @@ final class StoredBackups
         }
     }
 
-    /** Delete the oldest backups beyond keep(). */
+    /** Delete the oldest backups beyond keep(). Exports (KIND_EXPORT) are neither counted nor deleted. */
     public function prune(): void
     {
-        $ids = array_values(array_filter($this->ids(), fn (string $id): bool => $this->get($id) !== null));
+        $ids = array_values(array_filter($this->ids(), fn (string $id): bool => ($m = $this->get($id)) !== null && $m['kind'] !== self::KIND_EXPORT));
         sort($ids, SORT_STRING);
         foreach (array_slice($ids, 0, max(0, count($ids) - $this->keep)) as $id) {
             $m = $this->get($id);
