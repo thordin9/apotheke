@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** installations other than `primary` get their own `APP_KEY` (HKDF from the Worker secret, the installation name as info) and their own `ALLOWED_HOSTS` from `installation_routes`, and do not start without them; `primary` keeps the Worker's `APP_KEY` and `ALLOWED_HOSTS` unchanged ([#304](https://github.com/thordin9/apotheke/pull/304))
+
 ## [3.42.5] - 2026-11-13
 
 ### Fixed
