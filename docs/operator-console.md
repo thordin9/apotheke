@@ -96,7 +96,8 @@ derivation against an independent HKDF with fake keys.
 when self-hosted: no plan limits are read, nothing below is active, and `/claim` answers 404.
 
 **Bridge reads.** The `Installation` object answers three read-only requests on `d1.internal`, next to the SQL bridge
-and only in storage mode:
+and only in storage mode (`STORAGE`, `DB` and `INSTALLATION` bound). They follow the edge's storage mode, not
+`APOTHEKE_HOSTED`, which is set in the container's environment and is not visible to the Worker:
 
 - `GET /stats`: counts of items, photos, user accounts, and accounts signed in during the last 30 days.
 - `GET /users`: id, name, role, status, created and last sign-in for each account. No password hashes or sessions.
@@ -118,4 +119,8 @@ bridge) prints a one-time token and stores only its SHA-256 and expiry (`HOSTED_
 settings row outside the Control Panel's keys, so it is never exported or backed up. A new claim replaces the old one.
 The link is `https://<host>/claim#<token>`: the page reads the token from the fragment, and the owner picks a user
 name and password and becomes an active `admin`. The claim row is deleted in the same unit as the account insert, so
-a link works once. Registration stays closed until the first account exists, and sign-in cannot be turned off.
+a link works once. The claim works only while the installation has no active `admin`: that is checked in the same
+unit, which takes the `active-admins` key like every unit that adds an active admin. Otherwise the link is refused
+(410) and the claim row is removed. With `APP_PASSWORD` set, the app still creates the account `admin` from it when
+there is no account, as when self-hosted, so a claim on that installation is refused. Registration stays closed until
+the first account exists, and sign-in cannot be turned off.

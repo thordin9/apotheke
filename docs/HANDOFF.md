@@ -71,9 +71,9 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 - Operator console C1 (`feat/operator-console-c1`): the `Installation` object answers read-only `GET /stats`,
   `/users` and `/limits` on `d1.internal` in storage mode. `APOTHEKE_HOSTED` turns on the plan's limits (checked
   inside the adding unit of work, with a `plan-limit:<key>` key), the upload-size ceilings, always-on sign-in and the
-  one-time first-admin claim (`accounts:claim-create`, `/claim#<token>`); off, nothing changes. The container does
-  not set `APOTHEKE_HOSTED` yet (edge `index.ts`); limit values come only from `plan_limits`
-  ([operator console](operator-console.md#hosted-installations)).
+  one-time first-admin claim (`accounts:claim-create`, `/claim#<token>`, only while no active admin exists); off,
+  nothing changes. The container does not set `APOTHEKE_HOSTED` yet (edge `index.ts`); limit values come only from
+  `plan_limits` ([operator console](operator-console.md#hosted-installations)).
 
 ## Open pull requests
 

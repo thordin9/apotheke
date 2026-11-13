@@ -17,7 +17,8 @@ use CodeIgniter\Database\BaseConnection;
  * user name and password and become `admin`, instead of a shared APP_PASSWORD. Only the token's SHA-256 and its
  * expiry are stored, as one row of the installation's settings table outside the Control Panel's keys (never
  * exported or backed up). A new claim replaces the old one. It is used once: the row's delete is part of the unit
- * that creates the account. Off without APOTHEKE_HOSTED.
+ * that creates the account. It only works while the installation has no active admin, checked in that same unit;
+ * otherwise it is refused and removed. Off without APOTHEKE_HOSTED.
  */
 final class FirstAdminClaim
 {
@@ -70,7 +71,9 @@ final class FirstAdminClaim
 
     /**
      * Use the claim: a new active `admin` named $name with $password. The claim is deleted in the same unit as the
-     * insert, so a second use (also at the same time) is refused and creates nothing. Returns the new account.
+     * insert, so a second use (also at the same time) is refused and creates nothing. The unit also requires that
+     * no active admin exists; it takes the active-admins key, as every unit that adds an active admin does. When an
+     * admin exists the claim is refused (410) and its row removed. Returns the new account.
      *
      * @return array{id:int,username:string,role:string,status:string,password_hash:string,session_epoch:string}
      */
@@ -89,12 +92,28 @@ final class FirstAdminClaim
         $name = $this->accounts->nameValid($name);
         $hash = password_hash($this->accounts->passwordValid($password, $confirm), PASSWORD_DEFAULT);
         $now = $this->clock->now();
-        $ref = $this->units->run('users', function (UnitOfWork $uow) use ($stored, $name, $hash, $now): \Apotheke\Core\Database\Ref {
-            $uow->write('DELETE FROM settings WHERE name = ? AND value = ?', [self::SETTING, $stored], 'use claim', 1,
-                static fn (): UserError => new UserError('This claim link has already been used.', 410));
+        $adminExists = false;
+        try {
+            $ref = $this->units->run('users', function (UnitOfWork $uow) use ($stored, $name, $hash, $now, &$adminExists): \Apotheke\Core\Database\Ref {
+                $uow->write('DELETE FROM settings WHERE name = ? AND value = ?', [self::SETTING, $stored], 'use claim', 1,
+                    static fn (): UserError => new UserError('This claim link has already been used.', 410));
+                $uow->assert("NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active')", [], 'no admin yet',
+                    static function () use (&$adminExists): UserError {
+                        $adminExists = true;
 
-            return $this->users->createIn($uow, $name, $hash, 'admin', 'active', $now);
-        }, $this->hosted->lockKeys('users'));
+                        return new UserError('This claim link is no longer valid.', 410);
+                    });
+
+                return $this->users->createIn($uow, $name, $hash, 'admin', 'active', $now);
+            }, [...$this->hosted->lockKeys('users'), UserRepository::ACTIVE_ADMINS]);
+        } catch (UserError $e) {
+            if ($adminExists) {
+                $this->units->run('settings', static function (UnitOfWork $uow) use ($stored): void {
+                    $uow->write('DELETE FROM settings WHERE name = ? AND value = ?', [self::SETTING, $stored], 'drop claim');
+                }, self::SETTING);
+            }
+            throw $e;
+        }
 
         return $this->users->find($ref->id()) ?? throw new \RuntimeException('The new account could not be read back.');
     }

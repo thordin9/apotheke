@@ -169,6 +169,102 @@ final class FirstAdminClaimTest extends CIUnitTestCase
         $this->assertSame(['first'], array_column($this->accounts(), 'username'));
     }
 
+    /** M-1889: with an active admin there, a valid claim is refused, its row removed, and nobody is added. */
+    #[DataProvider('modes')]
+    public function testAClaimIsRefusedAndRemovedOnceAnAdminExists(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        (new UserRepository($this->database->db))->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
+        $made = $this->claims($batch)->create();
+        $pw = self::secret();
+        $this->refused(fn () => $this->claims($batch)->claim($made['token'], 'owner', $pw, $pw), 410, 'This claim link is no longer valid.');
+        $this->assertNull($this->claimRow(), 'the claim is removed');
+        $this->assertSame([['username' => 'boss', 'role' => 'admin', 'status' => 'active']], $this->accounts());
+        $this->refused(fn () => $this->claims($batch)->claim($made['token'], 'owner', $pw, $pw), 403, 'This claim link is not valid. Ask for a new one.');
+    }
+
+    /** Only an active admin counts: a pending admin or an active viewer leaves the claim usable. */
+    #[DataProvider('modes')]
+    public function testOnlyAnActiveAdminStopsTheClaim(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $users = new UserRepository($this->database->db);
+        $users->create('waiting', 'x', 'admin', 'pending', '2026-01-01 00:00:00');
+        $users->create('looker', 'x', 'viewer', 'active', '2026-01-01 00:00:00');
+        $made = $this->claims($batch)->create();
+        $pw = self::secret();
+        $this->assertSame('admin', $this->claims($batch)->claim($made['token'], 'owner', $pw, $pw)['role']);
+        $this->assertNull($this->claimRow());
+    }
+
+    /** An admin added after the claim was issued and read, before the claim's unit: refused and removed. */
+    #[DataProvider('modes')]
+    public function testAnAdminAddedBeforeTheClaimRunsStopsIt(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $made = $this->claims($batch)->create();
+        $db = $this->database->db;
+        // The plan's limits are read after the claim row and before the unit.
+        $between = static function () use ($db, $batch): PlanLimits {
+            (new UserRepository($db, units: $batch ? UnitsOfWork::on(new LocalBatchExecutor($db)) : null))
+                ->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
+
+            return PlanLimits::none();
+        };
+        $pw = self::secret();
+        $this->refused(fn () => $this->claims($batch, HostedLimits::hosted($between))->claim($made['token'], 'owner', $pw, $pw),
+            410, 'This claim link is no longer valid.');
+        $this->assertNull($this->claimRow());
+        $this->assertSame(['boss'], array_column($this->accounts(), 'username'));
+    }
+
+    /** PostgreSQL, two processes: the other one adds an admin under the active-admins key; the claim waits and is refused. */
+    #[DataProvider('pgModes')]
+    public function testParallelAdminAndClaimOnPostgresMakeOneAdmin(bool $batch): void
+    {
+        if (!in_array('pgsql', TestDatabase::drivers(), true)) {
+            $this->markTestSkipped('PostgreSQL only');
+        }
+        $this->database = TestDatabase::create('pgsql');
+        $made = $this->claims($batch)->create();
+        $wait = $this->database->holdInAnotherClient([
+            ['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('users', UserRepository::ACTIVE_ADMINS)],
+            ["INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES ('boss', 'boss', 'x', 'admin', 'active', '2026-01-01 00:00:00')", []],
+        ], 400);
+        $pw = self::secret();
+        try {
+            $this->refused(fn () => $this->claims($batch)->claim($made['token'], 'owner', $pw, $pw), 410, 'This claim link is no longer valid.');
+        } finally {
+            $this->assertStringContainsString('committed', $wait());
+        }
+        $this->assertNull($this->claimRow());
+        $this->assertSame(['boss'], array_column($this->accounts(), 'username'));
+    }
+
+    /** On PostgreSQL, adding an active admin takes the active-admins key (the claim's), adding anyone else does not. */
+    public function testAddingAnActiveAdminTakesTheClaimsKeyOnPostgres(): void
+    {
+        if (!in_array('pgsql', TestDatabase::drivers(), true)) {
+            $this->markTestSkipped('PostgreSQL only');
+        }
+        $this->database = TestDatabase::create('pgsql');
+        $db = $this->database->db;
+        [$k1, $k2] = UnitsOfWork::lockKeys('users', UserRepository::ACTIVE_ADMINS);
+        $held = static fn (): int => (int)Writes::rows($db,
+            "SELECT COUNT(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid() AND objsubid = 2 AND classid = ?::bigint::oid AND objid = ?::bigint::oid",
+            [$k1 & 0xFFFFFFFF, $k2 & 0xFFFFFFFF])[0]['n'];
+        $users = new UserRepository($db, limits: self::hosted());
+        foreach ([['looker', 'viewer', 'active', 0], ['waiting', 'admin', 'pending', 0], ['boss', 'admin', 'active', 1]] as [$name, $role, $status, $want]) {
+            $db->transBegin();
+            try {
+                $users->create($name, 'x', $role, $status, '2026-01-01 00:00:00');
+                $this->assertSame($want, $held(), $name);
+            } finally {
+                $db->transRollback();
+            }
+        }
+    }
+
     /** @return iterable<string,array{0:bool}> */
     public static function pgModes(): iterable
     {
