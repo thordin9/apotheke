@@ -188,9 +188,8 @@ These `vars` in `edge/wrangler.jsonc` are not secrets. The Worker (`edge/src/ind
   table, which storage mode keeps on D1. On Cloudflare, background jobs are intended to run from a Cron Trigger or
   Queues (not set up yet). The Docker images keep the worker on by default
   ([Background jobs](deployment-and-operations.md#background-jobs)).
-* **`APOTHEKE_PHP_WORKER: "0"`**: classic mode, as shipped. `"1"` turns on FrankenPHP worker mode, so the app boots
-  once per PHP thread instead of on every request; for `apotheke-api` that is a later step, after an interleaved
-  classic/worker preview of the merged head ([The FrankenPHP image](deployment-and-operations.md#the-frankenphp-image)).
+* **`APOTHEKE_PHP_WORKER: "1"`**: FrankenPHP worker mode, so the app boots once per PHP thread instead of on every
+  request. `"0"` goes back to classic mode ([The FrankenPHP image](deployment-and-operations.md#the-frankenphp-image)).
 * `SLEEP_AFTER_MS`: idle time before the Durable Object lets the container sleep (`900000`, 15 minutes). It is read
   by the Durable Object (the container's inactivity timeout), not passed to the container.
 * **`CORS_ALLOWED_ORIGINS`**: when the front end and the API are on different hosts, the API must list the

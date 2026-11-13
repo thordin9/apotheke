@@ -479,8 +479,26 @@ regular thread (for a literal `/index.php`). Empty, `0`, `false` or `no` keeps c
 starts with fresh PHP state; any other value exits with code 64. Each worker recycles itself after
 `APOTHEKE_WORKER_MAX_REQUESTS` requests (default 1000, `0` = no cap; a rejected value logs a warning and uses 1000;
 L-1979). The hosted container always uses 1000, since `edge/src/index.ts` doesn't pass the variable. Each worker logs `apotheke: PHP worker started` on
-every boot, so a restart shows in the container log (CI's `scripts/docker-worker-checks.sh` counts them). The hosted `apotheke-api` container ships it off (`0`, QA-1854);
-turning it on is a later step, after an interleaved classic/worker preview of the merged head. Self-hosted images keep classic mode unless you set it. The nginx image has no worker mode.
+every boot, so a restart shows in the container log (CI's `scripts/docker-worker-checks.sh` counts them). The hosted `apotheke-api` container sets it (`1`, QA-1854,
+#297). Self-hosted images keep classic mode unless you set it. The nginx image has no worker mode.
+
+**Worker mode rollback (hosted).** Turn worker mode off with one small "disable worker mode" commit in a normal pull
+request, then publish a release. Don't `git revert` the enable commit: by then the revert would also drop the unrelated
+changes merged with it. The commit touches exactly these files (line numbers as of #297):
+
+* `edge/wrangler.jsonc:49`: `"APOTHEKE_PHP_WORKER": "1"` to `"0"`.
+* `edge/worker-configuration.d.ts:10`: regenerate it with `cd edge && npx wrangler types --config=wrangler.jsonc`.
+  The file becomes `APOTHEKE_PHP_WORKER: "0";` with a new hash on line 2. CI's `wrangler types --check` fails without it.
+* `tests/Unit/DockerfileTest.php:269`: the pin `'"APOTHEKE_PHP_WORKER": "1"'` to `"0"`.
+* `scripts/deploy-scripts.test.mjs:615`: `assert.equal(c.vars.APOTHEKE_PHP_WORKER, "1")` to `"0"`.
+
+Those four changes are all CI needs. They were proved on a scratch branch off #297 with worker mode off: [CI](https://github.com/thordin9/apotheke/actions/runs/43353674824) and
+[Deploy edge](https://github.com/thordin9/apotheke/actions/runs/43353674860) (its `wrangler types --check`) passed.
+A CHANGELOG bullet under `[Unreleased]` (with the pull request link) is the usual extra. The rollback takes effect
+with that release's deploy, and the running container switches at its next start (after a deploy or a sleep). To
+confirm, check the container log after that start: the entrypoint line reads
+`apotheke: frankenphp on :9091 (/var/www/app/public), 2 PHP threads, classic mode`, and no
+`apotheke: PHP worker started` lines follow.
 
 **Request body limits.** Sizes are binary: 1 MiB = 1,048,576 bytes (nginx's `22m` is the same 22 MiB). The same
 limits as the nginx image, enforced by Caddy per route:
@@ -549,7 +567,7 @@ this repository, and only these two:
 **`apotheke-api` settings** are vars in `edge/wrangler.jsonc` (not secrets; changed by a reviewed pull request) that
 the Worker passes to the container: `SLEEP_AFTER_MS`, `ALLOWED_HOSTS` (`api.services.getapotheke.com`),
 `APOTHEKE_JOBS_WORKER` (`0`: no `jobs:work` in the container; jobs will run through a Cron Trigger or Queues, see
-[Background jobs](#background-jobs)), `APOTHEKE_PHP_WORKER` (`0`: classic mode as shipped; `1`, a later step, turns on FrankenPHP worker mode, see
+[Background jobs](#background-jobs)), `APOTHEKE_PHP_WORKER` (`1`: FrankenPHP worker mode; `0` goes back to classic mode, see
 [The FrankenPHP image](#the-frankenphp-image)), `CORS_ALLOWED_ORIGINS` (`https://getapotheke.com`: the front end calls the API
 from another host) and `COOKIE_DOMAIN` (`getapotheke.com`). `COOKIE_DOMAIN` is the hosted value from
 the 3.6.1 upgrade note: the consent cookie gets `Domain=getapotheke.com` (empty means host-only, the self-hosting
@@ -607,7 +625,7 @@ permission the environment's token probably lacks; a missing container push perm
 
 ### Storage gate: EDGE_STORAGE_READY
 
-The hosted API is live in storage mode (flip 2026-11-12, on v3.36.5 then v3.36.6; current release v3.37.0, FrankenPHP worker mode off). On d1, a backup can be restored (each restore keeps the catalog before it under the installation's `backups/`); duplicating an item with its photos, and adding a new location or category in the same step as saving the item, are refused. Do not move real data onto the hosted installation until a backup has been tested there by a round trip.
+The hosted API is live in storage mode (flip 2026-11-12, on v3.36.5 then v3.36.6). On d1, a backup can be restored (each restore keeps the catalog before it under the installation's `backups/`); duplicating an item with its photos, and adding a new location or category in the same step as saving the item, are refused. Do not move real data onto the hosted installation until a backup has been tested there by a round trip.
 
 The first `apotheke-api` deploy waits for the storage design (P4: D1 for data, R2 for files). Until then the deploy
 job of `deploy-edge.yml` does not run, on any trigger (release and manual), unless the **repository variable**
@@ -634,7 +652,7 @@ uploads is an account lifecycle rule on the bucket. This repository does not cre
 
 ### P4 edge storage: flip checklist
 
-The hosted API is live in storage mode (flip 2026-11-12, on v3.36.5 then v3.36.6; current release v3.37.0, FrankenPHP worker mode off). On d1, a backup can be restored (each restore keeps the catalog before it under the installation's `backups/`); duplicating an item with its photos, and adding a new location or category in the same step as saving the item, are refused. Do not move real data onto the hosted installation until a backup has been tested there by a round trip.
+The hosted API is live in storage mode (flip 2026-11-12, on v3.36.5 then v3.36.6). On d1, a backup can be restored (each restore keeps the catalog before it under the installation's `backups/`); duplicating an item with its photos, and adding a new location or category in the same step as saving the item, are refused. Do not move real data onto the hosted installation until a backup has been tested there by a round trip.
 Its bindings are in
 `edge/storage.jsonc`, not in `edge/wrangler.jsonc`, so `wrangler dev`, the *Edge local test* and the pull request's default dry run use the default
 config unchanged. The pull request checks also dry-run the merged config with a dummy D1 id (part 2 below). Only the
