@@ -629,7 +629,7 @@ test('the outbound entrypoint does not construct request-local multipart session
   const source = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8');
   const outbound = source.slice(source.indexOf('export class R2Outbound'), source.indexOf('export class ApothekeContainer'));
   assert.doesNotMatch(outbound, /new\s+Map|sessions?[,)\s]/, 'R2 state belongs to its uploadId, never a per-request Map');
-  assert.match(outbound, /handleR2Request\(request, bucket, installationPrefix\(doName\)\)/);
+  assert.match(outbound, /handleR2Request\(request, bucket, installationPrefix\(doName\), meter\)/);
 });
 
 const DAY = UNFINISHED_UPLOAD_RETENTION_MS;
@@ -990,6 +990,7 @@ await import(new URL('./container-forward.test.mjs', import.meta.url).href);
 await import(new URL('./container-ready.test.mjs', import.meta.url).href);
 await import(new URL('./control-migrations.test.mjs', import.meta.url).href);
 await import(new URL('./route.test.mjs', import.meta.url).href);
+await import(new URL('./limits.test.mjs', import.meta.url).href);
 await import(new URL('./installation-isolation.test.mjs', import.meta.url).href);
 await import(new URL('./installation-secrets.test.mjs', import.meta.url).href);
 await import(new URL('./lifecycle.test.mjs', import.meta.url).href);

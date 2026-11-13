@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** plan limits in the Worker for installations other than `primary`: monthly requests (429), monthly container active time (402), request body size (413) and stored bytes (507 to the app), with soft values as a response header. Off by default with the new Worker var `LIMITS_ENABLED` ([#315](https://github.com/thordin9/apotheke/pull/315))
+
 ## [3.44.0] - 2026-11-13
 
 ### Added
