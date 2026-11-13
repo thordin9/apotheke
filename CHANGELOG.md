@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.43.0] - 2026-11-13
+
 ### Added
 
 - **edge:** installations other than `primary` get their own `APP_KEY` (HKDF from the Worker secret, the installation name as info) and their own `ALLOWED_HOSTS` from `installation_routes`, and do not start without them; `primary` keeps the Worker's `APP_KEY` and `ALLOWED_HOSTS` unchanged ([#304](https://github.com/thordin9/apotheke/pull/304))
@@ -1754,7 +1756,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.5...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.43.0...HEAD
+[3.43.0]: https://github.com/thordin9/apotheke/compare/v3.42.5...v3.43.0
 [3.42.5]: https://github.com/thordin9/apotheke/compare/v3.42.4...v3.42.5
 [3.42.4]: https://github.com/thordin9/apotheke/compare/v3.42.3...v3.42.4
 [3.42.3]: https://github.com/thordin9/apotheke/compare/v3.42.2...v3.42.3
