@@ -6,8 +6,9 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { d1UnboundResponse, type D1Env } from "./d1";
 import { INSTALLATION_NAME, installationAppKey, installationPrefix, installationStub, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
+import { forwardWithLimits, limitsEnabled, takeLimits, UsageMeter, type Limits } from "./limits";
 import { routeFor, routeResponse } from "./route";
-import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env } from "./r2";
+import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env, type StorageMeter } from "./r2";
 
 export { Installation } from "./installation";
 
@@ -30,12 +31,18 @@ export class D1Outbound extends WorkerEntrypoint<Env & D1Env & InstallationEnv, 
 	}
 }
 
-export class R2Outbound extends WorkerEntrypoint<Env & R2Env, StorageProps> {
+export class R2Outbound extends WorkerEntrypoint<Env & R2Env & InstallationEnv, StorageProps> {
 	async fetch(request: Request): Promise<Response> {
 		const bucket = selectedBucket(this.env);
 		const doName = propsDoName(this.ctx?.props);
 		if (!bucket || !doName) return r2UnboundResponse();
-		return handleR2Request(request, bucket, installationPrefix(doName));
+		// Limits (E5): stored bytes are counted in the installation's own object when the props carry storageHard.
+		const hard = this.ctx?.props?.storageHard;
+		const ns = this.env.INSTALLATION;
+		const meter: StorageMeter | undefined = hard !== undefined && ns && doName !== INSTALLATION_NAME && limitsEnabled(this.env)
+			? { add: (delta, enforce) => installationStub(ns, doName).storageAdd(delta, enforce && typeof hard === "number" ? hard : null) }
+			: undefined;
+		return handleR2Request(request, bucket, installationPrefix(doName), meter);
 	}
 }
 
@@ -46,6 +53,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	private readying: Promise<number> | null = null;
 	/** Readiness waits in a row that timed out while the container kept running (L-1912). */
 	private timedOutWaits = 0;
+	/** Limits (E5): this installation's requests and active time this month. Unused for primary or with limits off. */
+	private meter?: UsageMeter;
 
 	private sleepAfter(): number {
 		return Number(this.env.SLEEP_AFTER_MS) || 15 * 60 * 1000;
@@ -67,22 +76,23 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 
 	/** Point d1.internal and r2.internal at their handlers (safe to call while the container is running).
 	 *  The installation is this object's own name (getByName in the default fetch), never anything from PHP. */
-	private async wireStorage(c: NonNullable<DurableObjectState["container"]>): Promise<void> {
+	private async wireStorage(c: NonNullable<DurableObjectState["container"]>, limits: Limits | null = null): Promise<void> {
 		const doName = this.ctx.id?.name;
-		const props = validDoName(doName) ? { doName, prefix: installationPrefix(doName) } : {};
+		// With limits, storageHard (the storage_bytes hard value, or null for none) turns on the stored-bytes counter.
+		const props = !validDoName(doName) ? {} : limits ? { doName, prefix: installationPrefix(doName), storageHard: limits.storage_bytes?.hard ?? null } : { doName, prefix: installationPrefix(doName) };
 		await c.interceptOutboundHttp("d1.internal", this.ctx.exports.D1Outbound({ props }));
 		await c.interceptOutboundHttp("r2.internal", this.ctx.exports.R2Outbound({ props }));
 	}
 
 	/** Starts the container if needed and waits for /healthz. Returns the cold-start time in ms (0 when warm). */
-	private async ensureReady(): Promise<number> {
+	private async ensureReady(limits: Limits | null = null): Promise<number> {
 		const c = this.ctx.container;
 		if (!c) throw new Error("no container configured");
 		// Throws on half a storage fragment: the Worker answers 503 and the container never starts on a fallback.
 		const backend = storageBackend(this.env);
 		// Storage mode needs this object's name for its database and prefix: without it, never start.
 		if (backend === "r2" && !validDoName(this.ctx.id?.name)) throw new Error("no installation name");
-		await this.wireStorage(c);
+		await this.wireStorage(c, limits);
 		if (c.running && this.ready) return 0;
 		this.readying ??= this.startAndWait(c, backend).finally(() => {
 			this.readying = null;
@@ -167,8 +177,16 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 
 	async fetch(request: Request): Promise<Response> {
 		let cold: number;
+		const taken = takeLimits(request, this.env, this.ctx.id?.name, INSTALLATION_NAME);
+		const limits = taken.limits;
+		request = taken.request;
+		const meter = limits ? (this.meter ??= new UsageMeter(this.ctx.storage, () => this.sleepAfter())) : null;
+		if (limits && meter) {
+			const refused = await meter.admit(limits);
+			if (refused) return refused;
+		}
 		try {
-			cold = await this.ensureReady();
+			cold = await this.ensureReady(limits);
 		} catch (e) {
 			console.error("start failed", String(e));
 			return unavailable();
@@ -184,7 +202,19 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		}
 		const out = new Response(res.body, res);
 		out.headers.append("Server-Timing", `container-start;dur=${cold}`);
+		if (limits && meter) await meter.done(limits, out.headers);
 		return out;
+	}
+
+	/** Writes the limit counters (set at most FLUSH_MS after a change). */
+	async alarm(): Promise<void> {
+		await this.meter?.counter.flush();
+	}
+
+	/** This month's request and active-time totals, for the Cron that will copy them into D1 usage_counters (not
+	 *  scheduled yet). Zero for primary and with limits off, which never count. */
+	async usage(): Promise<{ period: string; requests: number; container_seconds: number }> {
+		return (this.meter ??= new UsageMeter(this.ctx.storage, () => this.sleepAfter())).usage();
 	}
 }
 
@@ -247,7 +277,13 @@ function toContainer(request: Request): Request {
 
 export default {
 	async fetch(request, env: Env & D1Env): Promise<Response> {
-		const route = await routeFor(new URL(request.url).host, env.DB);
-		return routeResponse(route) ?? env.APOTHEKE.getByName(route.doName).fetch(request);
+		const limited = limitsEnabled(env);
+		const route = await routeFor(new URL(request.url).host, env.DB, Date.now(), limited);
+		const early = routeResponse(route);
+		if (early) return early;
+		const stub = env.APOTHEKE.getByName(route.doName);
+		// primary is never limited, and with LIMITS_ENABLED off every request is forwarded as before.
+		if (!limited || route.doName === INSTALLATION_NAME) return stub.fetch(request);
+		return forwardWithLimits(request, route.limits ?? {}, (r) => stub.fetch(r));
 	},
 } satisfies ExportedHandler<Env & D1Env>;

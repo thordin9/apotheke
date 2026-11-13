@@ -74,7 +74,39 @@ a container object without a name never starts in storage mode. For `primary` th
 and the Worker secrets are the same as before. `edge/tests/installation-isolation.test.mjs` runs two installations
 side by side and checks that no file, marker, sweep or database row crosses between them.
 
-Limits are not read here. They come only from `plan_limits` rows, which the console edits; no tier is built in.
+## Limits
+
+The Worker enforces four plan limits for installations other than `primary` (`edge/src/limits.ts`). They come only
+from `plan_limits` rows of the installation's subscription plan, which the console edits; no tier is built in. A key
+without a row, or with no `hard_value`, is no limit, and an installation without a subscription has none. When
+`soft_value` is empty the soft value is 80% of the hard one. The limits are read with the route in the same query and
+cached with it (30 seconds per isolate). There is no `limit_overrides` table yet; temporary raises come with the
+console API.
+
+| Limit (`limit_key`) | Where | Soft | Hard |
+|---|---|---|---|
+| Requests per month (`requests_month`) | Counter in the container object | `Apotheke-Limit-Warning: requests_month` on responses | 429 "This Apotheke reached its monthly request limit. The owner can upgrade the plan." |
+| Container active time per month (`container_hours_month`, hours) | Container object, start to stop | `Apotheke-Limit-Warning: container_hours_month` | 402 "This month's active time is used up", without waking the container |
+| Request body (`import_file_bytes`) | Worker, before the body is read: `Content-Length`, or a streaming cap when there is none | none | 413 "File is larger than your plan allows (N MB)" |
+| Stored bytes (`storage_bytes`) | `r2.internal` on a write and a multipart complete, against a counter in the `Installation` object | none yet | 507 to PHP, `code` `storage_full` |
+
+- **Off switch.** The Worker var `LIMITS_ENABLED` (`"0"` in `edge/wrangler.jsonc`) turns everything off: each request
+  is forwarded exactly as before, with no limits lookup and no counting. `"1"` turns enforcement on. The var is read
+  by the Worker only and is not passed to the container.
+- **`primary` is never limited**, whatever its plan or counters, in the Worker, the container object and `r2.internal`.
+- **Months** are calendar months in UTC (`YYYY-MM`, as `usage_counters.period`). A new month starts from zero.
+- **Active time** is measured as the inactivity timeout defines it: a run starts with a request that finds the
+  container asleep and ends `SLEEP_AFTER_MS` after the last request. Once the month is used up, every request gets the
+  402 page and the container sleeps after its timeout.
+- **Stored bytes** count from when metering begins: files already stored before then are not counted until a later
+  reconciliation. An overwrite counts the difference and a delete gives its bytes back. A multipart upload is refused
+  at completion only when the store is already full, so one upload can go past the hard value by its own size.
+  Concurrent writes near the limit can pass it by the bytes in flight.
+- **Counters** are kept in memory in the owning object and written to its storage by an alarm at most 60 seconds after
+  a change. `ApothekeContainer.usage()` returns the month's `requests` and
+  `container_seconds` for the Cron that will copy them into `usage_counters` (not scheduled yet).
+- **Not in the Worker:** item, photo and user ceilings and the `/limits` bridge are in the app (C1); the autofill
+  budget is in the autofill service; an email to the operator at the soft active-time value comes later.
 
 ## Per-installation APP_KEY and ALLOWED_HOSTS
 

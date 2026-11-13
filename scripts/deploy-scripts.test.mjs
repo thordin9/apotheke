@@ -317,7 +317,7 @@ export async function resolve(s, c, next) {
 		),
 );
 
-test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEEP_AFTER_MS", async () => {
+test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEEP_AFTER_MS and LIMITS_ENABLED", async () => {
 	const { ApothekeContainer } = await import(join(root, "edge/src/index.ts"));
 	// edge/wrangler.jsonc has only whole-line comments.
 	const text = readFileSync(join(root, "edge/wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, "");
@@ -358,9 +358,11 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	};
 	const obj = new ApothekeContainer(ctx, { ...vars, APP_PASSWORD: "placeholder", APP_KEY: "placeholder" });
 	assert.equal((await obj.fetch(new Request("https://api.example.test/healthz"))).status, 200);
-	const { SLEEP_AFTER_MS, ...forwarded } = vars;
+	// LIMITS_ENABLED is read by the Worker only (E5 limits); PHP never sees it.
+	const { SLEEP_AFTER_MS, LIMITS_ENABLED, ...forwarded } = vars;
+	assert.equal(LIMITS_ENABLED, "0");
 	for (const [k, v] of Object.entries(forwarded)) assert.equal(started.env[k], v, k);
-	// Wrangler vars (except SLEEP_AFTER_MS) plus TRUST_PROXY and APOTHEKE_EDGE_CLIENT_IP, set in code.
+	// Wrangler vars (except SLEEP_AFTER_MS and LIMITS_ENABLED) plus TRUST_PROXY and APOTHEKE_EDGE_CLIENT_IP, set in code.
 	assert.deepEqual(Object.keys(started.env).sort(), [
 		"ALLOWED_HOSTS",
 		"APOTHEKE_EDGE_CLIENT_IP",
