@@ -2,8 +2,10 @@
 // installation_routes (edge/migrations/control/). No row, no DB binding, or a failed lookup falls back to the one
 // installation every request went to before, so primary keeps working through a D1 outage.
 import { INSTALLATION_NAME } from "./installation";
+import { parseLimits, type Limits } from "./limits";
 
-export type Route = { doName: string; status: string };
+/** limits is set only for a lookup made with limits (LIMITS_ENABLED): the plan_limits of the installation's subscription. */
+export type Route = { doName: string; status: string; limits?: Limits };
 type RouteDb = { prepare(sql: string): { bind(...v: unknown[]): { first<T>(): Promise<T | null> } } };
 
 const FALLBACK: Route = { doName: INSTALLATION_NAME, status: "active" };
@@ -12,6 +14,11 @@ const TTL_MS = 30_000;
 export const FAILURE_TTL_MS = 5_000;
 /** At most this many hosts are cached per isolate: expired entries go first, then the oldest. */
 export const ROUTE_CACHE_MAX = 1000;
+const ROUTE_SQL = "SELECT i.do_name AS doName, i.status AS status FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE r.host = ?";
+// The same row plus the plan's hard limits ({"key": [soft, hard]}; '{}' without a subscription or limit rows).
+const ROUTE_LIMITS_SQL = "SELECT i.do_name AS doName, i.status AS status, (SELECT json_group_object(l.limit_key, json_array(l.soft_value, l.hard_value))"
+	+ " FROM subscriptions s JOIN plan_limits l ON l.plan_id = s.plan_id WHERE s.installation_id = i.id AND l.hard_value IS NOT NULL) AS limits"
+	+ " FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE r.host = ?";
 const cache = new Map<string, { route: Route | null; until: number }>();
 
 /** Lower case, no port, no trailing dots. */
@@ -33,17 +40,15 @@ function remember(key: string, route: Route | null, now: number, ttl = TTL_MS): 
 }
 
 /** The route for a host: a row from installation_routes (a hit or a miss is cached in the isolate for 30 s, a failed
- *  lookup for 5 s), else primary. */
-export async function routeFor(host: string, db: RouteDb | undefined, now = Date.now()): Promise<Route> {
+ *  lookup for 5 s), else primary. With withLimits the row also carries its plan limits, cached with it. */
+export async function routeFor(host: string, db: RouteDb | undefined, now = Date.now(), withLimits = false): Promise<Route> {
 	if (!db) return FALLBACK;
 	const key = normalizeHost(host);
 	const hit = cache.get(key);
 	if (hit && hit.until > now) return hit.route ?? FALLBACK;
 	try {
-		const row = await db
-			.prepare("SELECT i.do_name AS doName, i.status AS status FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE r.host = ?")
-			.bind(key)
-			.first<Route>();
+		const found = await db.prepare(withLimits ? ROUTE_LIMITS_SQL : ROUTE_SQL).bind(key).first<Route & { limits?: unknown }>();
+		const row = found && withLimits ? { doName: found.doName, status: found.status, limits: parseLimits(found.limits) } : found;
 		remember(key, row, now);
 		return row ?? FALLBACK;
 	} catch (e) {

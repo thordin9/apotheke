@@ -12,6 +12,23 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - ci: bump @playwright/test to 1.65.0 and pin the Playwright image ([#311](https://github.com/thordin9/apotheke/pull/311))
 
+## [3.45.0] - 2026-11-13
+
+### Added
+
+- **edge:** plan limits in the Worker for installations other than `primary`: monthly requests (429), monthly container active time (402), request body size (413) and stored bytes (507 to the app), with soft values as a response header. Off by default with the new Worker var `LIMITS_ENABLED` ([#315](https://github.com/thordin9/apotheke/pull/315))
+
+## [3.44.0] - 2026-11-13
+
+### Added
+
+- **edge:** lifecycle jobs for the operator console: provision, suspend, resume, export, soft delete and purge as paused jobs that run only after an operator confirms them, with idempotent steps that refuse `primary`, and a purge only once a finished delete's export retention is over (migration `0003_lifecycle_jobs`) ([#314](https://github.com/thordin9/apotheke/pull/314))
+
+### Maintenance
+
+- ci: bump wrangler from 4.157.0 to 4.160.0 in /edge in the edge group
+- **deps-dev:** build: bump vite from 8.3.5 to 8.3.7 in /frontend ([#312](https://github.com/thordin9/apotheke/pull/312))
+
 ## [3.43.0] - 2026-11-13
 
 ### Added
@@ -1760,7 +1777,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.43.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.45.0...HEAD
+[3.45.0]: https://github.com/thordin9/apotheke/compare/v3.44.0...v3.45.0
+[3.44.0]: https://github.com/thordin9/apotheke/compare/v3.43.0...v3.44.0
 [3.43.0]: https://github.com/thordin9/apotheke/compare/v3.42.5...v3.43.0
 [3.42.5]: https://github.com/thordin9/apotheke/compare/v3.42.4...v3.42.5
 [3.42.4]: https://github.com/thordin9/apotheke/compare/v3.42.3...v3.42.4
