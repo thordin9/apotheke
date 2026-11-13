@@ -60,16 +60,20 @@ function cookieString(value, maxAge, hostname, protocol, secureContext) {
     return parts.join('; ');
 }
 
-/** Only the exact value v1 counts. */
-export function hasConsent(cookieHeader) {
+function cookieValue(cookieHeader, name) {
     const header = cookieHeader === undefined ? readCookieHeader() : String(cookieHeader);
     for (const part of header.split(';')) {
         const text = part.trim();
         const eq = text.indexOf('=');
         if (eq < 0) continue;
-        if (text.slice(0, eq) === CONSENT_NAME && text.slice(eq + 1) === CONSENT_VALUE) return true;
+        if (text.slice(0, eq) === name) return text.slice(eq + 1);
     }
-    return false;
+    return '';
+}
+
+/** Only the exact value v1 counts. */
+export function hasConsent(cookieHeader) {
+    return cookieValue(cookieHeader, CONSENT_NAME) === CONSENT_VALUE;
 }
 
 export function acceptConsent() {
@@ -103,12 +107,44 @@ function disableLogin() {
     if (home) home.hidden = true;
 }
 
+/** Consent still stands while the consent cookie is present. */
+export function consentStands() {
+    return hasConsent();
+}
+
+/** A signed-in line is shown only while consent still stands. */
+export function signedInLineAllowed(session) {
+    return consentStands() && !!(session && session.signed_in === true);
+}
+
 /**
- * Decline stores nothing. If consent was given earlier (the notice reopened from
- * Cookie settings), Decline withdraws it. Hiding the notice is the caller's job.
+ * Decline stores nothing. When consent was given, the consent cookie is removed
+ * at once and one session read follows. Failures are ignored. The signed-in
+ * state is cleared at once. Hiding the notice is the caller's job.
  */
 export function declineConsent() {
-    if (hasConsent()) withdrawConsent();
+    const hadConsent = hasConsent();
+    sessionEpoch += 1;
+    signedIn = false;
+    csrfToken = '';
+    if (!hadConsent) return;
+    withdrawConsent();
+    document.dispatchEvent(new Event('apotheke-signed-out'));
+    void readSessionAfterDecline();
+}
+
+async function readSessionAfterDecline() {
+    try {
+        const base = await loadApiBase();
+        if (!base) return;
+        await fetch(sessionUrl(base), {
+            credentials: 'include',
+            keepalive: true,
+            headers: { Accept: 'application/json' },
+        });
+    } catch {
+        // The notice is already gone. A missed read leaves no local session.
+    }
 }
 
 let apiBasePromise = null;
@@ -139,23 +175,28 @@ export function rememberCsrf(data) {
 }
 
 export async function fetchSession(apiBase = '') {
+    const epoch = sessionEpoch;
     try {
         const res = await fetch(sessionUrl(apiBase), {
             credentials: 'include',
             headers: { Accept: 'application/json' },
         });
-        if (!res.ok) return { csrf_token: '', signed_in: false, username: '' };
+        if (epoch !== sessionEpoch || !res.ok) return { csrf_token: '', signed_in: false, username: '' };
         const data = await res.json();
+        if (epoch !== sessionEpoch) return { csrf_token: '', signed_in: false, username: '' };
         const token = rememberCsrf(data);
         const user = data && data.user;
         const username = user && typeof user.username === 'string' ? user.username : '';
-        return { csrf_token: token, signed_in: !!(data && data.signed_in === true), username };
+        signedIn = !!(data && data.signed_in === true);
+        return { csrf_token: token, signed_in: signedIn, username };
     } catch {
         return { csrf_token: '', signed_in: false, username: '' };
     }
 }
 
 let csrfToken = '';
+let signedIn = false;
+let sessionEpoch = 0;
 
 export function currentCsrfToken() {
     return csrfToken;
@@ -347,11 +388,7 @@ async function signIn(form, onSignedIn) {
             }
         }
         if (res.ok) {
-            try {
-                rememberCsrf(await res.clone().json());
-            } catch {
-                rememberCsrf(null);
-            }
+            signedIn = true;
             if (error) error.textContent = '';
             clearFieldErrors();
             if (typeof onSignedIn === 'function') onSignedIn();
@@ -386,7 +423,7 @@ function bindSettings(banner) {
         const choice = document.getElementById('consent-choice');
         if (choice) {
             choice.textContent = hasConsent()
-                ? 'Your choice: accepted. Decline deletes the cookie and stops counting.'
+                ? 'Your choice: accepted. Decline removes the consent cookie immediately and asks the server to end your session right away. If that request can\'t get through (for example, you\'re offline), the server ends the session the next time your browser contacts it without consent.'
                 : 'Your choice: not accepted. Nothing is stored or counted.';
             choice.hidden = false;
         }
@@ -415,12 +452,14 @@ function start() {
             acceptConsent();
             dismissNotice(banner);
             if (already) return;
+            void loadApiBase();
             const form = document.getElementById('sign-in');
             if (form) enableLogin(form);
             trackPageview();
         });
     }
     if (hasConsent()) {
+        void loadApiBase();
         hide(banner);
         if (login) enableLogin(login);
         if (!isAppShell()) trackPageview();

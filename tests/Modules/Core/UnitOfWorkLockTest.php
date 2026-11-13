@@ -85,10 +85,9 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
         $this->assertNotNull($this->database);
         $wait = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('recent_views', 'd:a')]], 1500);
         try {
+            $this->assertSame(1, UnitsOfWork::on(new ConnectionExecutor($this->db()), null, 0)
+                ->run('recent_views', static fn (UnitOfWork $uow): int => 1, 'd:b'), 'another key does not wait: it gets its lock with no wait at all');
             $units = UnitsOfWork::on(new ConnectionExecutor($this->db()), null, 150);
-            $t = hrtime(true);
-            $units->run('recent_views', static fn (UnitOfWork $uow): int => 1, 'd:b');
-            $this->assertLessThan(100, (hrtime(true) - $t) / 1e6, 'another key does not wait');
             $t = hrtime(true);
             try {
                 $units->run('recent_views', static fn (UnitOfWork $uow): int => 1, 'd:a');
@@ -96,9 +95,8 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
             } catch (UserError $e) {
                 $this->assertSame([503, 'The database is busy. Try again in a moment.'], [$e->getCode(), $e->getMessage()]);
             }
-            $ms = (hrtime(true) - $t) / 1e6;
-            $this->assertGreaterThanOrEqual(150, $ms);
-            $this->assertLessThan(1000, $ms, 'it gives up after the wait, before the other client commits');
+            $this->assertGreaterThanOrEqual(150, (hrtime(true) - $t) / 1e6, 'it waits the whole budget');
+            $this->assertFalse($this->otherGets('recent_views', 'd:a'), 'it gives up while the other client still holds the key');
             $this->assertSame(0, (int)$this->db()->transDepth);
         } finally {
             $this->assertStringContainsString('committed', $wait());
@@ -125,10 +123,9 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
         $this->assertNotNull($this->database);
         $wait = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '1')]], 1500);
         try {
+            $this->assertSame(2, UnitsOfWork::on(new LocalBatchExecutor($db), null, 0)->run('items', $set(2), '2'),
+                'another key does not wait: it gets its lock with no wait at all');
             $units = UnitsOfWork::on(new LocalBatchExecutor($db), null, 150);
-            $t = hrtime(true);
-            $this->assertSame(2, $units->run('items', $set(2), '2'));
-            $this->assertLessThan(100, (hrtime(true) - $t) / 1e6, 'another key does not wait');
             $t = hrtime(true);
             try {
                 $units->run('items', $set(3), '1');
@@ -136,7 +133,7 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
             } catch (UserError $e) {
                 $this->assertSame([503, 'The database is busy. Try again in a moment.'], [$e->getCode(), $e->getMessage()]);
             }
-            $this->assertGreaterThanOrEqual(150, (hrtime(true) - $t) / 1e6);
+            $this->assertGreaterThanOrEqual(150, (hrtime(true) - $t) / 1e6, 'it waits the whole budget');
             $this->assertSame(2, $quantity(), 'the refused batch wrote nothing');
             $this->assertSame(0, (int)$db->transDepth);
         } finally {
@@ -164,10 +161,9 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
         $this->assertNotNull($this->database);
         $wait = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '1')]], 1500);
         try {
+            $this->assertSame(7, UnitsOfWork::on(new LocalBatchExecutor($db), null, 0)->run('items', $set(7), ['3', '4']),
+                'unrelated keys do not wait: they get their locks with no wait at all');
             $units = UnitsOfWork::on(new LocalBatchExecutor($db), null, 150);
-            $t = hrtime(true);
-            $this->assertSame(7, $units->run('items', $set(7), ['3', '4']));
-            $this->assertLessThan(100, (hrtime(true) - $t) / 1e6, 'unrelated keys do not wait');
             $t = hrtime(true);
             try {
                 $units->run('items', $set(8), ['2', '1']);
@@ -175,7 +171,7 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
             } catch (UserError $e) {
                 $this->assertSame(503, $e->getCode());
             }
-            $this->assertGreaterThanOrEqual(150, (hrtime(true) - $t) / 1e6);
+            $this->assertGreaterThanOrEqual(150, (hrtime(true) - $t) / 1e6, 'it waits the whole budget');
             $this->assertSame(7, (int)Writes::rows($db, 'SELECT quantity FROM items WHERE id = 1')[0]['quantity']);
         } finally {
             $this->assertStringContainsString('committed', $wait());
@@ -187,7 +183,8 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
     /**
      * N-1778: a two-key unit shares one wait budget; blocked on the second
      * key after spending time on the first, it answers 503 within ~lockWaitMs
-     * total (not lockWaitMs per key).
+     * total (not lockWaitMs per key). Key 2 is free again before a fresh
+     * per-key budget would end, so only the shared budget answers 503.
      */
     public function testAMultiKeyUnitSharesOneWaitBudget(): void
     {
@@ -199,11 +196,12 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
             return $q;
         };
         $this->assertNotNull($this->database);
-        // Hold key 1 briefly then release; hold key 2 for longer than the budget.
-        $wait1 = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '1')]], 350);
-        $wait2 = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '2')]], 2000);
+        // Key 1 is held for 800 ms of the 1000 ms budget, key 2 for 1400 ms: the shared budget ends while key 2 is
+        // still held (400 ms early), a fresh budget for key 2 would end 400 ms after key 2 is free and take it.
+        $wait1 = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '1')]], 800);
+        $wait2 = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '2')]], 1400);
         try {
-            $units = UnitsOfWork::on(new LocalBatchExecutor($db), null, 500);
+            $units = UnitsOfWork::on(new LocalBatchExecutor($db), null, 1000);
             $t = hrtime(true);
             try {
                 $units->run('items', $set(9), ['1', '2']);
@@ -211,9 +209,8 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
             } catch (UserError $e) {
                 $this->assertSame(503, $e->getCode());
             }
-            $ms = (hrtime(true) - $t) / 1e6;
-            $this->assertGreaterThanOrEqual(450, $ms, 'uses most of the shared budget');
-            $this->assertLessThan(800, $ms, 'must not wait a fresh budget per key (~1000ms)');
+            $this->assertGreaterThanOrEqual(1000, (hrtime(true) - $t) / 1e6, 'it waits the whole shared budget');
+            $this->assertFalse($this->otherGets('items', '2'), 'it gives up while key 2 is still held, not after a fresh budget for it');
             $this->assertSame(1, (int)Writes::rows($db, 'SELECT quantity FROM items WHERE id = 1')[0]['quantity']);
         } finally {
             $this->assertStringContainsString('committed', $wait1());
@@ -232,10 +229,11 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
         $db->query("INSERT INTO items (name, quantity, created_at, updated_at) VALUES ('Lamp', 1, '2026-01-01 08:00:00', '2026-01-01 08:00:00')");
         $db->query('CREATE TABLE lock_probe (got boolean NOT NULL)');
         $this->assertNotNull($this->database);
-        $row = $this->database->holdInAnotherClient([['UPDATE items SET quantity = 9 WHERE id = 1', []]], 900);
+        // The row is held long enough for the probe client to start and see the lock, also on a loaded runner.
+        $row = $this->database->holdInAnotherClient([['UPDATE items SET quantity = 9 WHERE id = 1', []]], 2000);
         // L-1746: wait until the batch holds the unit lock (pg_locks), then probe; a fixed sleep was flaky.
         $keys = UnitsOfWork::lockKeys('items', '1');
-        $probe = $this->database->holdInAnotherClient([['__wait_advisory__', [$keys[0], $keys[1], 2000]],
+        $probe = $this->database->holdInAnotherClient([['__wait_advisory__', [$keys[0], $keys[1], 5000]],
             ['INSERT INTO lock_probe (got) SELECT pg_try_advisory_xact_lock(?, ?)', $keys]], 0, false);
         try {
             UnitsOfWork::on(new LocalBatchExecutor($db))->run('items', static function (UnitOfWork $uow): void {
@@ -277,9 +275,8 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
         $takes = new Stocktakes($db, $clock, $taxonomy, $this->database->items($db), $history, new Barcode($db), UnitsOfWork::on(new ConnectionExecutor($db), null, 150));
         $wait = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('stocktakes', (string)$shed)]], 1500);
         try {
-            $t = hrtime(true);
-            $this->assertGreaterThan(0, $takes->start($attic));
-            $this->assertLessThan(100, (hrtime(true) - $t) / 1e6, 'another location does not wait');
+            $noWait = new Stocktakes($db, $clock, $taxonomy, $this->database->items($db), $history, new Barcode($db), UnitsOfWork::on(new ConnectionExecutor($db), null, 0));
+            $this->assertGreaterThan(0, $noWait->start($attic), 'another location does not wait: it gets its lock with no wait at all');
             try {
                 $takes->start($shed);
                 $this->fail('a busy location must answer 503');

@@ -168,6 +168,7 @@ Notes:
   index for word similarity. Missing FTS5 / pg_trgm only switch off those extras (Settings → System shows the engine).
   Not part of backups (rebuilt on the next search).
 * `roles` (migration 0022): `role_key` (unique; `users.role` refers to it), `name`, `perms` (JSON list), `builtin`.
+  In `perms`, `backup` stands for backup and restore (as on 2.6.x); `backup-only` and `restore-only` for one of them.
   Seeded with admin / editor / viewer / guest; unknown `users.role` values became viewer. `users.status` is `active`
   or `pending` (self-registered, waiting for approval). `auth_attempts` (kind, hashed client address, unix time) backs
   the sign-in and registration rate limits; rows older than a day are dropped. Not part of backups.

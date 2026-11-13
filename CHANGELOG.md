@@ -10,9 +10,92 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
-- **edge:** the Worker routes each request by host through the control plane's `installation_routes`; a missing row, an unbound `DB` or a failed lookup falls back to `primary` as before, and paused or removed installations get a status page without starting a container ([#302](https://github.com/thordin9/apotheke/pull/302))
-- **edge:** each installation's database object and R2 key prefix come from its own container object's name, passed as props to `d1.internal` and `r2.internal`; multipart markers and the unfinished-upload sweep are per installation. `primary` keeps its names, prefix and keys. A failed route lookup is retried after 5 seconds instead of on every request ([#303](https://github.com/thordin9/apotheke/pull/303))
 - **edge:** installations other than `primary` get their own `APP_KEY` (HKDF from the Worker secret, the installation name as info) and their own `ALLOWED_HOSTS` from `installation_routes`, and do not start without them; `primary` keeps the Worker's `APP_KEY` and `ALLOWED_HOSTS` unchanged ([#304](https://github.com/thordin9/apotheke/pull/304))
+
+## [3.42.5] - 2026-11-13
+
+### Fixed
+
+- **frontend:** align sign-in docs and tests ([#296](https://github.com/thordin9/apotheke/pull/296))
+
+### Changed
+
+- **frontend:** docs and tests now describe the /app/ sign-in link and signed-in state ([#296](https://github.com/thordin9/apotheke/pull/296))
+
+## [3.42.4] - 2026-11-13
+
+### Fixed
+
+- **frontend:** install commands wrap on a phone, and `/favicon.ico` is served and cached with the brand icons ([#290](https://github.com/thordin9/apotheke/pull/290))
+
+### Maintenance
+
+- **core:** test: check unit locks by outcome, not wall-clock bounds ([#310](https://github.com/thordin9/apotheke/pull/310))
+
+## [3.42.3] - 2026-11-13
+
+### Fixed
+
+- **frontend:** the privacy page describes the sign-in session cookie; Decline removes the consent cookie immediately and asks the server to end the session, and if that request can't get through the server ends it the next time the browser contacts it without consent; the landing pages may connect to the API host ([#289](https://github.com/thordin9/apotheke/pull/289))
+
+### Maintenance
+
+- ci: read the frontend account id from an environment secret ([#306](https://github.com/thordin9/apotheke/pull/306))
+- **frontend:** test: stricter URL resolution in check-dist ([#295](https://github.com/thordin9/apotheke/pull/295))
+
+### Changed
+
+- **frontend:** URL resolution in check-dist was tightened ([#295](https://github.com/thordin9/apotheke/pull/295))
+- **ci:** the Cloudflare account identifier for the frontend deploy comes from a `deploy-site` environment secret ([#306](https://github.com/thordin9/apotheke/pull/306))
+
+## [3.42.2] - 2026-11-13
+
+### Fixed
+
+- **auth:** a first install on the hosted database that stops part way and finishes on a later start gives editors and viewers the new built-in permissions, as an install that did not stop does ([#309](https://github.com/thordin9/apotheke/pull/309))
+
+### Maintenance
+
+- ci: apply control-plane D1 migrations before the edge deploy ([#300](https://github.com/thordin9/apotheke/pull/300))
+
+### Added
+
+- **ci:** the edge deploy applies control-plane D1 migrations in `edge/migrations/control/` to `apotheke-api` before `wrangler deploy` (idempotent; a failed apply stops the deploy), and the Cloudflare account id and D1 database id come from `deploy-edge` environment secrets ([#300](https://github.com/thordin9/apotheke/pull/300))
+
+## [3.42.1] - 2026-11-13
+
+### Fixed
+
+- **backup:** a restore on the hosted database no longer fails with "The backup could not be restored" after keeping the backup before it: the size check measured the database with a pragma the hosted database refuses; it now measures the stored values, and only when `RESTORE_DB_MAX_MB` is set. A failed restore logs its step and the database error class on the server ([#308](https://github.com/thordin9/apotheke/pull/308))
+
+## [3.42.0] - 2026-11-13
+
+### Added
+
+- **edge:** turn on FrankenPHP worker mode for apotheke-api ([#297](https://github.com/thordin9/apotheke/pull/297))
+
+### Changed
+
+- **edge:** FrankenPHP worker mode is on for the hosted container (`APOTHEKE_PHP_WORKER=1` in `edge/wrangler.jsonc`); in the interleaved classic/worker preview it was 11.7% faster at p50 on `/api/v1/me` (measured before #293 and #298; not re-measured). To go back to classic mode, ship a small disable-worker-mode commit in a release (Worker mode rollback in `docs/deployment-and-operations.md`) ([#297](https://github.com/thordin9/apotheke/pull/297))
+
+## [3.41.0] - 2026-11-13
+
+### Added
+
+- **backup:** restore a backup on the hosted database; each restore first keeps a backup of the whole catalog (the newest `RESTORE_KEEP_BACKUPS`, default 5), listed on the backup page and by `GET /api/v1/backups`; restoring is a permission of its own (Restore), which every role with Backup keeps ([#305](https://github.com/thordin9/apotheke/pull/305))
+- **auth:** new installations give editors the Backup and Restore permissions and viewers Backup; existing installations keep their roles, and an admin grants these to editors and viewers in the role editor or with *Reset built-in roles* ([#305](https://github.com/thordin9/apotheke/pull/305))
+
+## [3.40.0] - 2026-11-13
+
+### Added
+
+- **edge:** each installation's database object and R2 key prefix come from its own container object's name, passed as props to `d1.internal` and `r2.internal`; multipart markers and the unfinished-upload sweep are per installation. `primary` keeps its names, prefix and keys. A failed route lookup is retried after 5 seconds instead of on every request ([#303](https://github.com/thordin9/apotheke/pull/303))
+
+## [3.39.0] - 2026-11-12
+
+### Added
+
+- **edge:** the Worker routes each request by host through the control plane's `installation_routes`; a missing row, an unbound `DB` or a failed lookup falls back to `primary` as before, and paused or removed installations get a status page without starting a container ([#302](https://github.com/thordin9/apotheke/pull/302))
 
 ## [3.38.2] - 2026-11-12
 
@@ -1671,7 +1754,16 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.38.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.42.5...HEAD
+[3.42.5]: https://github.com/thordin9/apotheke/compare/v3.42.4...v3.42.5
+[3.42.4]: https://github.com/thordin9/apotheke/compare/v3.42.3...v3.42.4
+[3.42.3]: https://github.com/thordin9/apotheke/compare/v3.42.2...v3.42.3
+[3.42.2]: https://github.com/thordin9/apotheke/compare/v3.42.1...v3.42.2
+[3.42.1]: https://github.com/thordin9/apotheke/compare/v3.42.0...v3.42.1
+[3.42.0]: https://github.com/thordin9/apotheke/compare/v3.41.0...v3.42.0
+[3.41.0]: https://github.com/thordin9/apotheke/compare/v3.40.0...v3.41.0
+[3.40.0]: https://github.com/thordin9/apotheke/compare/v3.39.0...v3.40.0
+[3.39.0]: https://github.com/thordin9/apotheke/compare/v3.38.2...v3.39.0
 [3.38.2]: https://github.com/thordin9/apotheke/compare/v3.38.1...v3.38.2
 [3.38.1]: https://github.com/thordin9/apotheke/compare/v3.38.0...v3.38.1
 [3.38.0]: https://github.com/thordin9/apotheke/compare/v3.37.2...v3.38.0

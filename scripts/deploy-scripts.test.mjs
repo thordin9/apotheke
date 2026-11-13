@@ -594,7 +594,7 @@ test("edge-storage-config: D1 DB, R2 STORAGE (eu) and the Installation Durable O
 	try {
 		assert.equal(r.status, 0, r.stdout + r.stderr);
 		const c = JSON.parse(readFileSync(cfg, "utf8"));
-		assert.deepEqual(c.d1_databases, [{ binding: "DB", database_name: "apotheke-api", database_id: id }]);
+		assert.deepEqual(c.d1_databases, [{ binding: "DB", database_name: "apotheke-api", database_id: id, migrations_dir: "migrations/control" }]);
 		assert.deepEqual(c.r2_buckets, [{ binding: "STORAGE", bucket_name: "apotheke-api-storage", jurisdiction: "eu" }]);
 		assert.deepEqual(c.durable_objects.bindings, [
 			{ name: "APOTHEKE", class_name: "ApothekeContainer" },
@@ -612,7 +612,7 @@ test("edge-storage-config: D1 DB, R2 STORAGE (eu) and the Installation Durable O
 		assert.equal(c.vars.CORS_ALLOWED_ORIGINS, "https://getapotheke.com");
 		assert.equal(c.vars.ALLOWED_HOSTS, "api.services.getapotheke.com");
 		assert.equal(c.vars.APOTHEKE_JOBS_WORKER, "0");
-		assert.equal(c.vars.APOTHEKE_PHP_WORKER, "0");
+		assert.equal(c.vars.APOTHEKE_PHP_WORKER, "1");
 		assert.equal(guard("apotheke-api", cfg).status, 0);
 		// a second merge (a re-run on the same checkout) is refused rather than doubling the bindings
 		const again = run("node", [join(root, "scripts/edge-storage-config.mjs"), cfg, join(root, "edge/storage.jsonc")], {
@@ -753,4 +753,52 @@ test("edge-storage-config: drop_vars allows only COOKIE_DOMAIN, present in the b
 	const config = DEFAULT_CONFIG();
 	delete config.vars.COOKIE_DOMAIN;
 	refused(UUID, { config }, /drop_vars lists "COOKIE_DOMAIN", which .* does not set/);
+});
+
+test("edge/storage.jsonc sets migrations_dir to migrations/control on the apotheke-api binding", () => {
+	const storage = STORAGE();
+	assert.equal(storage.d1_databases.length, 1);
+	assert.equal(storage.d1_databases[0].database_name, "apotheke-api");
+	assert.equal(storage.d1_databases[0].migrations_dir, "migrations/control");
+});
+
+// E1: control-plane migrations run in the deploy job only, after the storage merge (so wrangler.jsonc has
+// migrations_dir) and before wrangler deploy. The check job never applies them (no token, dummy D1 id).
+test("deploy-edge.yml: the deploy job applies control-plane D1 migrations before wrangler deploy", () => {
+	const yml = readFileSync(join(root, ".github/workflows/deploy-edge.yml"), "utf8");
+	const check = yml.slice(yml.indexOf("\n  check:\n"), yml.indexOf("\n  deploy:\n"));
+	const deploy = yml.slice(yml.indexOf("\n  deploy:\n"));
+	assert.ok(check.length > 0 && deploy.length > 0, "the check and deploy jobs are found");
+	assert.ok(!/migrations apply/.test(check), "the check job never applies D1 migrations");
+	const merge = deploy.indexOf("- name: Storage config");
+	const migrate = deploy.indexOf("- name: Apply control-plane D1 migrations");
+	const wranglerDeploy = deploy.indexOf("- name: Deploy (Worker guard");
+	assert.ok(merge > 0 && migrate > merge && wranglerDeploy > migrate, "merge, then apply, then wrangler deploy");
+	const step = deploy.slice(migrate, wranglerDeploy);
+	assert.equal((step.match(/- name: /g) || []).length, 1, "it is a single step between the merge and the deploy");
+	assert.match(step, /if: steps\.token\.outputs\.set == 'true'\n/);
+	assert.match(step, /working-directory: edge\n/);
+	assert.match(step, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
+	assert.match(step, /CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/);
+	assert.ok(!/secrets\.[A-Z0-9_]+/.test(step.replace("secrets.CLOUDFLARE_API_TOKEN", "").replace("secrets.CLOUDFLARE_ACCOUNT_ID", "")), "no new token secret");
+	assert.match(step, /migrations_dir!=="migrations\/control"/);
+	assert.match(step, /wrangler d1 migrations apply apotheke-api --remote --config wrangler\.jsonc/);
+	assert.match(step, /Account > D1 > Edit/);
+	assert.match(step, /code: 10000/);
+	assert.match(step, /title=Cloudflare refused the token/);
+	assert.match(step, /exit "\$code"/);
+	assert.ok(!/continue-on-error/.test(step), "a failed apply fails the deploy");
+	assert.ok(!/--preview/.test(step), "the apply targets the named database, not a Worker preview D1");
+	assert.match(deploy, /edge\/migrations\/ \(the default next to wrangler\.jsonc\)/);
+	const mask = deploy.indexOf("- name: Mask the account id");
+	assert.ok(mask > 0 && mask < merge, "the mask step runs before the storage merge");
+	const maskStep = deploy.slice(mask, merge);
+	assert.match(maskStep, /CLOUDFLARE_ACCOUNT_ID: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/);
+	assert.match(maskStep, /APOTHEKE_D1_DATABASE_ID: \$\{\{ secrets\.APOTHEKE_D1_DATABASE_ID \}\}/);
+	assert.match(maskStep, /add-mask::\$APOTHEKE_D1_DATABASE_ID/);
+	// The PR check job keeps the dummy D1 id and does not use the deploy-edge environment, so it
+	// does not need those secrets and does not weaken environment protection.
+	assert.ok(!/\n    environment:/.test(check), "the check job does not use the deploy-edge environment");
+	assert.match(check, /APOTHEKE_D1_DATABASE_ID: 00000000-0000-4000-8000-000000000000\n/);
+	assert.ok(!/secrets\.CLOUDFLARE_ACCOUNT_ID|secrets\.APOTHEKE_D1_DATABASE_ID|vars\.CLOUDFLARE_ACCOUNT_ID|vars\.APOTHEKE_D1_DATABASE_ID/.test(check), "the check job does not read the real identifiers");
 });

@@ -535,19 +535,20 @@ final class Ci4BackupRestoreChecksTest extends TestCase
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
             $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
             $want = [
-                0022 => ['files' => 0750, 'images' => 0755, 'originals' => 0750, 'originals/map' => 0750, 'sessions' => 0755, 'thumbs' => 0755, 'tmp' => 0750],
-                0002 => ['files' => 0770, 'images' => 0775, 'originals' => 0750, 'originals/map' => 0750, 'sessions' => 0775, 'thumbs' => 0775, 'tmp' => 0770],
+                0022 => ['backups' => 0700, 'files' => 0750, 'images' => 0755, 'originals' => 0750, 'originals/map' => 0750, 'sessions' => 0755, 'thumbs' => 0755, 'tmp' => 0750],
+                0002 => ['backups' => 0700, 'files' => 0770, 'images' => 0775, 'originals' => 0750, 'originals/map' => 0750, 'sessions' => 0775, 'thumbs' => 0775, 'tmp' => 0770],
             ];
             foreach ($want as $umask => $modes) {
                 $seen = [];
                 foreach (['ci4'] as $app) {
-                    foreach (['images', 'thumbs', 'files', 'originals', 'tmp', 'sessions'] as $sub) {
+                    foreach (['images', 'thumbs', 'files', 'originals', 'tmp', 'sessions', 'backups'] as $sub) {
                         rrmdir($dir . '/' . $sub);
                     }
                     $r = $this->cliAs($dir, $app, $umask, ['full.zip', '--yes']);
                     $this->assertSame([0, ''], [$r['exit'], $r['stderr']], "$app: " . $r['stdout']);
                     $this->assertFileExists($dir . '/files/' . self::FILE, $app);
-                    $seen[$app] = self::folderModes($dir);
+                    // The backup kept from before the restore: its own folder under backups/.
+                    $seen[$app] = array_filter(self::folderModes($dir), static fn (string $k): bool => !str_starts_with($k, 'backups/'), ARRAY_FILTER_USE_KEY);
                 }
                 $label = sprintf('umask %04o', $umask);
                 $this->assertSame(array_map(static fn (int $m): string => sprintf('%04o', $m), $modes), $seen['ci4'], $label);
