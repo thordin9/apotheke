@@ -72,6 +72,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 - E1 (#300, ready for review): the edge deploy applies `edge/migrations/control/` to D1 `apotheke-api` before `wrangler deploy`. Schema SQL is on main (#299). Awaiting *Account > D1 > Edit* on the existing deploy token before merge.
 - Backup restore on d1 is in v3.41.0; #308 fixes its confirm on the hosted database. FrankenPHP worker mode is on for the hosted container from #297 (`APOTHEKE_PHP_WORKER=1`; rollback in [Deployment and operations](deployment-and-operations.md#the-frankenphp-image)). For other open work, see the open pull requests on GitHub.
+- Branch `test/unit-lock-timing`: `UnitOfWorkLockTest` proves that another key does not wait with a unit that has no wait budget, and that a busy key gives up while the other client still holds it, instead of wall-clock upper bounds.
 - The account lifecycle rules for incomplete multipart uploads on `apotheke-api-storage` are reported applied by the PM (7 days for the bucket, 1 day under `installations/primary/`). The marked-upload sweep stays an uncalled helper.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
