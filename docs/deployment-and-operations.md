@@ -492,7 +492,8 @@ changes merged with it. The commit touches exactly these files (line numbers as 
 * `tests/Unit/DockerfileTest.php:269`: the pin `'"APOTHEKE_PHP_WORKER": "1"'` to `"0"`.
 * `scripts/deploy-scripts.test.mjs:615`: `assert.equal(c.vars.APOTHEKE_PHP_WORKER, "1")` to `"0"`.
 
-Those four changes are all CI needs. They were proved on a scratch branch off #297 with worker mode off: PROOF_RUN.
+Those four changes are all CI needs. They were proved on a scratch branch off #297 with worker mode off: [CI](https://github.com/thordin9/apotheke/actions/runs/43353674824) and
+[Deploy edge](https://github.com/thordin9/apotheke/actions/runs/43353674860) (its `wrangler types --check`) passed.
 A CHANGELOG bullet under `[Unreleased]` (with the pull request link) is the usual extra. The rollback takes effect
 with that release's deploy, and the running container switches at its next start (after a deploy or a sleep). To
 confirm, check the container log after that start: the entrypoint line reads
