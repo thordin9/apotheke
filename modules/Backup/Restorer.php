@@ -1336,11 +1336,14 @@ final class Restorer
             throw new UserError(self::FAILED);
         }
         try {
-            $bytes = 0;
-            foreach ($restored as $t) {
-                $bytes += $stage->bytes($columns[$t], $this->tableRows($fh, $t, $offsets[$t]));
+            // Measured only against a limit (RESTORE_DB_MAX_MB 0 is none).
+            if ($this->dbMaxBytes > 0) {
+                $bytes = 0;
+                foreach ($restored as $t) {
+                    $bytes += $stage->bytes($columns[$t], $this->tableRows($fh, $t, $offsets[$t]));
+                }
+                RestoreStage::preflight($stage->liveBytes(), $bytes, $this->dbMaxBytes);
             }
-            RestoreStage::preflight($stage->liveBytes(), $bytes, $this->dbMaxBytes);
             try {
                 $this->fence();
                 $stage->begin($restored);
