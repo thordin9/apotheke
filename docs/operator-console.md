@@ -158,8 +158,8 @@ running installation at its next start.
 
 Rotating the Worker's `APP_KEY` secret changes `primary`'s key and every derived per-installation key at once. Nothing
 re-encrypts the secrets other installations have already stored under their old key, so a rotation has to be planned
-per installation first. Until the first-admin claim (C1) replaces it, all installations get the same Worker
-`APP_PASSWORD`.
+per installation first. With `APOTHEKE_HOSTED` the app does not use `APP_PASSWORD` (see
+[Hosted installations](#hosted-installations)), so a hosted container needs none.
 
 ## Lifecycle jobs
 
@@ -209,7 +209,8 @@ and only in storage mode (`STORAGE`, `DB` and `INSTALLATION` bound). They follow
 - `GET /limits`: the plan and its limits (`{key: {soft, hard}}`) for the object's own installation, looked up by its
   `do_name` through its subscription and read as the Worker reads them (`edge/src/limits.ts`, see [Limits](#limits)):
   only keys with a hard value, soft 80% of hard when it has none. The app reads a fractional soft value as the next
-  whole number. 404 when the installation has no subscription, 503 when the control plane is not bound.
+  whole number. A value that is negative, not finite or beyond the largest whole number makes the answer unreadable,
+  like any other bad value. 404 when the installation has no subscription, 503 when the control plane is not bound.
 
 **Plan limits.** With `APOTHEKE_HOSTED`, the app reads `/limits` once per request when it needs them. The hard
 values of `items`, `photos` and `users` cap adding items, photos and accounts: the count is checked inside the unit
@@ -226,10 +227,15 @@ settings row outside the Control Panel's keys, so it is never exported or backed
 The link is `https://<host>/claim#<token>`: the page reads the token from the fragment, and the owner picks a user
 name and password and becomes an active `admin`. The claim row is deleted in the same unit as the account insert, so
 a link works once. The claim works only while the installation has no active `admin`: that is checked in the same
-unit, which takes the `active-admins` key like every unit that adds an active admin. Otherwise the link is refused
-(410) and the claim row is removed. With `APP_PASSWORD` set, the app still creates the account `admin` from it when
-there is no account, as when self-hosted, so a claim on that installation is refused. Registration stays closed until
-the first account exists, and sign-in cannot be turned off.
+unit, which takes the `active-admins` key like every unit that adds an active admin. Once an active `admin` exists,
+every claim request gets the same 410 answer, whatever its token, and the claim row is removed. Registration stays
+closed until the first account exists, and sign-in cannot be turned off.
+
+**No `APP_PASSWORD`.** With `APOTHEKE_HOSTED`, `APP_PASSWORD` is not used: the container starts without it (the
+start-up check `auth status` answers on once the database answers), the first migration turns sign-in on, and no
+account `admin` is created from it, so the first-admin claim is the only way to the first admin. `APOTHEKE_INSTALLATION`
+alone changes nothing. Without `APOTHEKE_HOSTED`, a missing `APP_PASSWORD` on a new install still stops the start as
+before ([Deployment and operations](deployment-and-operations.md)).
 
 ## Backup for a lifecycle job
 
@@ -255,4 +261,12 @@ not this endpoint and gets the usual 404. Self-hosted, it doesn't exist.
 - **Once per job:** the same job id returns the same backup with `created: false`. The job is recorded in the
   settings row `ops_backup_job:<id>` (outside the Control Panel's keys), claimed in a unit of work keyed by that row,
   so two requests for one job never make two backups. A claim left by a request that stopped is taken over after
-  two hours. The backup is a stored backup of kind `export`; `backup.keep` doesn't prune exports.
+  two hours. A backup still running stops before its next part or its manifest once its claim is 1 h 50 min old, or
+  as soon as another request has taken the claim, and keeps nothing; a backup stored after its claim was taken is
+  deleted again. So a takeover never overlaps a backup that is still writing. The backup is a stored backup of kind
+  `export`; `backup.keep` doesn't prune exports.
+- **One snapshot:** the catalog is dumped inside one read transaction (one `REPEATABLE READ, READ ONLY` snapshot on
+  PostgreSQL, one read transaction on SQLite), so every table comes from the same moment. The hosted database reads
+  in pages without one.
+- **Left-over parts:** parts under `backups/<id>/` with no manifest a day after the backup's id time (a backup that
+  stopped) are deleted when the next backup is stored. A folder with a manifest is never touched by this.

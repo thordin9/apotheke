@@ -78,6 +78,10 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   `ops.internal` makes one stored backup per lifecycle job id (signed with a key derived from `APP_KEY`; not routed
   from public hosts) and answers its id, size and relative key; `edge/src/ops-signature.ts` builds the request
   ([operator console](operator-console.md#backup-for-a-lifecycle-job)).
+- Operator console follow-up (`feat/operator-console-followup`, on C2): with `APOTHEKE_HOSTED` the container starts
+  without `APP_PASSWORD` and creates no account from it; once an active admin exists the claim gives one answer for
+  any token; the backup dump is one read transaction, a job's backup stops before a takeover could overlap it, and
+  parts without a manifest are removed after a day; out-of-range or non-finite plan limits are refused.
 
 ## Open pull requests
 
