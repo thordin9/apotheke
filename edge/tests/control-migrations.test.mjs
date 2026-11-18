@@ -173,7 +173,7 @@ test('0004 plan_limits: photos_per_item allowed, columns, checks and rows kept, 
   db.exec('PRAGMA foreign_keys = ON');
   for (const f of files.filter((f) => f < '0004')) db.exec(readFileSync(new URL(f, dir), 'utf8'));
   const cols = () => db.prepare(`PRAGMA table_info('plan_limits')`).all().map((c) => ({ ...c }));
-  const fks = () => db.prepare(`PRAGMA foreign_key_list('plan_limits')`).all().map((k) => [k.from, k.table, k.to]);
+  const fks = () => db.prepare(`PRAGMA foreign_key_list('plan_limits')`).all().map((k) => ({ ...k }));
   const before = [cols(), fks()];
   refused(db, `INSERT INTO plan_limits (plan_id, limit_key, hard_value) VALUES ('internal', 'photos_per_item', 4)`, /CHECK/);
   db.exec(`INSERT INTO plans (id, name) VALUES ('starter', 'Starter')`);
@@ -202,4 +202,45 @@ test('0004 applied twice: same schema and rows', () => {
   db.exec(readFileSync(new URL('0004_plan_limits_photos_per_item.sql', dir), 'utf8'));
   assert.deepEqual(state(), before);
   assert.equal(before[1].length, 2);
+});
+
+// Every plan_limits key a migration has ever allowed: a later migration may add keys, never drop one (N-2200).
+const LIMIT_KEYS = ['items', 'storage_bytes', 'photos', 'users', 'autofill_calls_month', 'requests_month', 'container_hours_month',
+  'sleep_after_ms', 'import_file_bytes', 'photos_per_item'];
+
+test('plan_limits keeps every key it ever allowed after each migration', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec('PRAGMA foreign_keys = ON');
+  let allowed = [];
+  for (const f of files) {
+    db.exec(readFileSync(new URL(f, dir), 'utf8'));
+    db.exec(`INSERT OR IGNORE INTO plans (id, name) VALUES ('k', 'Keys')`);
+    const now = LIMIT_KEYS.filter((key) => {
+      try {
+        db.exec(`INSERT INTO plan_limits (plan_id, limit_key, hard_value) VALUES ('k', '${key}', 1)`);
+        db.exec(`DELETE FROM plan_limits WHERE plan_id = 'k'`);
+        return true;
+      } catch (e) {
+        if (!/CHECK/.test(String(e))) throw e;
+        return false;
+      }
+    });
+    for (const key of allowed) assert.ok(now.includes(key), `${f} dropped ${key}`);
+    allowed = now;
+  }
+  assert.deepEqual(allowed, LIMIT_KEYS);
+});
+
+test('no foreign key cascades or sets null: every reference is NO ACTION, as 0001 made them', () => {
+  const db = migrated();
+  const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`).all().map((t) => t.name);
+  const refs = tables.flatMap((t) => db.prepare(`PRAGMA foreign_key_list('${t}')`).all().map((k) => `${t}.${k.from} -> ${k.table}.${k.to} ${k.on_update}/${k.on_delete}/${k.match}`));
+  assert.deepEqual(refs.sort(), [
+    'installation_routes.installation_id -> installations.id NO ACTION/NO ACTION/NONE',
+    'lifecycle_jobs.installation_id -> installations.id NO ACTION/NO ACTION/NONE',
+    'plan_limits.plan_id -> plans.id NO ACTION/NO ACTION/NONE',
+    'subscriptions.installation_id -> installations.id NO ACTION/NO ACTION/NONE',
+    'subscriptions.plan_id -> plans.id NO ACTION/NO ACTION/NONE',
+    'usage_counters.installation_id -> installations.id NO ACTION/NO ACTION/NONE',
+  ]);
 });

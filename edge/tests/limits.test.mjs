@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 const { default: publicWorker, ApothekeContainer, R2Outbound, Installation } = await import('../src/index.ts');
 const { clearRouteCache, routeFor } = await import('../src/route.ts');
-const { CORS_EXPOSE, Counter, FLUSH_MS, LIMITS_HEADER, WARNING_HEADER, UsageMeter, limitsEnabled, parseLimits, period } = await import('../src/limits.ts');
+const { CORS_EXPOSE, Counter, FLUSH_MS, LIMITS_HEADER, WARNING_HEADER, UsageMeter, isPreflight, limitsEnabled, parseLimits, period, withCors } = await import('../src/limits.ts');
 const { RECOUNT_BEFORE_REFUSAL_MS, RECOUNT_MS } = await import('../src/installation.ts');
 const { doStorage } = await import(new URL('./do-storage.mjs', import.meta.url).href);
 
@@ -336,11 +336,13 @@ test('E5: the body cap runs whatever Content-Length says: a valid one over the l
   const valid = await w.go('https://b.example.test/api/v1/import', { method: 'POST', body: over, headers: { 'content-length': String(over.length) } });
   assert.equal(valid.res.status, 413);
   assert.equal(w.seen.tried, 0, 'refused from the header, nothing forwarded');
-  for (const length of ['5', 'abc', '', '-1', '1e9']) {
+  for (const length of ['abc', '', '-1', '1e9']) {
     const { res } = await w.go('https://b.example.test/api/v1/import', { method: 'POST', body: over, headers: { 'content-length': length } });
     assert.equal(res.status, 413, `content-length ${JSON.stringify(length)}`);
     assert.equal(await res.text(), 'File is larger than your plan allows (1.5 MB)\n');
   }
+  // A valid length under the limit with a longer body is cut off at that length: a 400 (N-2205), never forwarded.
+  assert.equal((await w.go('https://b.example.test/api/v1/import', { method: 'POST', body: over, headers: { 'content-length': '5' } })).res.status, 400);
   assert.equal(w.seen.length, 0);
 });
 
@@ -394,6 +396,7 @@ test('E5: the 413, 429 and 402 refusals carry the app CORS headers for an allowe
   assert.equal(r402.status, 402);
   assert.equal(r402.headers.get('access-control-allow-origin'), 'https://dot.example.test', 'one trailing dot is the same origin');
   const pre = await ask({ requests_month: { soft: 1, hard: 5 } }, 'https://APP.example.test.', 'OPTIONS');
+  assert.equal(pre.status, 204, 'a preflight is never refused (L-2201)');
   assert.deepEqual(corsOf(pre), { ...ALLOWED, 'access-control-allow-origin': 'https://app.example.test.',
     'access-control-allow-methods': 'GET, POST, PATCH, PUT, DELETE', 'access-control-allow-headers': 'Content-Type, X-CSRF-Token, If-Match, Idempotency-Key', 'access-control-max-age': '600' });
   assert.deepEqual(corsOf(await ask({ requests_month: { soft: 1, hard: 5 } }, 'http://app.example.test')), { vary: 'Origin' }, 'scheme counts');
@@ -523,4 +526,174 @@ test('E5: a counter sets one alarm for its first change, keeps an alarm already 
 test('E5: LIMITS_ENABLED is on only for the exact string "1"', () => {
   assert.equal(limitsEnabled({ LIMITS_ENABLED: '1' }), true);
   for (const v of ['true', 'yes', ' 1', '1 ', '01', 1, true, undefined, '0']) assert.equal(limitsEnabled({ LIMITS_ENABLED: v }), false, String(v));
+});
+
+// Follow-ups to #321 (QA 2: L-2201, L-2202, N-2203, N-2205).
+
+test('E5: a preflight under /api is never refused or counted: 204 without waking the container in a used-up month', async () => {
+  const usedUp = { period: period(Date.now()), requests: 5, containerMs: 3_600_000, lastActivity: 0, countedTo: 0 };
+  const preflight = (path = '/api/v1/items', method = 'OPTIONS') => new Request(`https://b.example.test${path}`, { method,
+    headers: { [LIMITS_HEADER]: JSON.stringify({ requests_month: { soft: 1, hard: 5 }, container_hours_month: { soft: 1, hard: 2 } }), Origin: 'https://app.example.test', 'Access-Control-Request-Method': 'POST' } });
+  for (const usage of [usedUp, { ...usedUp, requests: 0 }, { ...usedUp, containerMs: 7_200_000 }]) {
+    const storage = kvStorage();
+    storage.kv.set('usage', structuredClone(usage));
+    const { box, calls } = readyBox('tenant-b', { ...ON, ...ORIGINS }, storage);
+    const res = await box.fetch(preflight());
+    const refused = usage.requests >= 5 || usage.containerMs >= 7_200_000;
+    assert.equal(res.status, refused ? 204 : 200, JSON.stringify(usage));
+    assert.equal(calls.length, refused ? 0 : 1);
+    if (refused) {
+      assert.equal(await res.text(), '');
+      assert.equal(res.headers.get('access-control-allow-origin'), 'https://app.example.test');
+      assert.equal(res.headers.get('access-control-allow-methods'), 'GET, POST, PATCH, PUT, DELETE');
+      assert.equal(storage.alarm, null, 'nothing changed');
+    }
+    assert.equal((await box.usage()).requests, usage.requests, 'never counted');
+    for (const path of ['/api', '/api/']) assert.equal((await box.fetch(preflight(path))).status, refused ? 204 : 200, path);
+    assert.equal((await box.usage()).requests, usage.requests);
+  }
+  // Only OPTIONS under /api, as the app answers it; anything else in a used-up month is refused and not forwarded.
+  const storage = kvStorage();
+  storage.kv.set('usage', { ...usedUp, containerMs: 0 });
+  const { box, calls } = readyBox('tenant-b', ON, storage);
+  for (const [path, method] of [['/apix', 'OPTIONS'], ['/import', 'OPTIONS'], ['/index.php/api/v1/items', 'OPTIONS'], ['/api/v1/items', 'GET'], ['/api/v1/items', 'POST']]) {
+    assert.equal((await box.fetch(preflight(path, method))).status, 429, `${method} ${path}`);
+  }
+  assert.equal(calls.length, 0);
+  assert.equal(isPreflight(new Request('https://b.example.test/api/v1/items', { method: 'options' })), true);
+});
+
+test('E5: a preflight forwarded under the limits meters container time but adds no request', async () => {
+  const meter = new UsageMeter(kvStorage(), () => 15 * 60_000);
+  const limits = { requests_month: { soft: 1, hard: 1 }, container_hours_month: { soft: 1, hard: 2 } };
+  const t0 = Date.UTC(2026, 10, 2);
+  assert.equal(await meter.admit(limits, t0, true), null);
+  assert.equal(await meter.admit(limits, t0 + 60_000, true), null);
+  assert.deepEqual(await meter.usage(t0 + 86_400_000), { period: '2026-11', requests: 0, container_seconds: 16 * 60 });
+  assert.equal(await meter.admit(limits, t0 + 86_400_000), null);
+  assert.equal((await meter.admit(limits, t0 + 86_400_000)).status, 429);
+  assert.equal((await meter.admit(limits, t0 + 86_400_000, true)).status, 204);
+});
+
+test('E5: numeric-looking Content-Length values that are not digits only are not trusted (N-2203 M05, M11)', async () => {
+  const lengths = [];
+  globalThis.FixedLengthStream = class extends TransformStream { constructor(n) { super(); lengths.push(n); } };
+  try {
+    clearRouteCache();
+    const w = worker(controlDb(), ON);
+    const body = 'x'.repeat(5);
+    for (const length of ['+5', '5.0', '1e3', '0x5', '5,5', '5 5']) {
+      const { res } = await w.go('https://b.example.test/api/v1/import', { method: 'POST', body, headers: { 'content-length': length } });
+      assert.equal(res.status, 200, length);
+      assert.equal(w.seen.at(-1).body, body);
+      assert.equal(w.seen.at(-1).req.headers.get('content-length'), null, length);
+    }
+    assert.deepEqual(lengths, [], 'no FixedLengthStream for an untrusted length');
+    // Digits only, leading zeros and surrounding spaces included (RFC 9110 1*DIGIT), are trusted.
+    for (const length of ['05', ' 5 ', '0005']) {
+      assert.equal((await w.go('https://b.example.test/api/v1/import', { method: 'POST', body, headers: { 'content-length': length } })).res.status, 200, length);
+    }
+    assert.deepEqual(lengths, [5, 5, 5]);
+    // A huge digit string is over any limit: refused from the header, before anything is forwarded.
+    const tried = w.seen.tried;
+    const huge = await w.go('https://b.example.test/api/v1/import', { method: 'POST', body, headers: { 'content-length': '9'.repeat(40) } });
+    assert.equal(huge.res.status, 413);
+    assert.equal(w.seen.tried, tried);
+    // An over-limit body with an untrusted length is still capped while it streams.
+    const over = 'x'.repeat(1572865);
+    for (const length of ['+1', '1.0', '1e1']) {
+      assert.equal((await w.go('https://b.example.test/api/v1/import', { method: 'POST', body: over, headers: { 'content-length': length } })).res.status, 413, length);
+    }
+  } finally {
+    delete globalThis.FixedLengthStream;
+  }
+});
+
+test('E5: a body longer or shorter than its valid Content-Length is a clean 400, with the CORS headers (N-2205)', async () => {
+  clearRouteCache();
+  const w = worker(controlDb(), { ...ON, ...ORIGINS });
+  for (const length of ['3', '10', '0']) {
+    const { res } = await w.go('https://b.example.test/api/v1/import', { method: 'POST', body: '12345', headers: { 'content-length': length, Origin: 'https://app.example.test' } });
+    assert.equal(res.status, 400, length);
+    assert.equal(await res.text(), 'Request body does not match Content-Length\n');
+    assert.deepEqual(corsOf(res), ALLOWED);
+  }
+  assert.equal(w.seen.length, 0, 'the app never got a whole body');
+  const ok = await w.go('https://b.example.test/api/v1/import', { method: 'POST', body: '12345', headers: { 'content-length': '5' } });
+  assert.equal(ok.res.status, 200);
+  assert.equal(w.seen.at(-1).body, '12345');
+  // A forward that fails for another reason is still an error.
+  const failing = { DB: controlDb(), ...ON, APOTHEKE: { getByName: () => ({ fetch: async () => { throw new Error('down'); } }) } };
+  clearRouteCache();
+  await assert.rejects(publicWorker.fetch(new Request('https://b.example.test/api/v1/import', { method: 'POST', body: '12345', headers: { 'content-length': '5' } }), failing), /down/);
+});
+
+test('E5: CORS only on /api and /api/..., as the app: not /apix, /index.php/api or another spelling (N-2203 M21, N-2205)', () => {
+  const configured = ORIGINS.CORS_ALLOWED_ORIGINS;
+  const at = (path) => corsOf(withCors(new Response(null, { status: 429 }), new Request(`https://b.example.test${path}`, { headers: { Origin: 'https://app.example.test' } }), configured));
+  for (const path of ['/api', '/api/', '/api/v1/items']) assert.deepEqual(at(path), ALLOWED, path);
+  for (const path of ['/apix', '/apix/v1', '/index.php/api/v1/items', '/API/v1/items', '/%61pi/v1/items', '/api%2Fv1', '/', '/import']) assert.deepEqual(at(path), {}, path);
+});
+
+test('E5: the origins list is trimmed as PHP trim() does, not of every Unicode space (N-2205)', () => {
+  const allowed = (configured) => withCors(new Response(null), new Request('https://b.example.test/api/v1/items', { headers: { Origin: 'https://app.example.test' } }), configured).headers.get('access-control-allow-origin');
+  for (const sep of [' ', '\t', '\n', '\r', '\0', '\x0B', ' \t\r\n']) assert.equal(allowed(`${sep}https://app.example.test${sep},https://x.example.test`), 'https://app.example.test', JSON.stringify(sep));
+  for (const sep of ['\u00a0', '\ufeff', '\u2028', '\u3000']) assert.equal(allowed(`${sep}https://app.example.test${sep}`), null, JSON.stringify(sep));
+});
+
+test('E5: the recount thresholds are a day in the alarm and an hour before a refusal (N-2203 M36, M37)', () => {
+  assert.equal(RECOUNT_MS, 86_400_000);
+  assert.equal(RECOUNT_BEFORE_REFUSAL_MS, 3_600_000);
+});
+
+test('E5: concurrent writes that drift would refuse share one recount listing (N-2203 M43)', async () => {
+  const { r2, bucket, installation } = storageWorld(10);
+  bucket.objects.set('installations/tenant-b/x.bin', new Uint8Array(9));
+  await installation.storageAdd(9, null, 'tenant-b');
+  const list = bucket.list.bind(bucket);
+  bucket.list = async (o) => { await new Promise((r) => setTimeout(r, 20)); return list(o); };
+  const statuses = await Promise.all([r2.fetch(put('a.jpg', '12')), r2.fetch(put('b.jpg', '12')), r2.fetch(put('c.jpg', '12'))]);
+  assert.deepEqual(statuses.map((r) => r.status), [507, 507, 507]);
+  assert.equal(bucket.lists, 1);
+});
+
+test('E5: the recount before a 507 is saved, even when the write is still refused (N-2203 M45)', async () => {
+  const { r2, bucket, installation, storage } = storageWorld(10);
+  bucket.objects.set('installations/tenant-b/x.bin', new Uint8Array(9));
+  await installation.storageAdd(9, null, 'tenant-b');
+  await installation.alarm();
+  assert.equal(storage.kv.get('storage_bytes').bytes, 9);
+  bucket.objects.set('installations/tenant-b/y.bin', new Uint8Array(1));
+  (await installation.stored.get()).counted -= RECOUNT_BEFORE_REFUSAL_MS;
+  storage.alarm = null;
+  assert.equal((await r2.fetch(put('a.jpg', '12'))).status, 507);
+  assert.notEqual(storage.alarm, null, 'the recount is a change');
+  await installation.alarm();
+  assert.equal(storage.kv.get('storage_bytes').bytes, 10);
+});
+
+test('E5: a failed recount waits like a successful one: an hour before a refusal, a day in the alarm (L-2202)', async () => {
+  const { r2, bucket, installation, storage } = storageWorld(10);
+  await installation.storageAdd(9, null, 'tenant-b');
+  let tries = 0;
+  bucket.list = async () => { tries += 1; throw new Error('list failed'); };
+  for (let i = 0; i < 3; i++) assert.equal((await r2.fetch(put(`f${i}.jpg`, '12'))).status, 507);
+  assert.equal(tries, 1, 'failed once, then backed off');
+  const value = await installation.stored.get();
+  assert.equal(value.counted, undefined);
+  assert.ok(value.failed > 0);
+  await installation.alarm();
+  assert.equal(tries, 1, 'the alarm waits a day after a failure');
+  assert.equal(storage.kv.get('storage_bytes').failed, value.failed, 'the failure is saved');
+  value.failed -= RECOUNT_BEFORE_REFUSAL_MS;
+  assert.equal((await r2.fetch(put('g.jpg', '12'))).status, 507);
+  assert.equal(tries, 2, 'retried after an hour');
+  value.failed -= RECOUNT_MS;
+  await installation.alarm();
+  assert.equal(tries, 3, 'retried in the alarm after a day');
+  // Once a listing works again, the counter is reset and the write goes through.
+  bucket.list = Bucket.prototype.list.bind(bucket);
+  value.failed -= RECOUNT_BEFORE_REFUSAL_MS;
+  assert.equal((await r2.fetch(put('h.jpg', '12'))).status, 200);
+  assert.equal(value.bytes, 2);
 });
