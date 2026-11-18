@@ -14,6 +14,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **core:** with `APOTHEKE_HOSTED`, the plan's limits cap items, photos and user accounts inside the unit of work that adds them, and cap the upload size settings; off when self-hosted ([#317](https://github.com/thordin9/apotheke/pull/317))
 - **auth:** a one-time first-admin claim for hosted installations (`php spark accounts:claim-create`, `/claim`), valid for `HOSTED_CLAIM_HOURS` (default 72); 404 when self-hosted ([#317](https://github.com/thordin9/apotheke/pull/317))
 
+## [3.46.2] - 2026-11-18
+
+### Fixed
+
+- **edge:** with plan limits on, a CORS preflight under `/api` is never refused or counted, a failed stored-bytes recount waits like a successful one before the next try, and a body that does not match its `Content-Length` gets a 400 ([#322](https://github.com/thordin9/apotheke/pull/322))
+
 ## [3.46.1] - 2026-11-18
 
 ### Fixed
@@ -1797,7 +1803,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.46.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.46.2...HEAD
+[3.46.2]: https://github.com/thordin9/apotheke/compare/v3.46.1...v3.46.2
 [3.46.1]: https://github.com/thordin9/apotheke/compare/v3.46.0...v3.46.1
 [3.46.0]: https://github.com/thordin9/apotheke/compare/v3.45.0...v3.46.0
 [3.45.0]: https://github.com/thordin9/apotheke/compare/v3.44.0...v3.45.0
