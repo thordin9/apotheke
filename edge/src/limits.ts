@@ -49,7 +49,8 @@ export const CORS_EXPOSE = "ETag, Location, Retry-After, Link, " + WARNING_HEADE
 
 /** scheme://host[:port] in lower case, or null (Cors::origin()). */
 function corsOrigin(raw: string): string | null {
-	const origin = raw.trim().replace(/\/+$/, "").toLowerCase();
+	let origin = raw.trim().toLowerCase();
+	while (origin.endsWith("/")) origin = origin.slice(0, -1);
 	return /^https?:\/\/(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(:[0-9]{1,5})?$/.test(origin) ? origin : null;
 }
 
