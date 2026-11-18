@@ -1,6 +1,6 @@
 # PR #316 evidence
 
-Head `135123c1a5506e7ea982e459a917b08ed15ed0e4`. `git ls-remote origin refs/pull/316/head` matched before the verdict. Parents `4eade41c` and `2510138e`. `20a2fbae`’s parent is `85c6ad8c`. Diff vs main: `docs/HANDOFF.md`, `tests/Modules/Core/UnitOfWorkLockTest.php`. `cmp` of README, VERSION, CHANGELOG against `2510138e` matched. VERSION 3.43.0. Production file restored after every mutation (`git diff` empty).
+Final head `a1220ee2d283481e2adfe04d7112395a27f4706f` (merge-only read below). Gated head `135123c1a5506e7ea982e459a917b08ed15ed0e4`. `git ls-remote origin refs/pull/316/head` matched before the verdict. Parents `4eade41c` and `2510138e`. `20a2fbae`’s parent is `85c6ad8c`. Diff vs main: `docs/HANDOFF.md`, `tests/Modules/Core/UnitOfWorkLockTest.php`. `cmp` of README, VERSION, CHANGELOG against `2510138e` matched. VERSION 3.43.0. Production file restored after every mutation (`git diff` empty).
 
 ## Mutations of `lockPostgreKeys` / `lockPostgre` / `lockKeys`
 
@@ -49,3 +49,7 @@ Run 43455907275 on `135123c1`, recorded with Tests (PHP 8.4, pgsql) still pendin
 The open bullet for N-2103 is removed. The replacement sentence describes the held-key check and the no-wait 503. The note file `docs/qa/apotheke-n2103-unit-of-work-lock-timing-flake.md` is not in the diff and its status line still says open.
 
 Scratch PostgreSQL was stopped with `pg_ctl -D` and the data directory removed.
+
+## Merge-only read at `a1220ee2`
+
+Parents `2aa34c82` (the earlier doc commit) and main `562bc22a`; 0 behind; `2aa34c82` is an ancestor. `git merge-tree` of `2aa34c82` with `562bc22a`: no conflicts. Own diff (excluding CHANGELOG and docs/qa; index and @@ lines dropped), `2510138e..135123c1` vs `562bc22a..a1220ee2`: 107 lines each, `cmp` equal. Main..head: `docs/HANDOFF.md`, `UnitOfWorkLockTest.php` and the two QA docs. README, VERSION and CHANGELOG equal main. Tests (PHP 8.4, sqlite and pgsql) must be green on the final head.
