@@ -20,7 +20,12 @@ Migrations live in [`edge/migrations/control/`](../edge/migrations/control/), nu
 columns and never drops or renames, so the previous Worker version keeps working. Applying them is part of the deploy
 job, not of this repository's tests. The one exception is `0004`: it rebuilds `plan_limits` with the same columns and
 rows so its key `CHECK` also allows `photos_per_item` (SQLite cannot change a `CHECK` in place). It is safe to apply
-again, and the tests pin it by sha256 like the others.
+again, and the tests pin it by sha256 like the others. The tests also fail when a migration drops a `plan_limits` key
+or gives a foreign key an `ON DELETE` or `ON UPDATE` action.
+
+Applied migrations are never edited, comments included, so two header comments stay as written. `0001`'s "Additive
+only: … never drop or rename" predates the `0004` exception above. `0004`'s "the app's max_photos setting is capped by
+it" describes a later app change: nothing caps `max_photos` with `photos_per_item` yet.
 
 | Table | Purpose |
 |---|---|
@@ -109,12 +114,22 @@ console API.
   installation's R2 prefix (paged, upload markers not counted): in its alarm when the last recount is over a day old,
   and before a 507 when it is over an hour old. The alarm is set only by a change, so an idle installation is not
   listed. Writes during a listing can leave the counter off by their own size until the next recount. A failed
-  listing leaves the counter as it was. `primary` is never listed.
+  listing leaves the counter as it was and counts as a recount for those waits, so a listing that keeps failing is
+  retried at most once an hour before a 507 and once a day in the alarm. `primary` is never listed.
 - **Headers.** `X-Apotheke-Limits` and `Apotheke-Limit-Warning` sent by a client are removed before a request reaches
   the app, for every installation and whatever `LIMITS_ENABLED` is. The only `Apotheke-Limit-Warning` on a response
-  is the one the Worker sets.
-- **CORS.** The 413, 429 and 402 answers under `/api` carry the same CORS headers the app sends for an origin in
-  `CORS_ALLOWED_ORIGINS` (exact https origins, `Vary: Origin`), so the app on another origin can read them. The app's
+  is the one the Worker sets. `X-Apotheke-Limits` is only for the Worker and the container object: the container
+  object removes the Worker's own copy too, so the app never sees it and cannot read limits from it.
+- **Preflights.** An `OPTIONS` request under `/api` (as the app answers it: `/api` or `/api/…`) is never refused by the
+  request or active-time limits and never counted as a request, so a browser can read the refusal of the request that
+  follows. In a used-up month the container object answers it 204 with the CORS headers, without waking the container;
+  otherwise it is forwarded and the app answers it, and its container time is metered like any other.
+- **Content-Length.** Only digits count as a valid `Content-Length`; anything else is treated as missing. A body
+  longer or shorter than a valid one gets 400 "Request body does not match Content-Length" and never reaches the app.
+- **CORS.** The 400, 413, 429 and 402 answers and the 204 preflight under `/api` carry the same CORS headers the app
+  sends for an origin in `CORS_ALLOWED_ORIGINS` (exact https origins, `Vary: Origin`), so the app on another origin can
+  read them. As in the app, only the path as sent counts (not `/apix` or `/index.php/api`), and each listed origin is
+  trimmed of the same whitespace PHP's `trim()` removes. The app's
   `Access-Control-Expose-Headers` includes `Apotheke-Limit-Warning`.
 - **Counters** are kept in memory in the owning object and written to its storage by an alarm at most 60 seconds after
   a change. `ApothekeContainer.usage()` returns the month's `requests` and

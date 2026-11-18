@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **edge:** with plan limits on, a CORS preflight under `/api` is never refused or counted, a failed stored-bytes recount waits like a successful one before the next try, and a body that does not match its `Content-Length` gets a 400 ([#322](https://github.com/thordin9/apotheke/pull/322))
+
 ## [3.46.1] - 2026-11-18
 
 ### Fixed

@@ -8,7 +8,7 @@ import { d1UnboundResponse, type D1Env } from "./d1";
 import { INSTALLATION_NAME, installationAppKey, installationPrefix, installationStub, lifecycleName, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
 import { routeFor, routeResponse } from "./route";
 import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env, type StorageMeter } from "./r2";
-import { forwardWithLimits, LIMITS_HEADER, limitsEnabled, takeLimits, UsageMeter, WARNING_HEADER, withCors, type Limits } from "./limits";
+import { forwardWithLimits, isPreflight, LIMITS_HEADER, limitsEnabled, takeLimits, UsageMeter, WARNING_HEADER, withCors, type Limits } from "./limits";
 
 export { Installation } from "./installation";
 
@@ -198,7 +198,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		request = taken.request;
 		const meter = limits ? (this.meter ??= new UsageMeter(this.ctx.storage, () => this.sleepAfter())) : null;
 		if (limits && meter) {
-			const refused = await meter.admit(limits);
+			const refused = await meter.admit(limits, Date.now(), isPreflight(request));
 			if (refused) return withCors(refused, request, this.env.CORS_ALLOWED_ORIGINS);
 		}
 		try {
