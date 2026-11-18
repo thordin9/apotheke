@@ -59,9 +59,15 @@ export function isPreflight(request: Request): boolean {
 	return request.method.toUpperCase() === "OPTIONS" && isApiPath(new URL(request.url).pathname);
 }
 
-/** PHP's trim(): only space, tab, newline, carriage return, NUL and vertical tab, not every Unicode space. */
+/** PHP's trim(): only space, tab, newline, carriage return, NUL and vertical tab, not every Unicode space. A loop, not
+ *  a regex, so a long run of these characters stays linear. */
 function phpTrim(s: string): string {
-	return s.replace(/^[ \t\n\r\0\x0B]+|[ \t\n\r\0\x0B]+$/g, "");
+	const space = " \t\n\r\0\x0B";
+	let start = 0;
+	let end = s.length;
+	while (start < end && space.includes(s[start])) start++;
+	while (end > start && space.includes(s[end - 1])) end--;
+	return s.slice(start, end);
 }
 
 /** The exposed response headers, as the app sends them on /api (modules/Core/Http/Cors.php). */
