@@ -125,7 +125,7 @@ final class PermissionFilterTest extends CIUnitTestCase
     private const SELF_POST_ROUTES = ['account' => 'self', 'account/signout' => 'self'];
 
     /** POST routes legacy answers before its permission check; they check the CSRF token themselves (Auth). */
-    private const NONE_POST_ROUTES = ['login', 'logout', 'register', 'consent'];   // consent: strictly same-origin, no session yet
+    private const NONE_POST_ROUTES = ['login', 'logout', 'register', 'consent', 'claim'];   // consent: strictly same-origin, no session yet; claim: hosted only
 
     /** State-changing routes that need only View (a viewer and the guest may use them, as on legacy). */
     private const VIEW_POST_ROUTES = ['theme' => 'view', 'recent/clear' => 'view'];
@@ -169,7 +169,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->assertGreaterThan(array_search('session', $required, true), $at);
         $this->assertGreaterThan(array_search('sameorigin', $required, true), $at);
         // Required filters run before the global ones, so before CSRF, in legacy's order.
-        $this->assertSame(['except' => ['login', 'register', 'logout', 'consent', 'api', 'api/*']], $filters->globals['before']['sessioncsrf'] ?? null, 'only the routes that check the token themselves skip the CSRF filter (/api: ApiCsrf)');
+        $this->assertSame(['except' => ['login', 'register', 'logout', 'consent', 'claim', 'api', 'api/*']], $filters->globals['before']['sessioncsrf'] ?? null, 'only the routes that check the token themselves skip the CSRF filter (/api: ApiCsrf)');
         $this->assertNotContains('permission', $filters->globals['before']);
         $this->assertSame(\Apotheke\Auth\Filters\PermissionFilter::class, $filters->aliases['permission']);
     }
@@ -205,8 +205,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 }
             }
         }
-        // The sign-in, registration and account pages answer every web method (N-63, N-380), and so do the import pages (N-372, N-420).
-        $this->assertSame(['/account', '/import', '/import/([0-9]+)', '/import/([0-9]+)/(preview|commit)', '/login', '/register'], self::pageVerbPaths($collection));
+        // The sign-in, registration, claim and account pages answer every web method (N-63, N-380), and so do the import pages (N-372, N-420).
+        $this->assertSame(['/account', '/claim', '/import', '/import/([0-9]+)', '/import/([0-9]+)/(preview|commit)', '/login', '/register'], self::pageVerbPaths($collection));
         $seen = array_values(array_unique($seen));
         sort($seen);
         $expected = array_map(static fn (string $r): string => '/' . $r, [...array_keys(self::POST_ROUTES + self::VIEW_POST_ROUTES + self::SELF_POST_ROUTES), ...self::NONE_POST_ROUTES]);
@@ -282,8 +282,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(108, $n, "59 GET and 49 HEAD routes (with the FrankenPHP image's /upload/check)");
-        $this->assertSame(122, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+        $this->assertSame(110, $n, "60 GET and 50 HEAD routes (with the FrankenPHP image's /upload/check)");
+        $this->assertSame(124, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /** API P1: every /api route records its permission, as in the plan's table (API plan §3); the rest is 404 for anyone. */

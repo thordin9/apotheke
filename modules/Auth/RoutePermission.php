@@ -115,11 +115,11 @@ final class RoutePermission
      * Requests legacy answers before its permission check, so they need
      * nothing here either: the health checks, the branding files (GET),
      * the restore and upload probes (GET, they answer 204/401/403 themselves), sign-in and
-     * registration (any method) and sign-out (POST). $method is after HEAD → GET.
+     * registration and the hosted first-admin claim (any method) and sign-out (POST). $method is after HEAD → GET.
      */
     public function isBeforeCheck(string $method, string $path): bool
     {
-        if ($path === '/healthz' || $path === '/health' || $path === '/login' || $path === '/register') {
+        if ($path === '/healthz' || $path === '/health' || $path === '/login' || $path === '/register' || $path === '/claim') {
             return true;
         }
         if ($method === 'GET') {

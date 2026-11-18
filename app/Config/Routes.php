@@ -59,6 +59,8 @@ $signIn = '\\Apotheke\\Auth\\Controllers\\SignInController';
 $web::every($routes, 'login', $signIn . '::login', $none);
 $web::every($routes, 'register', $signIn . '::register', $none);
 $routes->post('logout', $signIn . '::logout', $none);
+// Hosted only (operator console C1): the first-admin claim; 404 without APOTHEKE_HOSTED. Checks its CSRF token itself.
+$web::every($routes, 'claim', '\\Apotheke\\Auth\\Controllers\\ClaimController::claim', $none);
 $web::every($routes, 'account', '\\Apotheke\\Auth\\Controllers\\AccountController::index', ['permission' => 'self']);
 $routes->post('account/signout', '\\Apotheke\\Auth\\Controllers\\AccountController::signOutEverywhere', ['permission' => 'self']);
 

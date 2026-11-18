@@ -9,6 +9,7 @@ use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Hosted\HostedLimits;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\ItemHistory;
 use Apotheke\Media\ImageStore;
@@ -29,9 +30,12 @@ final class PhotoRepository
 
     private readonly UnitsOfWork $units;
 
+    private readonly HostedLimits $limits;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     * @param HostedLimits|null $limits the hosted plan's photo limit; none when null (self-hosted)
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -40,8 +44,10 @@ final class PhotoRepository
         private readonly ImageStore $images,
         private readonly UndoTokens $undo,
         ?UnitsOfWork $units = null,
+        ?HostedLimits $limits = null,
     ) {
         $this->units = UnitsOfWork::forSite($db, $units);
+        $this->limits = $limits ?? HostedLimits::off();
     }
 
     /** @return list<array{id:int,file:string,position:int}> cover first */
@@ -97,6 +103,7 @@ final class PhotoRepository
             // cannot pass the limit together (P6).
             $uow->assert('(SELECT COUNT(*) FROM item_photos WHERE item_id = ?) < ?', [$itemId, $max], 'photo limit',
                 static fn (): UserError => new UserError('An item can have at most ' . $max . ' photos.', 422));
+            $this->limits->guard($uow, 'photos');   // hosted: the plan's photos in all
             $now = $this->clock->now();
             $before = (int)(Writes::rows($this->db, 'SELECT COUNT(*) AS n FROM item_photos WHERE item_id = ?', [$itemId])[0]['n'] ?? 0);
             $uow->write(
@@ -113,7 +120,7 @@ final class PhotoRepository
                 'cover photo',
             );
             $this->history->queue($uow, $itemId, $this->name($itemId), 'photo', ['change' => 'added', 'count' => $before + 1]);
-        }, (string)$itemId);
+        }, [(string)$itemId, ...$this->limits->lockKeys('photos')]);
         $this->images->release($file);
 
         return (int)(Writes::rows($this->db, 'SELECT id FROM item_photos WHERE item_id = ? AND file = ? ORDER BY id DESC', [$itemId, $file])[0]['id'] ?? 0);

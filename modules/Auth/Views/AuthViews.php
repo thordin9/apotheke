@@ -71,6 +71,35 @@ final class AuthViews
     }
 
     /**
+     * The first-admin claim (hosted only): the claim code from the link, then the admin's name and password.
+     *
+     * @param array{appName:string,usernameMax:int,passwordMin:int} $v
+     */
+    public static function claim(Page $page, array $v, ?string $error, string $username = ''): string
+    {
+        $head = $page->start('Set up your Apotheke', 'page-login page-claim');
+        ['appName' => $appName, 'usernameMax' => $usernameMax, 'passwordMin' => $passwordMin] = $v;
+        ob_start();
+        ?>
+<main class="wrap narrow login">
+  <div class="brand brand-lg"><?= $page->brandLogo(56) ?><span><?= Page::e($appName) ?></span></div>
+  <h1 class="tagline">Set up your Apotheke</h1>
+  <form method="post" action="/claim" class="itemform" id="claim-form">
+    <input type="hidden" name="csrf" value="<?= Page::e($page->csrf()) ?>">
+    <?php if ($error): ?><div class="err" role="alert" id="claim-err"><?= Page::e($error) ?></div><?php endif; ?>
+    <label class="field"><span>Claim code <em>from your link, after #</em></span><input type="text" name="token" id="claim-token" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="100" required></label>
+    <label class="field"><span>User name <em>letters, digits, . _ @ -</em></span><input type="text" name="username" id="claim-user" value="<?= Page::e($username) ?>" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="<?= $usernameMax ?>" required></label>
+    <label class="field"><span>Password <em>at least <?= $passwordMin ?> characters</em></span><input type="password" name="new" id="claim-pw" autocomplete="new-password" minlength="<?= $passwordMin ?>" required></label>
+    <label class="field"><span>Repeat password</span><input type="password" name="confirm" id="claim-confirm" autocomplete="new-password" minlength="<?= $passwordMin ?>" required></label>
+    <p class="hint" id="claim-hint">This account becomes the admin. The link works once.</p>
+    <button class="btn btn-primary btn-wide" id="claim-go">Create admin account</button>
+  </form>
+</main>
+<?php
+        return $head . ob_get_clean() . $page->end();
+    }
+
+    /**
      * @param array{id:?int,username:string,role:string} $me
      * @param array{roleName:string,perms:list<string>,permNames:array<string,string>,passwordMin:int} $v
      */

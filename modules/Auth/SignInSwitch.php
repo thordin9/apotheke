@@ -31,6 +31,9 @@ final class SignInSwitch
 
     public function off(): void
     {
+        if ($this->settings->isHosted()) {
+            throw new UserError('Sign-in stays on for a hosted Apotheke.', 422);
+        }
         $this->guard->signInOff();
         $this->settings->store(['auth_enabled' => false]);
     }

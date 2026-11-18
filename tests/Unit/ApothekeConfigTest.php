@@ -15,7 +15,7 @@ final class ApothekeConfigTest extends TestCase
     private const FROM_MAIN = ['allowed_hosts' => '', 'trusted_proxies' => []];
 
     /** Keys only the CI4 tree has (API plan §2.2, §2.4); the legacy loader never gets them. */
-    private const CI4_ONLY = ['cors_allowed_origins' => '', 'real_ip_header' => '', 'proxy_shared_secret' => ''];
+    private const CI4_ONLY = ['cors_allowed_origins' => '', 'real_ip_header' => '', 'proxy_shared_secret' => '', 'hosted' => false, 'hosted_claim_hours' => 72];
 
     public function testLoadMatchesTheLegacyLoader(): void
     {
@@ -55,6 +55,18 @@ final class ApothekeConfigTest extends TestCase
         $config = ApothekeConfig::load($root, null, ['DATA_DIR' => '/tmp/apo-data']);
         $this->assertSame('/tmp/apo-data/originals', $config->originalsDir());
         $this->assertSame('/tmp/apo-data/catalog.sqlite', $config->database()['sqlite_path']);
+    }
+
+    /** APOTHEKE_HOSTED turns the hosted ceilings and the first-admin claim on; anything else leaves them off. */
+    public function testHostedIsOffUnlessSet(): void
+    {
+        $this->assertFalse(ApothekeConfig::load('/repo', null, [])->values()['hosted']);
+        foreach (['1' => true, 'true' => true, 'on' => true, '0' => false, 'no' => false, 'maybe' => false] as $raw => $want) {
+            $this->assertSame($want, ApothekeConfig::load('/repo', null, ['APOTHEKE_HOSTED' => (string)$raw])->values()['hosted'], 'APOTHEKE_HOSTED=' . $raw);
+        }
+        $this->assertSame(72, ApothekeConfig::load('/repo', null, [])->values()['hosted_claim_hours']);
+        $this->assertSame(1, ApothekeConfig::load('/repo', null, ['HOSTED_CLAIM_HOURS' => '0'])->values()['hosted_claim_hours']);
+        $this->assertSame(720, ApothekeConfig::load('/repo', null, ['HOSTED_CLAIM_HOURS' => '9999'])->values()['hosted_claim_hours']);
     }
 
     /** RESTORE_CHUNK_KB is clamped to 64–16384 (under PHP's 20 MB upload limit), RESTORE_MAX_MB to 1–4096. */

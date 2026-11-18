@@ -112,7 +112,7 @@ class Filters extends BaseFilters
         'before' => [
             // /login, /register and /logout check the token themselves, after their own redirects (Auth).
             // /api has its own, stricter check ('apicsrf' below). /consent has no session yet: strictly same-origin.
-            'sessioncsrf' => ['except' => ['login', 'register', 'logout', 'consent', 'api', 'api/*']],
+            'sessioncsrf' => ['except' => ['login', 'register', 'logout', 'consent', 'claim', 'api', 'api/*']],
             'formfields' => ['except' => ['api', 'api/*']],
         ],
         'after' => [
