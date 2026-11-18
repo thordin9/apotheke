@@ -12,6 +12,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** plan limits follow-ups: client copies of the limits headers never reach the app, every request body is capped as it streams, the 413, 429 and 402 answers carry the app's CORS headers (and the app exposes `Apotheke-Limit-Warning`), and the stored-bytes counter is recounted from R2 daily and before a 507 ([#321](https://github.com/thordin9/apotheke/pull/321))
 
+### Maintenance
+
+- ci: bump @playwright/test to 1.65.0 and pin the Playwright image ([#311](https://github.com/thordin9/apotheke/pull/311))
+
 ## [3.45.0] - 2026-11-13
 
 ### Added
