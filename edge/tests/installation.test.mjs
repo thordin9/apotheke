@@ -58,7 +58,7 @@ test('P4-5b: no other edge/src code creates a Durable Object id', () => {
     const src = readFileSync(new URL(f, dir), 'utf8');
     for (const m of src.matchAll(/([\w.]*)\.(idFromName|newUniqueId|idFromString|getByName)\(/g)) found.push(`${f}:${m[1]}.${m[2]}`);
   }
-  assert.deepEqual(found.sort(), ['index.ts:env.APOTHEKE.getByName', 'installation.ts:eu.idFromName']);
+  assert.deepEqual(found.sort(), ['index.ts:env.APOTHEKE.getByName', 'installation.ts:eu.idFromName', 'lifecycle-workflow.ts:env.APOTHEKE.getByName']);
 });
 
 test('P4-5b: in storage mode d1.internal is the Installation SQLite, and its data outlives the container', async () => {

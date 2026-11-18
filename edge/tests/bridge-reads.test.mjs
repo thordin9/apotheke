@@ -16,7 +16,8 @@ function controlDb() {
   const dir = new URL('../migrations/control/', import.meta.url);
   for (const f of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) db.exec(readFileSync(new URL(f, dir), 'utf8'));
   db.exec(`INSERT INTO plans (id, name) VALUES ('test-plan', 'Test plan');
-    INSERT INTO plan_limits (plan_id, limit_key, soft_value, hard_value) VALUES ('test-plan', 'items', 40, 50), ('test-plan', 'users', NULL, 3);
+    INSERT INTO plan_limits (plan_id, limit_key, soft_value, hard_value) VALUES ('test-plan', 'items', 40, 50), ('test-plan', 'users', NULL, 3),
+      ('test-plan', 'photos', 5, NULL);
     INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('a', 'tenant-a', 'installations/tenant-a/', 'active'),
       ('b', 'tenant-b', 'installations/tenant-b/', 'active'), ('c', 'tenant-c', 'installations/tenant-c/', 'active');
     INSERT INTO subscriptions (installation_id, plan_id, status) VALUES ('a', 'test-plan', 'active'), ('b', 'internal', 'trial');`);
@@ -83,7 +84,8 @@ test('GET /users answers account metadata only, never hashes or session epochs',
 
 test('GET /limits answers the plan of the object\'s own installation from the control plane', async () => {
   const { outbound } = setup();
-  assert.deepEqual(await read(outbound('tenant-a'), '/limits'), [200, { ok: true, plan: 'test-plan', limits: { items: { soft: 40, hard: 50 }, users: { soft: null, hard: 3 } } }]);
+  // Read as the Worker reads its plan limits (limits.ts): only keys with a hard value, soft 80% of hard without one.
+  assert.deepEqual(await read(outbound('tenant-a'), '/limits'), [200, { ok: true, plan: 'test-plan', limits: { items: { soft: 40, hard: 50 }, users: { soft: 3 * 0.8, hard: 3 } } }]);
   // Plan internal has no limit rows: no limits.
   assert.deepEqual(await read(outbound('tenant-b'), '/limits'), [200, { ok: true, plan: 'internal', limits: {} }]);
   // No subscription row, or no installation row: refused, so the app treats its limits as unavailable.
