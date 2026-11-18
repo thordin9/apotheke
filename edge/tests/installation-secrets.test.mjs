@@ -101,3 +101,22 @@ test('E3b: another installation without hosts, control plane or a usable master 
     console.error = errors;
   }
 });
+
+test('E4: another installation starts only while provisioning or active, read fresh at start; primary is never gated', async () => {
+  const errors = console.error;
+  console.error = () => {};
+  try {
+    for (const [st, code] of [['provisioning', 200], ['active', 200], ['suspended', 503], ['deleting', 503], ['deleted', 503]]) {
+      const db = controlDb();
+      db.raw.exec(`INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('b', 'tenant-b', 'installations/tenant-b/', '${st}');
+        INSERT INTO installation_routes (host, installation_id) VALUES ('b.example.test', 'b');`);
+      const r = await start('tenant-b', { APP_KEY: FAKE_KEY, DB: db });
+      assert.equal(r.status, code, st);
+      if (code === 503) assert.equal(r.env, undefined, `${st}: never started`);
+      db.raw.exec(`UPDATE installations SET status = '${st}' WHERE id = 'primary'`);
+      assert.equal((await start('primary', { APP_KEY: FAKE_KEY, ALLOWED_HOSTS: 'api.example.test', DB: untouchable })).status, 200);
+    }
+  } finally {
+    console.error = errors;
+  }
+});

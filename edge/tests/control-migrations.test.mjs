@@ -45,6 +45,7 @@ test('primary is seeded with its existing DO name and R2 prefix, plan internal, 
 const PINNED = {
   '0001_control_plane.sql': 'a066b939768e2180e782e2e83fc53d03f611b6b7edac3b6991f4d5301eb4ecb7',
   '0002_seed_primary.sql': '7c0ecfebc8603b75300154ac1ba66adabebc550ddb0fdbb445df5994a9db8dcc',
+  '0003_lifecycle_jobs.sql': '932738cbb9f76105a4d9f8a1333341ad0cf0c3d503bfebe3de53693571d6fd83',
 };
 
 test('applied migrations are pinned by sha256', () => {
@@ -127,4 +128,33 @@ test('text primary keys refuse NULL', () => {
     `INSERT INTO subscriptions (installation_id, plan_id, status) VALUES (NULL, 'internal', 'active')`,
     `INSERT INTO operator_audit (id, operator, action) VALUES (NULL, 'op@example.test', 'x')`,
   ]) refused(db, sql, /NOT NULL/);
+});
+
+test('0003 lifecycle_jobs: only CREATE ... IF NOT EXISTS, and applying it twice changes nothing', () => {
+  const sql = readFileSync(new URL('0003_lifecycle_jobs.sql', dir), 'utf8');
+  const statements = sql.replace(/--.*$/gm, '').split(';').map((s) => s.trim()).filter(Boolean);
+  for (const s of statements) assert.match(s, /^CREATE (TABLE|INDEX) IF NOT EXISTS lifecycle_jobs(_[a-z]+)?\s/, s);
+  const db = migrated();
+  db.exec(`INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('t', 't', 'installations/t/', 'active')`);
+  db.exec(`INSERT INTO lifecycle_jobs (id, installation_id, kind, idempotency_key, created_by) VALUES ('j', 't', 'suspend', 'suspend:t:n1', 'op')`);
+  const schema = () => db.prepare('SELECT type, name, sql FROM sqlite_master ORDER BY name').all().map((r) => ({ ...r }));
+  const before = [schema(), db.prepare('SELECT * FROM lifecycle_jobs').all().map((r) => ({ ...r }))];
+  db.exec(sql);
+  assert.deepEqual([schema(), db.prepare('SELECT * FROM lifecycle_jobs').all().map((r) => ({ ...r }))], before);
+});
+
+test('lifecycle_jobs: kinds and states fixed, created paused, key is <kind>:<installation_id>:<nonce> and unique', () => {
+  const db = migrated();
+  db.exec(`INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('t', 't', 'installations/t/', 'active')`);
+  const job = (id, kind, key, extra = '') => `INSERT INTO lifecycle_jobs (id, installation_id, kind, idempotency_key, created_by${extra ? ', state, confirmed_by' : ''})
+    VALUES ('${id}', 't', '${kind}', '${key}', 'op'${extra})`;
+  db.exec(job('j1', 'purge', 'purge:t:n1'));
+  assert.equal(db.prepare(`SELECT state FROM lifecycle_jobs WHERE id = 'j1'`).get().state, 'paused');
+  refused(db, job('j2', 'wipe', 'wipe:t:n1'), /CHECK/);
+  for (const key of ['purge:t:', 'purge:t', 'suspend:t:n1', 'purge:u:n1', 'purge:tt:n1', 'x'.repeat(301)]) refused(db, job('j2', 'purge', key), /CHECK/);
+  refused(db, job('j2', 'purge', 'purge:t:n1'), /UNIQUE/);
+  refused(db, `INSERT INTO lifecycle_jobs (id, installation_id, kind, idempotency_key, created_by) VALUES ('j2', 'nope', 'purge', 'purge:nope:n1', 'op')`, /FOREIGN KEY/);
+  refused(db, job('j2', 'resume', 'resume:t:n2', `, 'queued', NULL`), /CHECK/);
+  refused(db, job('j2', 'resume', 'resume:t:n2', `, 'paused-ish', 'op'`), /CHECK/);
+  for (const s of ['paused', 'queued', 'running', 'done', 'failed']) db.exec(job(`s-${s}`, 'export', `export:t:${s}`, `, '${s}', 'op'`));
 });
