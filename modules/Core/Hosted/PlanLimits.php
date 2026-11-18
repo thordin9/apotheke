@@ -41,6 +41,11 @@ final class PlanLimits
             }
             foreach (['hard', 'soft'] as $kind) {
                 $n = $v[$kind] ?? null;
+                // The edge's default soft value is 80% of the hard one and may be fractional: counts reach it at
+                // the next whole number.
+                if ($kind === 'soft' && is_float($n) && is_finite($n) && $n >= 0) {
+                    $n = (int)ceil($n);
+                }
                 if ($n !== null && (!is_int($n) || $n < 0)) {
                     return null;
                 }

@@ -93,6 +93,16 @@ final class HostedLimitsTest extends CIUnitTestCase
             ? (is_string($body) ? $body : (string)json_encode($body)) : throw new \LogicException('unexpected URL ' . $url));
     }
 
+    /** The edge's soft default (80% of hard) can be fractional: read as the next whole number; a fractional hard is not a body. */
+    public function testAFractionalSoftValueFromTheBridgeIsRoundedUp(): void
+    {
+        $l = PlanLimits::fromBridge(['ok' => true, 'plan' => 'p', 'limits' => ['users' => ['soft' => 2.4000000000000004, 'hard' => 3], 'items' => ['soft' => 40, 'hard' => 50]]]);
+        $this->assertNotNull($l);
+        $this->assertSame([3, 3, 40], [$l->soft('users'), $l->hard('users'), $l->soft('items')]);
+        $this->assertNull(PlanLimits::fromBridge(['ok' => true, 'plan' => 'p', 'limits' => ['users' => ['soft' => 2, 'hard' => 2.5]]]));
+        $this->assertNull(PlanLimits::fromBridge(['ok' => true, 'plan' => 'p', 'limits' => ['users' => ['soft' => -0.5, 'hard' => 3]]]));
+    }
+
     public function testHostedReadsTheBridgeOncePerRequest(): void
     {
         $calls = 0;
