@@ -277,7 +277,7 @@ jobs:
     timeout-minutes: 30
     # Same image as scripts/update-snapshots.sh, so screenshots match the committed baselines pixel for pixel.
     container:
-      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
       options: --ipc=host
     strategy:
       fail-fast: false
