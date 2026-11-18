@@ -12,6 +12,18 @@ export function markerBodyLimit(prefix: string): number {
 const TOKEN = /^(?!.*[\x20\x22\x27\x28\x29\x2a])[\x21-\x7e]{1,1024}$/;
 export type R2Env = { STORAGE?: R2Bucket; DB?: unknown; INSTALLATION?: unknown };
 
+/** Limits (E5): the installation's stored-bytes counter. add() returns false when an enforced change would pass the
+ *  hard value (Installation.storageAdd). */
+export type StorageMeter = { add(delta: number, enforce: boolean): Promise<boolean> };
+
+function storageFull(): Response {
+	return json({ ok: false, code: "storage_full", error: "Storage full: delete photos or attachments, or upgrade" }, 507);
+}
+
+async function storedSize(bucket: R2Bucket, path: string): Promise<number> {
+	return (await bucket.head(path))?.size ?? 0;
+}
+
 /**
  * P4-5: the container's storage follows the Worker's bindings, never a var. edge/storage.jsonc binds STORAGE, DB
  * and INSTALLATION together, only behind EDGE_STORAGE_READY. None bound: local disk and the container's own
@@ -284,7 +296,7 @@ function completedParts(request: Request): R2UploadedPart[] | undefined {
 	}
 }
 
-export async function handleR2Request(request: Request, bucket: R2Bucket, prefix: string): Promise<Response> {
+export async function handleR2Request(request: Request, bucket: R2Bucket, prefix: string, meter?: StorageMeter): Promise<Response> {
 	const relative = key(request);
 	if (!relative) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 	const path = prefix + relative;
@@ -331,7 +343,9 @@ export async function handleR2Request(request: Request, bucket: R2Bucket, prefix
 				return json({ ok: true });
 			}
 			if (action !== "") return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
+			const freed = meter ? await storedSize(bucket, path) : 0;
 			await bucket.delete(path);
+			if (freed > 0) await meter!.add(-freed, false);
 			return json({ ok: true });
 		}
 		if (request.method !== "PUT") return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 405);
@@ -370,22 +384,36 @@ export async function handleR2Request(request: Request, bucket: R2Bucket, prefix
 		if (action === "complete") {
 			const parts = completedParts(request);
 			if (!parts || !await boundUploadKey(bucket, prefix, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
+			// Refused only once the store is already full: the upload's size is known after it completes.
+			if (meter && !await meter.add(0, true)) return storageFull();
+			const replaced = meter ? await storedSize(bucket, path) : 0;
 			await finalizeUpload(bucket, prefix, path, id, () => bucket.resumeMultipartUpload(path, id).complete(parts));
+			if (meter) await meter.add(await storedSize(bucket, path) - replaced, false);
 			return json({ ok: true });
 		}
 		if (action !== "") return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 		const body = await readBody(request, 100 * 1024 * 1024);
 		if (body === undefined) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 413);
+		let onlyIf: R2Conditional | undefined;
 		if (url.searchParams.has("if_none_match") || url.searchParams.has("if_match")) {
-			const onlyIf: R2Conditional = {};
+			onlyIf = {};
 			if (url.searchParams.get("if_none_match") === "*") onlyIf.etagDoesNotMatch = "*";
 			else if (url.searchParams.get("if_match")) onlyIf.etagMatches = url.searchParams.get("if_match")!;
 			else return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
-			const created = await bucket.put(path, body, { onlyIf });
-			return json({ ok: true, created: Boolean(created) }, created ? 200 : 412);
 		}
-		await bucket.put(path, body);
-		return json({ ok: true });
+		// The change in stored bytes is reserved first and given back when the write fails or its condition does not hold.
+		const delta = meter ? body.byteLength - await storedSize(bucket, path) : 0;
+		if (meter && !await meter.add(delta, true)) return storageFull();
+		let created: R2Object | null;
+		try {
+			created = onlyIf ? await bucket.put(path, body, { onlyIf }) : await bucket.put(path, body);
+		} catch (error) {
+			if (meter) await meter.add(-delta, false);
+			throw error;
+		}
+		if (!onlyIf) return json({ ok: true });
+		if (!created && meter) await meter.add(-delta, false);
+		return json({ ok: true, created: Boolean(created) }, created ? 200 : 412);
 	} catch (error) {
 		console.error("r2.internal request failed", error);
 		return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 500);
