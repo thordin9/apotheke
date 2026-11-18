@@ -8,7 +8,7 @@ import { d1UnboundResponse, type D1Env } from "./d1";
 import { INSTALLATION_NAME, installationAppKey, installationPrefix, installationStub, lifecycleName, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
 import { routeFor, routeResponse } from "./route";
 import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env, type StorageMeter } from "./r2";
-import { forwardWithLimits, limitsEnabled, takeLimits, UsageMeter, type Limits } from "./limits";
+import { forwardWithLimits, LIMITS_HEADER, limitsEnabled, takeLimits, UsageMeter, WARNING_HEADER, withCors, type Limits } from "./limits";
 
 export { Installation } from "./installation";
 
@@ -40,7 +40,7 @@ export class R2Outbound extends WorkerEntrypoint<Env & R2Env & InstallationEnv, 
 		const hard = this.ctx?.props?.storageHard;
 		const ns = this.env.INSTALLATION;
 		const meter: StorageMeter | undefined = hard !== undefined && ns && doName !== INSTALLATION_NAME && limitsEnabled(this.env)
-			? { add: (delta, enforce) => installationStub(ns, doName).storageAdd(delta, enforce && typeof hard === "number" ? hard : null) }
+			? { add: (delta, enforce) => installationStub(ns, doName).storageAdd(delta, enforce && typeof hard === "number" ? hard : null, doName) }
 			: undefined;
 		return handleR2Request(request, bucket, installationPrefix(doName), meter);
 	}
@@ -199,7 +199,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		const meter = limits ? (this.meter ??= new UsageMeter(this.ctx.storage, () => this.sleepAfter())) : null;
 		if (limits && meter) {
 			const refused = await meter.admit(limits);
-			if (refused) return refused;
+			if (refused) return withCors(refused, request, this.env.CORS_ALLOWED_ORIGINS);
 		}
 		try {
 			cold = await this.ensureReady(limits);
@@ -218,6 +218,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		}
 		const out = new Response(res.body, res);
 		out.headers.append("Server-Timing", `container-start;dur=${cold}`);
+		// Only the edge sets the warning (below): never one from the container.
+		out.headers.delete(WARNING_HEADER);
 		if (limits && meter) await meter.done(limits, out.headers);
 		return out;
 	}
@@ -264,7 +266,8 @@ function readinessRequest(allowedHosts: string): Request {
 }
 
 /** Cloudflare Containers accept only http: to the TCP port. Rewrite the incoming URL, overwrite
- *  forwarded proto/host (never pass through a client value), and do not follow a 3xx inside the Worker. */
+ *  forwarded proto/host (never pass through a client value), and do not follow a 3xx inside the Worker.
+ *  The limits headers never reach PHP, whoever sent them and whatever LIMITS_ENABLED is. */
 function toContainer(request: Request): Request {
 	const url = new URL(request.url);
 	const proto = url.protocol === "https:" ? "https" : "http";
@@ -275,6 +278,8 @@ function toContainer(request: Request): Request {
 	headers.set("X-Forwarded-Proto", proto);
 	headers.set("X-Forwarded-Host", host);
 	headers.delete("X-Apotheke-Client-IP");
+	headers.delete(LIMITS_HEADER);
+	headers.delete(WARNING_HEADER);
 	const connecting = (request.headers.get("cf-connecting-ip") ?? "").trim();
 	if (connecting !== "") {
 		headers.set("X-Apotheke-Client-IP", connecting);
@@ -300,6 +305,6 @@ export default {
 		const stub = env.APOTHEKE.getByName(route.doName);
 		// primary is never limited, and with LIMITS_ENABLED off every request is forwarded as before.
 		if (!limited || route.doName === INSTALLATION_NAME) return stub.fetch(request);
-		return forwardWithLimits(request, route.limits ?? {}, (r) => stub.fetch(r));
+		return forwardWithLimits(request, route.limits ?? {}, (r) => stub.fetch(r), env.CORS_ALLOWED_ORIGINS);
 	},
 } satisfies ExportedHandler<Env & D1Env>;

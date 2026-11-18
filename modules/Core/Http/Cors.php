@@ -56,7 +56,7 @@ final class Cors
             // The browser compares this with the Origin it sent, so a trailing dot stays.
             'Access-Control-Allow-Origin' => (string)self::origin($origin),
             'Access-Control-Allow-Credentials' => 'true',
-            'Access-Control-Expose-Headers' => 'ETag, Location, Retry-After, Link',
+            'Access-Control-Expose-Headers' => 'ETag, Location, Retry-After, Link, Apotheke-Limit-Warning',
         ];
         if ($preflight) {
             $headers += [
