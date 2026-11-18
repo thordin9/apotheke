@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **backup:** with `APOTHEKE_HOSTED`, `POST /internal/backup` on `ops.internal` makes one stored backup per lifecycle job id and answers its id, size and key; the edge has the signed request helper ([#320](https://github.com/thordin9/apotheke/pull/320))
+
 ## [3.47.0] - 2026-11-18
 
 ### Added

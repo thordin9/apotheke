@@ -1274,6 +1274,31 @@ class Services extends BaseService
             });
     }
 
+    /** POST /internal/backup on ops.internal (Backup, operator console C2): off unless APOTHEKE_HOSTED. */
+    public static function opsBackupEndpoint(bool $getShared = true): \Apotheke\Backup\OpsBackupEndpoint
+    {
+        if ($getShared) {
+            return static::getSharedInstance('opsBackupEndpoint');
+        }
+        $appKey = getenv('APP_KEY');
+
+        return new \Apotheke\Backup\OpsBackupEndpoint(static::apothekeConfig()->values()['hosted'] === true,
+            \Apotheke\Core\Security\OpsSignature::fromAppKey(is_string($appKey) ? $appKey : null),
+            static fn (): \Apotheke\Backup\OpsBackups => static::opsBackups(), new \Apotheke\Core\Libraries\Clock());
+    }
+
+    /** One stored backup per lifecycle job (Backup, operator console C2). */
+    public static function opsBackups(bool $getShared = true): \Apotheke\Backup\OpsBackups
+    {
+        if ($getShared) {
+            return static::getSharedInstance('opsBackups');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Backup\OpsBackups($db, static::storedBackups(), new \Apotheke\Core\Libraries\Clock(), static::unitsOfWork());
+    }
+
     /**
      * The backups the installation keeps (Backup): the one made before each restore, in the data storage under
      * backups/ (DATA_DIR/backups, or the installation's backups/ prefix on object storage).

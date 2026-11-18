@@ -64,6 +64,91 @@ final class StoredBackupsTest extends CIUnitTestCase
         yield 'object storage' => ['r2'];
     }
 
+    /** Operator console C2: the manifest lists every part, relative to the backup's folder, with its size and sha256. */
+    #[DataProvider('stores')]
+    public function testTheManifestListsEveryPartUnderTheBackupsFolder(string $where): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->seed('Lamp');
+        [$store, $r2] = $this->store($where);
+        $stored = $this->stored($store, 5, 1000);
+        $m = $stored->store(StoredBackups::KIND_EXPORT, 'job:job-1');
+        $prefix = 'backups/' . $m['id'] . '/';
+        $raw = json_decode((string)$store->read($prefix . 'manifest.json'), true);
+        $this->assertIsArray($raw);
+        $files = $raw['files'];
+        $this->assertGreaterThan(1, $m['parts'], 'several parts');
+        $this->assertCount($m['parts'], $files);
+        $whole = '';
+        foreach ($files as $i => $f) {
+            $this->assertSame(['key', 'size', 'sha256'], array_keys($f));
+            $this->assertSame(sprintf('part-%05d', $i + 1), $f['key']);
+            $this->assertStringNotContainsString('..', $f['key']);
+            $this->assertStringNotContainsString('/', $f['key'], 'relative to the folder, never absolute');
+            $bytes = $store->read($prefix . $f['key']);
+            $this->assertNotNull($bytes);
+            $this->assertSame([strlen($bytes), hash('sha256', $bytes)], [$f['size'], $f['sha256']]);
+            $whole .= $bytes;
+        }
+        $this->assertSame([$m['size'], $m['sha256']], [strlen($whole), hash('sha256', $whole)]);
+        $this->assertSame($files, $m['files']);
+        $this->assertSame($files, $stored->get($m['id'])['files'] ?? null);
+        // Every object of the backup is under its folder, and nothing else was written.
+        $want = array_merge([$prefix . 'manifest.json'], array_map(static fn (array $f): string => $prefix . $f['key'], $files));
+        sort($want);
+        if ($r2 !== null) {
+            $this->assertSame($want, $r2->keys());
+        } else {
+            $dir = $this->database->dataDir() . '/backups';
+            $this->assertSame([$m['id']], array_values(array_diff(scandir($dir) ?: [], ['.', '..'])));
+            $have = array_map(static fn (string $n): string => $prefix . $n, array_values(array_diff(scandir($dir . '/' . $m['id']) ?: [], ['.', '..'])));
+            sort($have);
+            $this->assertSame($want, $have);
+        }
+    }
+
+    /** A manifest whose part list is not exactly the backup's own parts is not read; one from before the list still is. */
+    public function testAManifestWithAWrongPartListIsNotRead(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->seed('Lamp');
+        [$store] = $this->store('local');
+        $stored = $this->stored($store, 5, 1000);
+        $m = $stored->store(StoredBackups::KIND_EXPORT, 'job:job-1');
+        $key = 'backups/' . $m['id'] . '/manifest.json';
+        $raw = json_decode((string)$store->read($key), true);
+        $this->assertIsArray($raw);
+        $write = static fn (array $v) => $store->write($key, (string)json_encode($v, JSON_UNESCAPED_SLASHES));
+        $first = $raw['files'][0];
+        $bad = [
+            'parent' => ['key' => '../part-00001'] + $first,
+            'absolute' => ['key' => '/' . 'backups/' . $m['id'] . '/part-00001'] + $first,
+            'full key' => ['key' => 'backups/' . $m['id'] . '/part-00001'] + $first,
+            'other name' => ['key' => 'part-00002'] + $first,
+            'size' => ['size' => $first['size'] + 1] + $first,
+            'sha256' => ['sha256' => strtoupper($first['sha256'])] + $first,
+        ];
+        foreach ($bad as $what => $entry) {
+            $v = $raw;
+            $v['files'][0] = $entry;
+            $write($v);
+            $this->assertNull($stored->get($m['id']), $what);
+        }
+        foreach (['missing part' => array_slice($raw['files'], 1), 'not a list' => ['a' => $first], 'not an array' => 'part-00001'] as $what => $files) {
+            $write(['files' => $files] + $raw);
+            $this->assertNull($stored->get($m['id']), $what);
+        }
+        $old = $raw;
+        unset($old['files']);
+        $write($old);
+        $read = $stored->get($m['id']);
+        $this->assertNotNull($read, 'a manifest from before the part list');
+        $this->assertNull($read['files']);
+        $this->assertSame($m['sha256'], hash('sha256', implode('', iterator_to_array($stored->bytes($read), false))));
+        $write($raw);
+        $this->assertSame($m, $stored->get($m['id']));
+    }
+
     #[DataProvider('stores')]
     public function testABackupIsKeptInPartsAndReadBackWhole(string $where): void
     {
