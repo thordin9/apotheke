@@ -99,11 +99,19 @@ export function sqlDatabase(storage: DurableObjectStorage): D1Like {
 	};
 }
 
-/** Limits (E5): how old a recount of the stored bytes may be, in the alarm and before a refusal. */
+/** Limits (E5): how old the last recount of the stored bytes (or failed attempt) may be, in the alarm and before a
+ *  refusal. */
 export const RECOUNT_MS = 24 * 60 * 60 * 1000;
 export const RECOUNT_BEFORE_REFUSAL_MS = 60 * 60 * 1000;
 
-type StoredBytes = { bytes: number; doName?: string; counted?: number };
+/** counted: when the last recount started that succeeded; failed: when the last one started that failed. */
+type StoredBytes = { bytes: number; doName?: string; counted?: number; failed?: number };
+
+/** The time a next recount waits from: a failed attempt waits the same window as a success, so a listing that keeps
+ *  failing is retried at most once an hour before a refusal and once a day in the alarm. */
+function lastRecount(value: StoredBytes): number {
+	return Math.max(value.counted ?? 0, value.failed ?? 0);
+}
 
 export class Installation extends DurableObject<Env & R2Env> {
 	/** Limits (E5): bytes stored under this installation's prefix, kept by R2Outbound and recounted from R2. */
@@ -124,7 +132,7 @@ export class Installation extends DurableObject<Env & R2Env> {
 		const value = await counter.get();
 		if (validDoName(doName) && doName !== INSTALLATION_NAME) value.doName = doName;
 		const over = () => hard !== null && delta >= 0 && value.bytes + Math.max(delta, 1) > hard;
-		if (over() && Date.now() - (value.counted ?? 0) >= RECOUNT_BEFORE_REFUSAL_MS && await this.recount(value)) await counter.changed();
+		if (over() && Date.now() - lastRecount(value) >= RECOUNT_BEFORE_REFUSAL_MS && await this.recount(value)) await counter.changed();
 		if (over()) return false;
 		value.bytes = Math.max(0, value.bytes + delta);
 		await counter.changed();
@@ -135,8 +143,8 @@ export class Installation extends DurableObject<Env & R2Env> {
 	 * Resets the stored bytes to the total listed under the installation's prefix. r2.internal reads an object's old
 	 * size, then writes, so concurrent writes to one key can count the same bytes twice (or free them twice); a recount
 	 * ends any such drift. Writes during the listing can leave it off by their own size until the next recount.
-	 * False, with the counter unchanged, when there is no bucket, no installation name (or it is primary) or the listing
-	 * fails.
+	 * A failed listing keeps the bytes and records its start in failed. True when the value changed (a recount or a
+	 * failure recorded), false when nothing was tried: no bucket, or no installation name (or it is primary).
 	 */
 	private async recount(value: StoredBytes): Promise<boolean> {
 		const bucket = selectedBucket(this.env);
@@ -150,7 +158,8 @@ export class Installation extends DurableObject<Env & R2Env> {
 				return true;
 			} catch (e) {
 				console.error("stored bytes recount failed", String(e));
-				return false;
+				value.failed = started;
+				return true;
 			}
 		})().finally(() => {
 			this.recounting = null;
@@ -163,7 +172,7 @@ export class Installation extends DurableObject<Env & R2Env> {
 	async alarm(): Promise<void> {
 		const counter = this.storedCounter();
 		const value = await counter.get();
-		const recounted = Date.now() - (value.counted ?? 0) >= RECOUNT_MS && await this.recount(value);
+		const recounted = Date.now() - lastRecount(value) >= RECOUNT_MS && await this.recount(value);
 		await counter.flush(recounted);
 	}
 
