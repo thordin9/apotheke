@@ -88,8 +88,8 @@ console API.
 |---|---|---|---|
 | Requests per month (`requests_month`) | Counter in the container object | `Apotheke-Limit-Warning: requests_month` on responses | 429 "This Apotheke reached its monthly request limit. The owner can upgrade the plan." |
 | Container active time per month (`container_hours_month`, hours) | Container object, start to stop | `Apotheke-Limit-Warning: container_hours_month` | 402 "This month's active time is used up", without waking the container |
-| Request body (`import_file_bytes`) | Worker, before the body is read: `Content-Length`, or a streaming cap when there is none | none | 413 "File is larger than your plan allows (N MB)" |
-| Stored bytes (`storage_bytes`) | `r2.internal` on a write and a multipart complete, against a counter in the `Installation` object | none yet | 507 to PHP, `code` `storage_full` |
+| Request body (`import_file_bytes`) | Worker: a valid `Content-Length` over the hard value before the body is read, and a streaming cap on every body | none | 413 "File is larger than your plan allows (N MB)" |
+| Stored bytes (`storage_bytes`) | `r2.internal` on a write and a multipart complete, against a counter in the `Installation` object, recounted from R2 | none yet | 507 to PHP, `code` `storage_full` |
 
 - **Off switch.** The Worker var `LIMITS_ENABLED` (`"0"` in `edge/wrangler.jsonc`) turns everything off: each request
   is forwarded exactly as before, with no limits lookup and no counting. `"1"` turns enforcement on. The var is read
@@ -99,10 +99,21 @@ console API.
 - **Active time** is measured as the inactivity timeout defines it: a run starts with a request that finds the
   container asleep and ends `SLEEP_AFTER_MS` after the last request. Once the month is used up, every request gets the
   402 page and the container sleeps after its timeout.
-- **Stored bytes** count from when metering begins: files already stored before then are not counted until a later
-  reconciliation. An overwrite counts the difference and a delete gives its bytes back. A multipart upload is refused
-  at completion only when the store is already full, so one upload can go past the hard value by its own size.
-  Concurrent writes near the limit can pass it by the bytes in flight.
+- **Stored bytes** are counted on each write: an overwrite counts the difference and a delete gives its bytes back. A
+  multipart upload is refused at completion only when the store is already full, so one upload can go past the hard
+  value by its own size. Concurrent writes near the limit can pass it by the bytes in flight.
+- **Recount.** Concurrent writes to one key can count the same bytes twice, and files stored before metering began are
+  not counted on write. The `Installation` object therefore resets the counter to the total listed under the
+  installation's R2 prefix (paged, upload markers not counted): in its alarm when the last recount is over a day old,
+  and before a 507 when it is over an hour old. The alarm is set only by a change, so an idle installation is not
+  listed. Writes during a listing can leave the counter off by their own size until the next recount. A failed
+  listing leaves the counter as it was. `primary` is never listed.
+- **Headers.** `X-Apotheke-Limits` and `Apotheke-Limit-Warning` sent by a client are removed before a request reaches
+  the app, for every installation and whatever `LIMITS_ENABLED` is. The only `Apotheke-Limit-Warning` on a response
+  is the one the Worker sets.
+- **CORS.** The 413, 429 and 402 answers under `/api` carry the same CORS headers the app sends for an origin in
+  `CORS_ALLOWED_ORIGINS` (exact https origins, `Vary: Origin`), so the app on another origin can read them. The app's
+  `Access-Control-Expose-Headers` includes `Apotheke-Limit-Warning`.
 - **Counters** are kept in memory in the owning object and written to its storage by an alarm at most 60 seconds after
   a change. `ApothekeContainer.usage()` returns the month's `requests` and
   `container_seconds` for the Cron that will copy them into `usage_counters` (not scheduled yet).

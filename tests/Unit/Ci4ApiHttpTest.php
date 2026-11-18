@@ -110,7 +110,7 @@ final class Ci4ApiHttpTest extends TestCase
     {
         $r = $this->client()->get('/api/v1/nothing-here', ['Origin: ' . self::APP]);
         $this->assertSame(self::APP, $r['headers']['access-control-allow-origin']);
-        $this->assertSame('ETag, Location, Retry-After, Link', $r['headers']['access-control-expose-headers']);
+        $this->assertSame('ETag, Location, Retry-After, Link, Apotheke-Limit-Warning', $r['headers']['access-control-expose-headers']);
         $this->assertArrayNotHasKey('access-control-allow-methods', $r['headers'], 'only on a preflight');
         $page = $this->client()->get('/healthz', ['Origin: ' . self::APP]);
         $this->assertSame(200, $page['status']);

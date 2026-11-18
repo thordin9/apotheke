@@ -44,33 +44,76 @@ export function tooLarge(bytes: number): Response {
 	return text(413, `File is larger than your plan allows (${Math.floor(bytes / 104_857.6) / 10} MB)`);
 }
 
+/** The exposed response headers, as the app sends them on /api (modules/Core/Http/Cors.php). */
+export const CORS_EXPOSE = "ETag, Location, Retry-After, Link, " + WARNING_HEADER;
+
+/** scheme://host[:port] in lower case, or null (Cors::origin()). */
+function corsOrigin(raw: string): string | null {
+	const origin = raw.trim().replace(/\/+$/, "").toLowerCase();
+	return /^https?:\/\/(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(:[0-9]{1,5})?$/.test(origin) ? origin : null;
+}
+
+/** One trailing dot of the host is the same host (SameOrigin::normalise()). */
+function corsNormalise(origin: string): string {
+	return origin.replace(/^([a-z][a-z0-9+.-]*:\/\/[^/:[\]]+)\.(:\d+)?$/, "$1$2");
+}
+
+/**
+ * Adds to a refusal the edge answers itself the CORS headers the app would send (ApiFilter::after() with
+ * modules/Core/Http/Cors.php, production rules): only on /api, only for an exact https origin in CORS_ALLOWED_ORIGINS,
+ * and Vary: Origin whenever that list has an origin. Nothing changes when the list is empty.
+ */
+export function withCors(res: Response, request: Request, configured: string | undefined): Response {
+	const path = new URL(request.url).pathname;
+	if (path !== "/api" && !path.startsWith("/api/")) return res;
+	const origins = (configured ?? "").split(",").map(corsOrigin).filter((o): o is string => o !== null && o.startsWith("https://")).map(corsNormalise);
+	if (origins.length === 0) return res;
+	res.headers.set("Vary", "Origin");
+	const sent = corsOrigin(request.headers.get("Origin") ?? "");
+	if (sent === null || !origins.includes(corsNormalise(sent))) return res;
+	res.headers.set("Access-Control-Allow-Origin", sent);
+	res.headers.set("Access-Control-Allow-Credentials", "true");
+	res.headers.set("Access-Control-Expose-Headers", CORS_EXPOSE);
+	if (request.method.toUpperCase() === "OPTIONS") {
+		res.headers.set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE");
+		res.headers.set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token, If-Match, Idempotency-Key");
+		res.headers.set("Access-Control-Max-Age", "600");
+	}
+	return res;
+}
+
 /**
  * The Worker side, for an installation other than primary: refuses a body over import_file_bytes before reading it
- * (Content-Length, or a streaming cap when there is none) and forwards with the limits in LIMITS_HEADER, overwriting
- * any client value.
+ * when a valid Content-Length says so, and always counts the bytes as they stream, so a missing, invalid or wrong
+ * Content-Length is capped the same. Forwards with the limits in LIMITS_HEADER, overwriting any client value.
+ * corsOrigins is CORS_ALLOWED_ORIGINS, for the 413.
  */
-export async function forwardWithLimits(request: Request, limits: Limits, forward: (r: Request) => Promise<Response>): Promise<Response> {
+export async function forwardWithLimits(request: Request, limits: Limits, forward: (r: Request) => Promise<Response>, corsOrigins?: string): Promise<Response> {
 	const max = limits.import_file_bytes?.hard;
 	const headers = new Headers(request.headers);
 	headers.set(LIMITS_HEADER, JSON.stringify(limits));
 	const init: RequestInit & { duplex?: "half" } = { headers };
 	let over = false;
 	if (max !== undefined && request.body !== null) {
-		const length = request.headers.get("content-length");
-		if (length !== null && Number(length) > max) return tooLarge(max);
-		if (length === null) {
-			let seen = 0;
-			init.body = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-				transform(chunk, controller) {
-					seen += chunk.byteLength;
-					if (seen > max) {
-						over = true;
-						controller.error(new Error("request body over the plan limit"));
-					} else controller.enqueue(chunk);
-				},
-			}));
-			init.duplex = "half";
-		}
+		const length = (request.headers.get("content-length") ?? "").trim();
+		const declared = /^[0-9]+$/.test(length) ? Number(length) : null;
+		if (declared !== null && declared > max) return withCors(tooLarge(max), request, corsOrigins);
+		let seen = 0;
+		let body = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+			transform(chunk, controller) {
+				seen += chunk.byteLength;
+				if (seen > max) {
+					over = true;
+					controller.error(new Error("request body over the plan limit"));
+				} else controller.enqueue(chunk);
+			},
+		}));
+		// The runtime's FixedLengthStream keeps a valid Content-Length on the forwarded request (and fails a body of
+		// another length). Otherwise, as for a body without one, the request is forwarded without a length.
+		headers.delete("content-length");
+		if (declared !== null && typeof FixedLengthStream === "function") body = body.pipeThrough(new FixedLengthStream(declared));
+		init.body = body;
+		init.duplex = "half";
 	}
 	try {
 		const res = await forward(new Request(request, init));
@@ -79,7 +122,7 @@ export async function forwardWithLimits(request: Request, limits: Limits, forwar
 	} catch (e) {
 		if (!over) throw e;
 	}
-	return tooLarge(max!);
+	return withCors(tooLarge(max!), request, corsOrigins);
 }
 
 /** The container object's view: the limits from LIMITS_HEADER (null for primary, when off, or without the header),
@@ -104,6 +147,7 @@ export function takeLimits(request: Request, env: { LIMITS_ENABLED?: string }, d
 /** A value kept in memory and written to the object's storage under one key, at most FLUSH_MS after a change. */
 export class Counter<T extends object> {
 	private value?: T;
+	private loading?: Promise<T>;
 	private dirty = false;
 	private readonly storage: DurableObjectStorage;
 	private readonly key: string;
@@ -114,8 +158,11 @@ export class Counter<T extends object> {
 		this.init = init;
 	}
 
+	/** One load from storage: callers before it finishes share the same value, so no change is lost. */
 	async get(): Promise<T> {
-		return (this.value ??= (await this.storage.get<T>(this.key)) ?? this.init());
+		if (this.value) return this.value;
+		this.loading ??= this.storage.get<T>(this.key).then((v) => (this.value ??= v ?? this.init()));
+		return this.loading;
 	}
 
 	async changed(now = Date.now()): Promise<void> {
@@ -124,9 +171,9 @@ export class Counter<T extends object> {
 		if ((await this.storage.getAlarm()) === null) await this.storage.setAlarm(now + FLUSH_MS);
 	}
 
-	/** Called from the object's alarm. */
-	async flush(): Promise<void> {
-		if (!this.dirty || !this.value) return;
+	/** Called from the object's alarm. force writes a value changed without changed() (a recount in the alarm). */
+	async flush(force = false): Promise<void> {
+		if ((!this.dirty && !force) || !this.value) return;
 		this.dirty = false;
 		await this.storage.put(this.key, this.value);
 	}

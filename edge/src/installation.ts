@@ -4,7 +4,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { d1UnboundResponse, handleD1Request, type D1Like, type D1LikeStatement } from "./d1";
 import { Counter } from "./limits";
-import { storageSelected, type R2Env } from "./r2";
+import { prefixBytes, selectedBucket, storageSelected, type R2Env } from "./r2";
 
 /** The first installation: the routing fallback, with the container object and R2 prefix installations/primary/. */
 export const INSTALLATION_NAME = "primary";
@@ -98,24 +98,72 @@ export function sqlDatabase(storage: DurableObjectStorage): D1Like {
 	};
 }
 
+/** Limits (E5): how old a recount of the stored bytes may be, in the alarm and before a refusal. */
+export const RECOUNT_MS = 24 * 60 * 60 * 1000;
+export const RECOUNT_BEFORE_REFUSAL_MS = 60 * 60 * 1000;
+
+type StoredBytes = { bytes: number; doName?: string; counted?: number };
+
 export class Installation extends DurableObject<Env & R2Env> {
-	/** Limits (E5): bytes stored under this installation's prefix since metering began, kept by R2Outbound. */
-	private stored?: Counter<{ bytes: number }>;
+	/** Limits (E5): bytes stored under this installation's prefix, kept by R2Outbound and recounted from R2. */
+	private stored?: Counter<StoredBytes>;
+	/** The one recount in flight: concurrent callers share it. */
+	private recounting: Promise<boolean> | null = null;
+
+	private storedCounter(): Counter<StoredBytes> {
+		return (this.stored ??= new Counter<StoredBytes>(this.ctx.storage, "storage_bytes", () => ({ bytes: 0 })));
+	}
 
 	/** Adds delta (negative for a delete or a smaller overwrite) to the stored bytes. With a hard value, refuses (false,
-	 *  nothing added) a non-negative change that would go past it; a change of 0 is refused once the store is full. */
-	async storageAdd(delta: number, hard: number | null): Promise<boolean> {
-		const counter = (this.stored ??= new Counter(this.ctx.storage, "storage_bytes", () => ({ bytes: 0 })));
+	 *  nothing added) a non-negative change that would go past it; a change of 0 is refused once the store is full.
+	 *  Before a refusal the bytes are recounted from R2 when the last recount is over an hour old. doName is the
+	 *  caller's installation (R2Outbound), kept for the recount when the runtime gives this object no name. */
+	async storageAdd(delta: number, hard: number | null, doName?: string): Promise<boolean> {
+		const counter = this.storedCounter();
 		const value = await counter.get();
-		if (hard !== null && delta >= 0 && value.bytes + Math.max(delta, 1) > hard) return false;
+		if (validDoName(doName) && doName !== INSTALLATION_NAME) value.doName = doName;
+		const over = () => hard !== null && delta >= 0 && value.bytes + Math.max(delta, 1) > hard;
+		if (over() && Date.now() - (value.counted ?? 0) >= RECOUNT_BEFORE_REFUSAL_MS && await this.recount(value)) await counter.changed();
+		if (over()) return false;
 		value.bytes = Math.max(0, value.bytes + delta);
 		await counter.changed();
 		return true;
 	}
 
-	/** Writes the stored-bytes counter (set at most FLUSH_MS after a change). */
+	/**
+	 * Resets the stored bytes to the total listed under the installation's prefix. r2.internal reads an object's old
+	 * size, then writes, so concurrent writes to one key can count the same bytes twice (or free them twice); a recount
+	 * ends any such drift. Writes during the listing can leave it off by their own size until the next recount.
+	 * False, with the counter unchanged, when there is no bucket, no installation name (or it is primary) or the listing
+	 * fails.
+	 */
+	private async recount(value: StoredBytes): Promise<boolean> {
+		const bucket = selectedBucket(this.env);
+		const name = this.ctx.id?.name ?? value.doName;
+		if (!bucket || !validDoName(name) || name === INSTALLATION_NAME) return false;
+		this.recounting ??= (async () => {
+			const started = Date.now();
+			try {
+				value.bytes = await prefixBytes(bucket, installationPrefix(name));
+				value.counted = started;
+				return true;
+			} catch (e) {
+				console.error("stored bytes recount failed", String(e));
+				return false;
+			}
+		})().finally(() => {
+			this.recounting = null;
+		});
+		return this.recounting;
+	}
+
+	/** Writes the stored-bytes counter (set at most FLUSH_MS after a change), recounted first when the last recount is
+	 *  over a day old. The alarm is set only by a change, so an idle installation is not listed. */
 	async alarm(): Promise<void> {
-		await this.stored?.flush();
+		const counter = this.storedCounter();
+		const value = await counter.get();
+		const recounted = Date.now() - (value.counted ?? 0) >= RECOUNT_MS && await this.recount(value);
+		await counter.flush(recounted);
 	}
 
 	async fetch(request: Request): Promise<Response> {
