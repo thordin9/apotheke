@@ -12,8 +12,16 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** plan limits follow-ups: client copies of the limits headers never reach the app, every request body is capped as it streams, the 413, 429 and 402 answers carry the app's CORS headers (and the app exposes `Apotheke-Limit-Warning`), and the stored-bytes counter is recounted from R2 daily and before a 507 ([#321](https://github.com/thordin9/apotheke/pull/321))
 
+## [3.46.0] - 2026-11-18
+
+### Added
+
+- **edge:** plan limit key `photos_per_item` (most photos per item) in the control plane's `plan_limits`, allowed by migration `0004_plan_limits_photos_per_item`; no plan has a value yet and the Worker does not enforce it ([#319](https://github.com/thordin9/apotheke/pull/319))
+
 ### Maintenance
 
+- ci: bump @playwright/test to 1.65.0 and pin the Playwright image ([#311](https://github.com/thordin9/apotheke/pull/311))
+- **core:** test: check that a no-wait unit holds its key's lock ([#316](https://github.com/thordin9/apotheke/pull/316))
 - ci: bump @playwright/test to 1.65.0 and pin the Playwright image ([#311](https://github.com/thordin9/apotheke/pull/311))
 
 ## [3.45.0] - 2026-11-13
@@ -1781,7 +1789,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.45.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.46.0...HEAD
+[3.46.0]: https://github.com/thordin9/apotheke/compare/v3.45.0...v3.46.0
 [3.45.0]: https://github.com/thordin9/apotheke/compare/v3.44.0...v3.45.0
 [3.44.0]: https://github.com/thordin9/apotheke/compare/v3.43.0...v3.44.0
 [3.43.0]: https://github.com/thordin9/apotheke/compare/v3.42.5...v3.43.0
