@@ -123,7 +123,7 @@ final class FirstAdminClaimTest extends CIUnitTestCase
         $this->assertNull($this->claimRow(), 'the claim is gone once used');
 
         $pw2 = self::secret();
-        $this->refused(fn () => $this->claims($batch)->claim($made['token'], 'second', $pw2, $pw2), 403, 'This claim link is not valid. Ask for a new one.');
+        $this->refused(fn () => $this->claims($batch)->claim($made['token'], 'second', $pw2, $pw2), 410, 'This claim link is no longer valid.');
         $this->assertSame([['username' => 'owner', 'role' => 'admin', 'status' => 'active']], $this->accounts());
     }
 
@@ -180,7 +180,39 @@ final class FirstAdminClaimTest extends CIUnitTestCase
         $this->refused(fn () => $this->claims($batch)->claim($made['token'], 'owner', $pw, $pw), 410, 'This claim link is no longer valid.');
         $this->assertNull($this->claimRow(), 'the claim is removed');
         $this->assertSame([['username' => 'boss', 'role' => 'admin', 'status' => 'active']], $this->accounts());
-        $this->refused(fn () => $this->claims($batch)->claim($made['token'], 'owner', $pw, $pw), 403, 'This claim link is not valid. Ask for a new one.');
+        $this->refused(fn () => $this->claims($batch)->claim($made['token'], 'owner', $pw, $pw), 410, 'This claim link is no longer valid.');
+    }
+
+    /**
+     * With an active admin there, a right token, a wrong token and no token at all get the same refusal, and each
+     * removes the claim row and adds nobody.
+     */
+    #[DataProvider('modes')]
+    public function testWithAnAdminAnyTokenGetsTheSameRefusal(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        (new UserRepository($this->database->db))->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
+        $pw = self::secret();
+        $outcomes = [];
+        foreach (['right', 'wrong', 'empty'] as $which) {
+            $made = $this->claims($batch)->create();
+            $this->assertNotNull($this->claimRow());
+            $token = match ($which) {
+                'right' => $made['token'],
+                'wrong' => strrev($made['token']),
+                'empty' => '',
+            };
+            try {
+                $this->claims($batch)->claim($token, 'owner', $pw, $pw);
+                $this->fail($which . ' token: not refused');
+            } catch (UserError $e) {
+                $outcomes[$which] = [$e->getCode(), $e->getMessage()];
+            }
+            $this->assertNull($this->claimRow(), $which . ' token: the claim is removed');
+        }
+        $this->assertSame(['right' => [410, 'This claim link is no longer valid.'], 'wrong' => [410, 'This claim link is no longer valid.'],
+            'empty' => [410, 'This claim link is no longer valid.']], $outcomes);
+        $this->assertSame([['username' => 'boss', 'role' => 'admin', 'status' => 'active']], $this->accounts());
     }
 
     /** Only an active admin counts: a pending admin or an active viewer leaves the claim usable. */

@@ -25,6 +25,8 @@ final class FirstAdminClaim
     /** The settings row (no Control Panel key has this name). */
     public const SETTING = 'hosted_first_admin_claim';
 
+    private const NO_LONGER_VALID = 'This claim link is no longer valid.';
+
     private readonly UnitsOfWork $units;
 
     /**
@@ -73,7 +75,8 @@ final class FirstAdminClaim
      * Use the claim: a new active `admin` named $name with $password. The claim is deleted in the same unit as the
      * insert, so a second use (also at the same time) is refused and creates nothing. The unit also requires that
      * no active admin exists; it takes the active-admins key, as every unit that adds an active admin does. When an
-     * admin exists the claim is refused (410) and its row removed. Returns the new account.
+     * admin exists the claim is refused (410) and its row removed, whatever the token: the same answer and the
+     * same steps for any token then (dropAfterAdmin()). Returns the new account.
      *
      * @return array{id:int,username:string,role:string,status:string,password_hash:string,session_epoch:string}
      */
@@ -82,8 +85,12 @@ final class FirstAdminClaim
         $this->refuseOff();
         $stored = $this->stored();
         $claim = $stored === null ? null : json_decode($stored, true);
-        if (!is_array($claim) || !is_string($claim['sha256'] ?? null) || !is_int($claim['expires'] ?? null)
-            || !hash_equals($claim['sha256'], hash('sha256', $token))) {
+        $matches = is_array($claim) && is_string($claim['sha256'] ?? null) && is_int($claim['expires'] ?? null)
+            && hash_equals($claim['sha256'], hash('sha256', $token));
+        if ($this->adminExists()) {
+            $this->dropAfterAdmin();
+        }
+        if (!$matches) {
             throw new UserError('This claim link is not valid. Ask for a new one.', 403);
         }
         if ($claim['expires'] <= $this->clock->unix()) {
@@ -101,7 +108,7 @@ final class FirstAdminClaim
                     static function () use (&$adminExists): UserError {
                         $adminExists = true;
 
-                        return new UserError('This claim link is no longer valid.', 410);
+                        return new UserError(self::NO_LONGER_VALID, 410);
                     });
 
                 return $this->users->createIn($uow, $name, $hash, 'admin', 'active', $now);
@@ -116,6 +123,25 @@ final class FirstAdminClaim
         }
 
         return $this->users->find($ref->id()) ?? throw new \RuntimeException('The new account could not be read back.');
+    }
+
+    /** Whether an active admin exists (read before the claim's unit, which checks it again). */
+    private function adminExists(): bool
+    {
+        return Writes::rows($this->db, "SELECT 1 AS one FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1") !== [];
+    }
+
+    /**
+     * An active admin exists: remove the claim row, whatever it holds, and refuse with 410. A right and a wrong
+     * token take this same path.
+     */
+    private function dropAfterAdmin(): never
+    {
+        $this->units->run('settings', static function (UnitOfWork $uow): void {
+            $uow->write('DELETE FROM settings WHERE name = ?', [self::SETTING], 'drop claim');
+        }, self::SETTING);
+
+        throw new UserError(self::NO_LONGER_VALID, 410);
     }
 
     /** The stored claim row, or null when there is none. */
