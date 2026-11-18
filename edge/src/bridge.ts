@@ -3,6 +3,7 @@
 // edge/migrations/control/). The Installation object serves them on d1.internal next to /query, /batch and /exec.
 // Numbers and account metadata only: never item rows, password hashes or other content.
 import { describeError, type D1Like } from "./d1";
+import { PLAN_LIMITS_JSON_SQL, parseLimits } from "./limits";
 
 /** The control-plane query /limits needs: D1's prepare/bind/all. */
 export type ControlDb = { prepare(sql: string): { bind(...v: unknown[]): { all<T>(): Promise<{ results: T[] }> } } };
@@ -45,25 +46,21 @@ async function users(db: D1Like): Promise<Response> {
 	});
 }
 
-type LimitRow = { plan: string; limit_key: string | null; soft_value: number | null; hard_value: number | null };
-
-/** The plan's soft and hard value per key. No row for a key means no limit; no subscription means no plan. */
+/**
+ * The plan's limits per key ({soft, hard}), loaded and read as the Worker's plan limits are (limits.ts): only keys
+ * with a hard value, soft 80% of hard when it has none. No subscription means no plan.
+ */
 async function limits(control: ControlDb | undefined, doName: string | undefined): Promise<Response> {
 	if (!control || doName === undefined) return json({ ok: false, code: "unbound", error: "limits are not available" }, 503);
 	const { results } = await control
 		.prepare(
-			"SELECT s.plan_id AS plan, pl.limit_key, pl.soft_value, pl.hard_value FROM installations i"
-				+ " JOIN subscriptions s ON s.installation_id = i.id LEFT JOIN plan_limits pl ON pl.plan_id = s.plan_id"
-				+ " WHERE i.do_name = ? ORDER BY pl.limit_key",
+			`SELECT s.plan_id AS plan, ${PLAN_LIMITS_JSON_SQL} AS limits FROM installations i`
+				+ " JOIN subscriptions s ON s.installation_id = i.id WHERE i.do_name = ?",
 		)
 		.bind(doName)
-		.all<LimitRow>();
+		.all<{ plan: string; limits: unknown }>();
 	if (results.length === 0) return json({ ok: false, code: "unknown_installation", error: "no plan for this installation" }, 404);
-	const out: Record<string, { soft: number | null; hard: number | null }> = {};
-	for (const r of results) {
-		if (r.limit_key !== null) out[r.limit_key] = { soft: r.soft_value ?? null, hard: r.hard_value ?? null };
-	}
-	return json({ ok: true, plan: results[0].plan, limits: out });
+	return json({ ok: true, plan: results[0].plan, limits: parseLimits(results[0].limits) });
 }
 
 /** One GET bridge read, or null when the path is not one (the caller answers it as before). */

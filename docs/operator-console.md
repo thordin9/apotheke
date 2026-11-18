@@ -178,9 +178,10 @@ and only in storage mode (`STORAGE`, `DB` and `INSTALLATION` bound). They follow
 
 - `GET /stats`: counts of items, photos, user accounts, and accounts signed in during the last 30 days.
 - `GET /users`: id, name, role, status, created and last sign-in for each account. No password hashes or sessions.
-- `GET /limits`: the plan and its `plan_limits` rows (`{key: {soft, hard}}`) for the object's own installation,
-  looked up by its `do_name` through its subscription. 404 when the installation has no subscription, 503 when the
-  control plane is not bound.
+- `GET /limits`: the plan and its limits (`{key: {soft, hard}}`) for the object's own installation, looked up by its
+  `do_name` through its subscription and read as the Worker reads them (`edge/src/limits.ts`, see [Limits](#limits)):
+  only keys with a hard value, soft 80% of hard when it has none. The app reads a fractional soft value as the next
+  whole number. 404 when the installation has no subscription, 503 when the control plane is not bound.
 
 **Plan limits.** With `APOTHEKE_HOSTED`, the app reads `/limits` once per request when it needs them. The hard
 values of `items`, `photos` and `users` cap adding items, photos and accounts: the count is checked inside the unit

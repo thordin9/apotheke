@@ -2,7 +2,7 @@
 // installation_routes (edge/migrations/control/). No row, no DB binding, or a failed lookup falls back to the one
 // installation every request went to before, so primary keeps working through a D1 outage.
 import { INSTALLATION_NAME } from "./installation";
-import { parseLimits, type Limits } from "./limits";
+import { PLAN_LIMITS_JSON_SQL, parseLimits, type Limits } from "./limits";
 
 /** limits is set only for a lookup made with limits (LIMITS_ENABLED): the plan_limits of the installation's subscription. */
 export type Route = { doName: string; status: string; limits?: Limits };
@@ -16,8 +16,7 @@ export const FAILURE_TTL_MS = 5_000;
 export const ROUTE_CACHE_MAX = 1000;
 const ROUTE_SQL = "SELECT i.do_name AS doName, i.status AS status FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE r.host = ?";
 // The same row plus the plan's hard limits ({"key": [soft, hard]}; '{}' without a subscription or limit rows).
-const ROUTE_LIMITS_SQL = "SELECT i.do_name AS doName, i.status AS status, (SELECT json_group_object(l.limit_key, json_array(l.soft_value, l.hard_value))"
-	+ " FROM subscriptions s JOIN plan_limits l ON l.plan_id = s.plan_id WHERE s.installation_id = i.id AND l.hard_value IS NOT NULL) AS limits"
+const ROUTE_LIMITS_SQL = `SELECT i.do_name AS doName, i.status AS status, ${PLAN_LIMITS_JSON_SQL} AS limits`
 	+ " FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE r.host = ?";
 const cache = new Map<string, { route: Route | null; until: number }>();
 

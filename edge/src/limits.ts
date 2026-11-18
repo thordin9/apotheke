@@ -18,7 +18,15 @@ export function limitsEnabled(env: { LIMITS_ENABLED?: string }): boolean {
 	return env.LIMITS_ENABLED === "1";
 }
 
-/** plan_limits rows as the route query returns them ({"key": [soft, hard]}, JSON). Soft defaults to 80% of hard. */
+/**
+ * The plan_limits of installation i's subscription as one JSON value ({"key": [soft, hard]}; NULL without a
+ * subscription or limit rows), for a query that has the installations row as i. Only rows with a hard value.
+ * parseLimits() reads it.
+ */
+export const PLAN_LIMITS_JSON_SQL = "(SELECT json_group_object(l.limit_key, json_array(l.soft_value, l.hard_value))"
+	+ " FROM subscriptions s JOIN plan_limits l ON l.plan_id = s.plan_id WHERE s.installation_id = i.id AND l.hard_value IS NOT NULL)";
+
+/** plan_limits rows as PLAN_LIMITS_JSON_SQL returns them ({"key": [soft, hard]}, JSON). Soft defaults to 80% of hard. */
 export function parseLimits(raw: unknown): Limits {
 	const out: Limits = {};
 	let rows: unknown;
