@@ -11,6 +11,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Fixed
 
 - **edge:** plan limits follow-ups: client copies of the limits headers never reach the app, every request body is capped as it streams, the 413, 429 and 402 answers carry the app's CORS headers (and the app exposes `Apotheke-Limit-Warning`), and the stored-bytes counter is recounted from R2 daily and before a 507 ([#321](https://github.com/thordin9/apotheke/pull/321))
+- **edge:** with plan limits on, a CORS preflight under `/api` is never refused or counted, a failed stored-bytes recount waits like a successful one before the next try, and a body that does not match its `Content-Length` gets a 400 ([#322](https://github.com/thordin9/apotheke/pull/322))
 
 ## [3.46.0] - 2026-11-18
 
