@@ -18,13 +18,15 @@ side table and calls the same plan and status changes the console uses.
 Migrations live in [`edge/migrations/control/`](../edge/migrations/control/), numbered for
 `wrangler d1 migrations apply` (`0001_…sql`, `0002_…sql`). They are additive only: a later migration adds tables or
 columns and never drops or renames, so the previous Worker version keeps working. Applying them is part of the deploy
-job, not of this repository's tests.
+job, not of this repository's tests. The one exception is `0004`: it rebuilds `plan_limits` with the same columns and
+rows so its key `CHECK` also allows `photos_per_item` (SQLite cannot change a `CHECK` in place). It is safe to apply
+again, and the tests pin it by sha256 like the others.
 
 | Table | Purpose |
 |---|---|
 | `installations` | One row per installation: `id`, `do_name` (1-63 lower-case letters and digits in `-`-separated groups), `r2_prefix` (always `installations/<do_name>/`; neither ever changes: triggers refuse an update and a `REPLACE` over an existing installation), lifecycle `status` (`provisioning`, `active`, `suspended`, `deleting`, `deleted`), owner contact, notes |
 | `installation_routes` | Host (lower case, no port, no empty label or label starting or ending with `-`) → installation; several hosts may point at one installation |
-| `plans`, `plan_limits` | Plans and their soft and hard limits per key (`items`, `storage_bytes`, `photos`, `users`, `autofill_calls_month`, `requests_month`, `container_hours_month`, `sleep_after_ms`, `import_file_bytes`). No row for a key means no limit |
+| `plans`, `plan_limits` | Plans and their soft and hard limits per key (`items`, `storage_bytes`, `photos`, `users`, `autofill_calls_month`, `requests_month`, `container_hours_month`, `sleep_after_ms`, `import_file_bytes`, `photos_per_item`). No row for a key means no limit. `photos` is the total across all items; `photos_per_item` is the most photos one item may have (no plan has a value yet; the Worker does not enforce it) |
 | `subscriptions` | One row per installation: plan, manual status, `trial_end`, `period_end`, notes |
 | `usage_counters` | Per installation, month (`YYYY-MM`) and metric |
 | `operator_audit` | Every operator change, control-plane fields only. Append-only: triggers refuse updates, deletes and inserts over an existing id (`INSERT OR REPLACE`) |
@@ -88,8 +90,8 @@ console API.
 |---|---|---|---|
 | Requests per month (`requests_month`) | Counter in the container object | `Apotheke-Limit-Warning: requests_month` on responses | 429 "This Apotheke reached its monthly request limit. The owner can upgrade the plan." |
 | Container active time per month (`container_hours_month`, hours) | Container object, start to stop | `Apotheke-Limit-Warning: container_hours_month` | 402 "This month's active time is used up", without waking the container |
-| Request body (`import_file_bytes`) | Worker, before the body is read: `Content-Length`, or a streaming cap when there is none | none | 413 "File is larger than your plan allows (N MB)" |
-| Stored bytes (`storage_bytes`) | `r2.internal` on a write and a multipart complete, against a counter in the `Installation` object | none yet | 507 to PHP, `code` `storage_full` |
+| Request body (`import_file_bytes`) | Worker: a valid `Content-Length` over the hard value before the body is read, and a streaming cap on every body | none | 413 "File is larger than your plan allows (N MB)" |
+| Stored bytes (`storage_bytes`) | `r2.internal` on a write and a multipart complete, against a counter in the `Installation` object, recounted from R2 | none yet | 507 to PHP, `code` `storage_full` |
 
 - **Off switch.** The Worker var `LIMITS_ENABLED` (`"0"` in `edge/wrangler.jsonc`) turns everything off: each request
   is forwarded exactly as before, with no limits lookup and no counting. `"1"` turns enforcement on. The var is read
@@ -99,10 +101,21 @@ console API.
 - **Active time** is measured as the inactivity timeout defines it: a run starts with a request that finds the
   container asleep and ends `SLEEP_AFTER_MS` after the last request. Once the month is used up, every request gets the
   402 page and the container sleeps after its timeout.
-- **Stored bytes** count from when metering begins: files already stored before then are not counted until a later
-  reconciliation. An overwrite counts the difference and a delete gives its bytes back. A multipart upload is refused
-  at completion only when the store is already full, so one upload can go past the hard value by its own size.
-  Concurrent writes near the limit can pass it by the bytes in flight.
+- **Stored bytes** are counted on each write: an overwrite counts the difference and a delete gives its bytes back. A
+  multipart upload is refused at completion only when the store is already full, so one upload can go past the hard
+  value by its own size. Concurrent writes near the limit can pass it by the bytes in flight.
+- **Recount.** Concurrent writes to one key can count the same bytes twice, and files stored before metering began are
+  not counted on write. The `Installation` object therefore resets the counter to the total listed under the
+  installation's R2 prefix (paged, upload markers not counted): in its alarm when the last recount is over a day old,
+  and before a 507 when it is over an hour old. The alarm is set only by a change, so an idle installation is not
+  listed. Writes during a listing can leave the counter off by their own size until the next recount. A failed
+  listing leaves the counter as it was. `primary` is never listed.
+- **Headers.** `X-Apotheke-Limits` and `Apotheke-Limit-Warning` sent by a client are removed before a request reaches
+  the app, for every installation and whatever `LIMITS_ENABLED` is. The only `Apotheke-Limit-Warning` on a response
+  is the one the Worker sets.
+- **CORS.** The 413, 429 and 402 answers under `/api` carry the same CORS headers the app sends for an origin in
+  `CORS_ALLOWED_ORIGINS` (exact https origins, `Vary: Origin`), so the app on another origin can read them. The app's
+  `Access-Control-Expose-Headers` includes `Apotheke-Limit-Warning`.
 - **Counters** are kept in memory in the owning object and written to its storage by an alarm at most 60 seconds after
   a change. `ApothekeContainer.usage()` returns the month's `requests` and
   `container_seconds` for the Cron that will copy them into `usage_counters` (not scheduled yet).
