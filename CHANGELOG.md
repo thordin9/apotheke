@@ -15,6 +15,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **core:** with `APOTHEKE_HOSTED`, the plan's limits cap items, photos and user accounts inside the unit of work that adds them, and cap the upload size settings; off when self-hosted ([#317](https://github.com/thordin9/apotheke/pull/317))
 - **auth:** a one-time first-admin claim for hosted installations (`php spark accounts:claim-create`, `/claim`), valid for `HOSTED_CLAIM_HOURS` (default 72); 404 when self-hosted ([#317](https://github.com/thordin9/apotheke/pull/317))
 
+### Maintenance
+
+- ci: bump @playwright/test to 1.65.0 and pin the Playwright image ([#311](https://github.com/thordin9/apotheke/pull/311))
+
 ## [3.45.0] - 2026-11-13
 
 ### Added
