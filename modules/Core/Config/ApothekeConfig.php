@@ -116,6 +116,11 @@ final class ApothekeConfig
         // The hosted service (operator console C1): plan ceilings and the first-admin claim. Off unless set.
         $cfg['hosted'] = filter_var($cfg['hosted'] ?? false, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? false;
         $cfg['hosted_claim_hours'] = min(720, max(1, (int)($cfg['hosted_claim_hours'] ?? 72)));
+        // Hosted, the first admin comes only from the first-admin claim: APP_PASSWORD is not used (not needed to
+        // start, never seeded). Without APOTHEKE_HOSTED it works as before.
+        if ($cfg['hosted']) {
+            $cfg['app_password'] = '';
+        }
 
         return new self($cfg);
     }

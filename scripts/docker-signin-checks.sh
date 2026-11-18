@@ -4,6 +4,8 @@
 # Checks: no APP_PASSWORD -> exit 78 with a clear message; a bad ALLOW_NO_LOGIN -> exit 64; a too-short APP_PASSWORD
 # -> exit 78; a database that can't be read -> exit 78; APP_PASSWORD -> starts; the same data volume later without
 # APP_PASSWORD (sign-in already on in the database) -> starts; ALLOW_NO_LOGIN=1 -> starts.
+# Hosted (APOTHEKE_HOSTED=1) on a new data volume: starts without APP_PASSWORD and creates no account; with
+# APOTHEKE_INSTALLATION alone it still refuses.
 # Also: APOTHEKE_APP=legacy or an unknown value -> exit 64; a symbolic link in place of a data directory -> exit 78
 # (L-430); the first start prunes old sessions once, and a link in place of its marker is replaced, not followed (L-430).
 set -euo pipefail
@@ -119,4 +121,20 @@ echo "   ok"
 
 echo "== ALLOW_NO_LOGIN=1: starts without sign-in"
 starts -e ALLOW_NO_LOGIN=1
+echo "   ok"
+
+echo "== a new data volume, APOTHEKE_INSTALLATION alone and no APP_PASSWORD: refuses to start"
+insh 'rm -rf /data/* /data/.[!.]*'
+out=$(refused 78 -e APOTHEKE_INSTALLATION=tenant-a)
+grep -q 'sign-in is off' <<<"$out"
+echo "   ok"
+
+echo "== hosted (APOTHEKE_HOSTED=1) without APP_PASSWORD: starts, and no account is created"
+starts -e APOTHEKE_HOSTED=1 -e APOTHEKE_INSTALLATION=tenant-a
+out=$(docker run --rm -v "$data:/data" -u www-data -e APOTHEKE_HOSTED=1 "$image" php /var/www/app/bin/settings.php users)
+grep -qx 'No accounts.' <<<"$out"
+echo "   ok"
+
+echo "== the same data without APOTHEKE_HOSTED and without APP_PASSWORD: refuses (no account yet)"
+refused 78 >/dev/null
 echo "   ok"

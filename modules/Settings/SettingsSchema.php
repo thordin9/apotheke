@@ -229,7 +229,8 @@ final class SettingsSchema
             $cfg = $config instanceof Closure ? $config() : $config;
             $password = (string)($cfg['app_password'] ?? '');
             if ($d === 'cfg_auth') {
-                return $password !== '';
+                // Hosted: sign-in is always on, also before the first admin claims the installation.
+                return $password !== '' || ($cfg['hosted'] ?? false) === true;
             }
 
             return $password !== '' ? password_hash($password, PASSWORD_DEFAULT) : '';

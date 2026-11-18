@@ -33,6 +33,17 @@ final class AuthStatusD1Test extends CIUnitTestCase
         }
     }
 
+    /** Hosted: on for a new installation whatever APP_PASSWORD is (the first-admin claim makes the first admin). */
+    public function testAHostedNewInstallationIsOnWithoutAppPassword(): void
+    {
+        foreach (['', 'shortpw', 'long-enough'] as $password) {
+            $d1 = new D1SqliteStandIn();
+            $this->assertSame([0, "on\n", ''], $this->authStatus($d1, $password, true), 'APP_PASSWORD of ' . strlen($password) . ' characters');
+            $this->assertSame([], $d1->batches, 'nothing written');
+            $this->assertSame([], $d1->execLog, 'nothing migrated');
+        }
+    }
+
     /** A new install has no settings table yet: the boot check asks without a failing query on the bridge. */
     public function testANewInstallationRunsNoFailingQuery(): void
     {
@@ -117,13 +128,13 @@ final class AuthStatusD1Test extends CIUnitTestCase
     }
 
     /** @return array{0:int,1:string,2:string} */
-    private function authStatus(D1Executor $d1, string $password): array
+    private function authStatus(D1Executor $d1, string $password, bool $hosted = false): array
     {
         $out = fopen('php://memory', 'w+b');
         $err = fopen('php://memory', 'w+b');
         $this->assertIsResource($out);
         $this->assertIsResource($err);
-        $exit = (new AuthStatus(AuthStatus::d1($d1, self::FAILURE), $password, $out, $err))->run();
+        $exit = (new AuthStatus(AuthStatus::d1($d1, self::FAILURE), $password, $out, $err, $hosted))->run();
         rewind($out);
         rewind($err);
 

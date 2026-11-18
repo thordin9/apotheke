@@ -288,6 +288,49 @@ final class Ci4AccountsCliTest extends TestCase
     }
 
     /**
+     * Hosted (APOTHEKE_HOSTED=1): APP_PASSWORD is optional and never used. `auth status` answers on for a new install
+     * with no APP_PASSWORD (or a short one), and the first migration creates no account: the first admin comes from
+     * the first-admin claim. APOTHEKE_INSTALLATION alone changes nothing: without APP_PASSWORD it is still off.
+     */
+    public function testHostedStartsWithoutAppPasswordAndSeedsNoAccount(): void
+    {
+        $hosted = ['APOTHEKE_HOSTED' => '1', 'APOTHEKE_INSTALLATION' => 'tenant-a'];
+        foreach (['' => 'none', 'shortpw' => 'short', 'long-enough' => 'set'] as $password => $label) {
+            [, $dir] = $this->twins('acli-hosted-' . $label);
+            foreach ([true, false] as $ci4) {
+                $r = $this->cli($dir, ['auth', 'status'], $ci4, null, $hosted + ['APP_PASSWORD' => $password]);
+                $this->assertSame([0, "on\n", ''], [$r['exit'], $r['stdout'], $r['stderr']], 'hosted, APP_PASSWORD ' . $label . ($ci4 ? '' : ' (spark)'));
+            }
+            $this->assertSame([], $this->tables($dir), 'auth status migrates nothing');
+            $r = $this->cli($dir, ['users'], true, null, $hosted + ['APP_PASSWORD' => $password]);
+            $this->assertSame(0, $r['exit'], $r['stderr']);
+            $this->assertSame(0, (int)testdb($dir)->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'hosted, APP_PASSWORD ' . $label . ': no account is seeded');
+            $this->assertSame([], testdb($dir)->query("SELECT name FROM settings WHERE name = 'password_hash' AND value NOT IN ('', '\"\"')")->fetchAll(PDO::FETCH_COLUMN), 'no password from APP_PASSWORD');
+            $this->assertSame('true', testdb($dir)->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->fetchColumn(), 'sign-in is on');
+            $r = $this->cli($dir, ['auth', 'status'], true, null, $hosted + ['APP_PASSWORD' => $password]);
+            $this->assertSame([0, "on\n"], [$r['exit'], $r['stdout']], 'migrated, still no account: on');
+            foreach (self::PASSWORDS as $p) {
+                $this->assertStringNotContainsString($p, $r['stdout'] . $r['stderr']);
+            }
+        }
+
+        // Not hosted: unchanged. No APP_PASSWORD is off (the entrypoint refuses), APOTHEKE_INSTALLATION or not.
+        foreach ([[], ['APOTHEKE_INSTALLATION' => 'tenant-a'], ['APOTHEKE_HOSTED' => '0']] as $i => $env) {
+            [, $dir] = $this->twins('acli-selfhosted-' . $i);
+            $r = $this->cli($dir, ['auth', 'status'], true, null, $env);
+            $this->assertSame([3, "off\n", ''], [$r['exit'], $r['stdout'], $r['stderr']], (string)json_encode($env));
+            $r = $this->cli($dir, ['auth', 'status'], true, null, $env + ['APP_PASSWORD' => 'shortpw']);
+            $this->assertSame(4, $r['exit'], 'a short APP_PASSWORD is still refused');
+        }
+        // Not hosted with APP_PASSWORD: the account admin is seeded as before.
+        [, $dir] = $this->twins('acli-selfhosted-seed');
+        $r = $this->cli($dir, ['users'], true, null, ['APOTHEKE_INSTALLATION' => 'tenant-a', 'APP_PASSWORD' => 'long-enough']);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $this->assertSame([['admin', 'admin', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM));
+        $this->assertTrue(password_verify('long-enough', (string)testdb($dir)->query('SELECT password_hash FROM users')->fetchColumn()));
+    }
+
+    /**
      * Storage mode (DB_DRIVER=d1, set by the Worker): `auth status` asks the D1 bridge, not PDO, so the
      * entrypoint's check still means something there. With no bridge to reach (no Worker here) it is
      * the sanitized "no database" line and exit 1, never a PDO-only refusal; nothing is written locally.

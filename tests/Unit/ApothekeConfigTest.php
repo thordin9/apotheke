@@ -69,6 +69,36 @@ final class ApothekeConfigTest extends TestCase
         $this->assertSame(720, ApothekeConfig::load('/repo', null, ['HOSTED_CLAIM_HOURS' => '9999'])->values()['hosted_claim_hours']);
     }
 
+    /** Hosted, APP_PASSWORD is not used (the first admin comes from the first-admin claim); otherwise it is read as before. */
+    public function testHostedDoesNotUseAppPassword(): void
+    {
+        $pw = 'pw-' . bin2hex(random_bytes(6));
+        $cases = [
+            [['APP_PASSWORD' => $pw], $pw],
+            [['APP_PASSWORD' => $pw, 'APOTHEKE_INSTALLATION' => 'tenant-a'], $pw],
+            [['APP_PASSWORD' => $pw, 'APOTHEKE_HOSTED' => '0'], $pw],
+            [['APP_PASSWORD' => $pw, 'APOTHEKE_HOSTED' => 'maybe'], $pw],
+            [['APP_PASSWORD' => $pw, 'APOTHEKE_HOSTED' => '1'], ''],
+            [['APP_PASSWORD' => $pw, 'APOTHEKE_HOSTED' => 'true'], ''],
+            [['APOTHEKE_HOSTED' => '1'], ''],
+        ];
+        foreach ($cases as $i => [$env, $want]) {
+            $this->assertSame($want, ApothekeConfig::load('/repo', null, $env)->values()['app_password'], 'ci4 case ' . $i);
+            $this->assertSame($want, config_load('/repo', null, $env)['app_password'], 'legacy case ' . $i);
+        }
+        $file = tempnam(sys_get_temp_dir(), 'apo-cfg-');
+        $this->assertIsString($file);
+        try {
+            file_put_contents($file, "<?php\nreturn ['hosted' => true];\n");
+            $this->assertSame('', ApothekeConfig::load('/repo', $file, ['APP_PASSWORD' => $pw])->values()['app_password'], 'ci4, hosted in config.php');
+            $this->assertSame('', config_load('/repo', $file, ['APP_PASSWORD' => $pw])['app_password'], 'legacy, hosted in config.php');
+            $this->assertSame($pw, ApothekeConfig::load('/repo', $file, ['APP_PASSWORD' => $pw, 'APOTHEKE_HOSTED' => '0'])->values()['app_password'], 'the environment wins');
+            $this->assertSame($pw, config_load('/repo', $file, ['APP_PASSWORD' => $pw, 'APOTHEKE_HOSTED' => '0'])['app_password'], 'legacy: the environment wins');
+        } finally {
+            unlink($file);
+        }
+    }
+
     /** RESTORE_CHUNK_KB is clamped to 64–16384 (under PHP's 20 MB upload limit), RESTORE_MAX_MB to 1–4096. */
     public function testTheChunkedRestoreSizesAreClamped(): void
     {
