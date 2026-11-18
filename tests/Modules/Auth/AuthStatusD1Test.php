@@ -33,12 +33,15 @@ final class AuthStatusD1Test extends CIUnitTestCase
         }
     }
 
-    /** Hosted: on for a new installation whatever APP_PASSWORD is (the first-admin claim makes the first admin). */
+    /**
+     * Hosted without APP_PASSWORD: on for a new installation (the first-admin claim makes the first admin). Hosted with
+     * APP_PASSWORD: the same answers as self-hosted.
+     */
     public function testAHostedNewInstallationIsOnWithoutAppPassword(): void
     {
-        foreach (['', 'shortpw', 'long-enough'] as $password) {
+        foreach (['' => [0, "on\n", ''], 'long-enough' => [0, "on\n", ''], 'shortpw' => [4, '', "APP_PASSWORD is too short: use at least 8 characters (not only spaces), or leave it empty.\n"]] as $password => $expected) {
             $d1 = new D1SqliteStandIn();
-            $this->assertSame([0, "on\n", ''], $this->authStatus($d1, $password, true), 'APP_PASSWORD of ' . strlen($password) . ' characters');
+            $this->assertSame($expected, $this->authStatus($d1, (string)$password, true), 'APP_PASSWORD of ' . strlen((string)$password) . ' characters');
             $this->assertSame([], $d1->batches, 'nothing written');
             $this->assertSame([], $d1->execLog, 'nothing migrated');
         }

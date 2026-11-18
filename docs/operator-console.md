@@ -158,8 +158,8 @@ running installation at its next start.
 
 Rotating the Worker's `APP_KEY` secret changes `primary`'s key and every derived per-installation key at once. Nothing
 re-encrypts the secrets other installations have already stored under their old key, so a rotation has to be planned
-per installation first. With `APOTHEKE_HOSTED` the app does not use `APP_PASSWORD` (see
-[Hosted installations](#hosted-installations)), so a hosted container needs none.
+per installation first. With `APOTHEKE_HOSTED`, `APP_PASSWORD` is optional (see
+[Hosted installations](#hosted-installations)), so a hosted container can start without one.
 
 ## Lifecycle jobs
 
@@ -231,11 +231,12 @@ unit, which takes the `active-admins` key like every unit that adds an active ad
 every claim request gets the same 410 answer, whatever its token, and the claim row is removed. Registration stays
 closed until the first account exists, and sign-in cannot be turned off.
 
-**No `APP_PASSWORD`.** With `APOTHEKE_HOSTED`, `APP_PASSWORD` is not used: the container starts without it (the
-start-up check `auth status` answers on once the database answers), the first migration turns sign-in on, and no
-account `admin` is created from it, so the first-admin claim is the only way to the first admin. `APOTHEKE_INSTALLATION`
-alone changes nothing. Without `APOTHEKE_HOSTED`, a missing `APP_PASSWORD` on a new install still stops the start as
-before ([Deployment and operations](deployment-and-operations.md)).
+**`APP_PASSWORD` is optional.** With `APOTHEKE_HOSTED` and no `APP_PASSWORD`, the container starts (the start-up
+check `auth status` answers on once the database answers), the first migration turns sign-in on and creates no
+account, and the first-admin claim makes the first admin. With `APOTHEKE_HOSTED` and `APP_PASSWORD` set, the first
+start creates the account `admin` from it exactly as on a self-hosted install, so the claim is not the way to the first
+admin there. `APOTHEKE_INSTALLATION` alone changes nothing. Without `APOTHEKE_HOSTED`, a missing `APP_PASSWORD` on a new
+install still stops the start as before ([Deployment and operations](deployment-and-operations.md)).
 
 ## Backup for a lifecycle job
 

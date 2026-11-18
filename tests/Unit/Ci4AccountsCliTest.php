@@ -288,27 +288,45 @@ final class Ci4AccountsCliTest extends TestCase
     }
 
     /**
-     * Hosted (APOTHEKE_HOSTED=1): APP_PASSWORD is optional and never used. `auth status` answers on for a new install
-     * with no APP_PASSWORD (or a short one), and the first migration creates no account: the first admin comes from
-     * the first-admin claim. APOTHEKE_INSTALLATION alone changes nothing: without APP_PASSWORD it is still off.
+     * Hosted (APOTHEKE_HOSTED=1): APP_PASSWORD is optional. Without it `auth status` answers on for a new install, the
+     * first migration creates no account, and `accounts:claim-create` makes the first-admin claim. With it, the account
+     * admin is seeded exactly as self-hosted, and a short one is refused the same way. APOTHEKE_INSTALLATION alone
+     * changes nothing: without APP_PASSWORD it is still off.
      */
-    public function testHostedStartsWithoutAppPasswordAndSeedsNoAccount(): void
+    public function testHostedAppPasswordIsOptional(): void
     {
         $hosted = ['APOTHEKE_HOSTED' => '1', 'APOTHEKE_INSTALLATION' => 'tenant-a'];
-        foreach (['' => 'none', 'shortpw' => 'short', 'long-enough' => 'set'] as $password => $label) {
-            [, $dir] = $this->twins('acli-hosted-' . $label);
-            foreach ([true, false] as $ci4) {
-                $r = $this->cli($dir, ['auth', 'status'], $ci4, null, $hosted + ['APP_PASSWORD' => $password]);
-                $this->assertSame([0, "on\n", ''], [$r['exit'], $r['stdout'], $r['stderr']], 'hosted, APP_PASSWORD ' . $label . ($ci4 ? '' : ' (spark)'));
-            }
-            $this->assertSame([], $this->tables($dir), 'auth status migrates nothing');
-            $r = $this->cli($dir, ['users'], true, null, $hosted + ['APP_PASSWORD' => $password]);
-            $this->assertSame(0, $r['exit'], $r['stderr']);
-            $this->assertSame(0, (int)testdb($dir)->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'hosted, APP_PASSWORD ' . $label . ': no account is seeded');
-            $this->assertSame([], testdb($dir)->query("SELECT name FROM settings WHERE name = 'password_hash' AND value NOT IN ('', '\"\"')")->fetchAll(PDO::FETCH_COLUMN), 'no password from APP_PASSWORD');
-            $this->assertSame('true', testdb($dir)->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->fetchColumn(), 'sign-in is on');
-            $r = $this->cli($dir, ['auth', 'status'], true, null, $hosted + ['APP_PASSWORD' => $password]);
-            $this->assertSame([0, "on\n"], [$r['exit'], $r['stdout']], 'migrated, still no account: on');
+        [, $dir] = $this->twins('acli-hosted-none');
+        foreach ([true, false] as $ci4) {
+            $r = $this->cli($dir, ['auth', 'status'], $ci4, null, $hosted);
+            $this->assertSame([0, "on\n", ''], [$r['exit'], $r['stdout'], $r['stderr']], 'hosted, no APP_PASSWORD' . ($ci4 ? '' : ' (spark)'));
+        }
+        $this->assertSame([], $this->tables($dir), 'auth status migrates nothing');
+        $r = $this->cli($dir, ['users'], true, null, $hosted);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $this->assertSame(0, (int)testdb($dir)->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'hosted, no APP_PASSWORD: no account is seeded');
+        $this->assertSame('true', testdb($dir)->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->fetchColumn(), 'sign-in is on');
+        $r = $this->cli($dir, ['auth', 'status'], true, null, $hosted);
+        $this->assertSame([0, "on\n"], [$r['exit'], $r['stdout']], 'migrated, still no account: on');
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:claim-create', '--no-header'], array_merge($this->env($dir, false), $hosted), null);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $token = trim($r['stdout']);
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]{43}$/', $token, 'the claim token');
+        $stored = json_decode((string)testdb($dir)->query("SELECT value FROM settings WHERE name = 'hosted_first_admin_claim'")->fetchColumn(), true);
+        $this->assertSame(hash('sha256', $token), is_array($stored) ? ($stored['sha256'] ?? null) : null, 'the claim is stored by its hash');
+
+        // Hosted with APP_PASSWORD: seeded as self-hosted; a short one is refused as self-hosted.
+        [, $dir] = $this->twins('acli-hosted-set');
+        $r = $this->cli($dir, ['auth', 'status'], true, null, $hosted + ['APP_PASSWORD' => 'long-enough']);
+        $this->assertSame([0, "on\n", ''], [$r['exit'], $r['stdout'], $r['stderr']]);
+        $r = $this->cli($dir, ['users'], true, null, $hosted + ['APP_PASSWORD' => 'long-enough']);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $this->assertSame([['admin', 'admin', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM), 'hosted with APP_PASSWORD seeds admin');
+        $this->assertTrue(password_verify('long-enough', (string)testdb($dir)->query('SELECT password_hash FROM users')->fetchColumn()));
+        [, $dir] = $this->twins('acli-hosted-short');
+        foreach ([true, false] as $ci4) {
+            $r = $this->cli($dir, ['auth', 'status'], $ci4, null, $hosted + ['APP_PASSWORD' => 'shortpw']);
+            $this->assertSame(4, $r['exit'], 'hosted, a short APP_PASSWORD is still refused' . ($ci4 ? '' : ' (spark)'));
             foreach (self::PASSWORDS as $p) {
                 $this->assertStringNotContainsString($p, $r['stdout'] . $r['stderr']);
             }

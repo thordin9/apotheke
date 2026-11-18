@@ -18,6 +18,7 @@ use Apotheke\Core\Hosted\PlanLimits;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\CommandLine;
 use Apotheke\Core\Storage\LocalStorage;
+use Apotheke\Migrations\PdoMigrationRunner;
 use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
@@ -125,6 +126,53 @@ final class FirstAdminClaimTest extends CIUnitTestCase
         $pw2 = self::secret();
         $this->refused(fn () => $this->claims($batch)->claim($made['token'], 'second', $pw2, $pw2), 410, 'This claim link is no longer valid.');
         $this->assertSame([['username' => 'owner', 'role' => 'admin', 'status' => 'active']], $this->accounts());
+    }
+
+    /**
+     * A hosted installation migrated without APP_PASSWORD has no account and sign-in on, and the claim makes its first
+     * admin. Migrated with APP_PASSWORD it has the seeded admin, as self-hosted, so the claim is no path there.
+     */
+    #[DataProvider('drivers')]
+    public function testHostedAppPasswordDecidesTheFirstAdminPath(string $driver): void
+    {
+        foreach (['' => 'none', self::secret() => 'set'] as $appPassword => $label) {
+            $appPassword = (string)$appPassword;
+            $this->database?->drop();
+            $this->database = TestDatabase::create($driver, false);
+            // Migrated as the container's first start does, in its own process (the migrations read the process config).
+            $env = array_merge(array_map('strval', getenv()), $this->database->clientEnv(), ['APOTHEKE_HOSTED' => '1', 'APP_PASSWORD' => $appPassword, 'APOTHEKE_CONFIG' => '/nonexistent', 'SEED_DEFAULTS' => '0']);
+            $proc = proc_open([PHP_BINARY, PdoMigrationRunner::repoRoot() . '/tests/ci4-migrate-worker.php'], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, PdoMigrationRunner::repoRoot(), $env);
+            $this->assertIsResource($proc);
+            stream_get_contents($pipes[1]);
+            $err = (string)stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $this->assertSame(0, proc_close($proc), $label . ': migrated' . ($err === '' ? '' : ' (' . strtok($err, "\n") . ')'));
+            $this->assertSame('true', $this->database->db->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->getRow()?->value, $label . ': sign-in is on');
+            $made = $this->claims()->create();
+            $pw = self::secret();
+            if ($appPassword === '') {
+                $this->assertSame([], $this->accounts(), 'none: no account is seeded');
+                $user = $this->claims()->claim($made['token'], 'owner', $pw, $pw);
+                $this->assertSame(['owner', 'admin', 'active'], [$user['username'], $user['role'], $user['status']], 'none: the claim makes the first admin');
+            } else {
+                $this->assertSame([['username' => 'admin', 'role' => 'admin', 'status' => 'active']], $this->accounts(), 'set: admin is seeded');
+                $hash = (string)$this->database->db->query('SELECT password_hash FROM users')->getRow()?->password_hash;
+                $this->assertTrue(password_verify($appPassword, $hash), 'set: with APP_PASSWORD');
+                $this->refused(fn () => $this->claims()->claim($made['token'], 'owner', $pw, $pw), 410, 'This claim link is no longer valid.');
+                $this->assertSame([['username' => 'admin', 'role' => 'admin', 'status' => 'active']], $this->accounts(), 'set: nobody is added');
+            }
+        }
+    }
+
+    /** @return iterable<string,array{0:string}> the PDO drivers (the D1 stand-in migrates over the bridge) */
+    public static function drivers(): iterable
+    {
+        foreach (TestDatabase::drivers() as $driver) {
+            if ($driver !== 'd1') {
+                yield $driver => [$driver];
+            }
+        }
     }
 
     /** A second use that read the claim before the first one wrote: the unit's delete finds nothing and adds nobody. */
