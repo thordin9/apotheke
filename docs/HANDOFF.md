@@ -78,7 +78,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   stops before a takeover could overlap it, and parts without a manifest are removed after a day; out-of-range or
   non-finite plan limits are refused.
 - Hosted installations with no `autofill_url` use `http://autofill.internal`; an explicit value is kept
-  ([#000](https://github.com/thordin9/apotheke/pull/000)).
+  ([#331](https://github.com/thordin9/apotheke/pull/331)).
 
 ## Open pull requests
 
