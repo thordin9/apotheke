@@ -27,9 +27,9 @@ function refused(status: number, message: string): Response {
 	});
 }
 
-/** A count the service accepts: a non-negative integer of at most 15 digits. */
-function count(value: number): string {
-	return String(Math.min(999_999_999_999_999, Math.max(0, Math.floor(value))));
+/** A count the service accepts: a non-negative integer of at most 15 digits, rounded down or up. */
+function count(value: number, round: (n: number) => number = Math.floor): string {
+	return String(Math.min(999_999_999_999_999, Math.max(0, round(value))));
 }
 
 /** The request the Worker sends to the service: the container's path, method and body; headers only from here. */
@@ -43,7 +43,8 @@ export function autofillRequest(request: Request, doName: string, limit: Limit |
 	headers.set(INSTALLATION_HEADER, doName);
 	if (limit) {
 		headers.set(LIMIT_HEADER, count(limit.hard));
-		headers.set(SOFT_HEADER, count(limit.soft));
+		// Rounded up, so a fractional soft value (80% of hard by default) warns no earlier than the service would.
+		headers.set(SOFT_HEADER, count(limit.soft, Math.ceil));
 	}
 	const init: RequestInit & { duplex?: "half" } = { method: request.method, headers, redirect: "manual" };
 	if (request.body !== null) {

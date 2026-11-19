@@ -44,9 +44,22 @@ test('L-2190: spoofed installation, limit and Authorization headers from the con
     'content-type': 'multipart/form-data; boundary=x',
     'x-apotheke-installation': 'tenant-b',
     'x-apotheke-autofill-limit': '6',
-    'x-apotheke-autofill-soft': '4',
+    'x-apotheke-autofill-soft': '5',
   });
   assert.ok(!JSON.stringify(sent).includes(FAKE_TOKEN));
+});
+
+test('N-2290, N-2291: the soft value is rounded up (80% of hard 7 sends 6) and a negative one from the plan sends 0', async () => {
+  const sent = async (limit) => {
+    const AUTOFILL = service();
+    await handleAutofill(suggest(), { ...ON, AUTOFILL }, { doName: 'tenant-b', autofill: limit });
+    const h = AUTOFILL.seen[0].headers;
+    return [h['x-apotheke-autofill-limit'], h['x-apotheke-autofill-soft']];
+  };
+  assert.deepEqual(await sent({ soft: 7 * 0.8, hard: 7 }), ['7', '6']);
+  assert.deepEqual(await sent({ soft: 6, hard: 7 }), ['7', '6']);
+  assert.deepEqual(await sent({ soft: -3, hard: 7 }), ['7', '0']);
+  assert.deepEqual(await sent({ soft: -0.5, hard: 7 }), ['7', '0']);
 });
 
 test('L-2190: with no autofill limit in the plan, the installation is set and spoofed limit headers are still dropped', async () => {
