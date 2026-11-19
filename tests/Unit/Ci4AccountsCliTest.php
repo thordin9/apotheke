@@ -367,7 +367,7 @@ final class Ci4AccountsCliTest extends TestCase
         $this->assertSame([1, '', "An active admin already exists, so no claim was made.\n"], [$r['exit'], $r['stdout'], $r['stderr']]);
 
         $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:hosted-reset-admins', '--no-header'], array_merge($this->env($dir, false), $hosted), null);
-        $this->assertSame([0, "Removed 1 admin account. The first-admin claim can be created.\n", ''], [$r['exit'], $r['stdout'], $r['stderr']]);
+        $this->assertSame([0, "Admin accounts were reset. The first-admin claim can be created.\n", ''], [$r['exit'], $r['stdout'], $r['stderr']]);
         $this->assertSame([['looker', 'viewer', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM), 'non-admin accounts stay');
 
         $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:claim-create', '--no-header'], array_merge($this->env($dir, false), $hosted), null);

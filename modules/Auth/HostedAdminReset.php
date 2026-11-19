@@ -6,7 +6,6 @@ namespace Apotheke\Auth;
 
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
-use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Hosted\HostedLimits;
 use CodeIgniter\Database\BaseConnection;
@@ -37,20 +36,15 @@ final class HostedAdminReset
         return $this->hosted->isHosted();
     }
 
-    /** How many admin accounts were removed. 0 when there were none. */
-    public function run(): int
+    /** Remove every admin account, or do nothing when there is none. */
+    public function run(): void
     {
         if (!$this->hosted->isHosted()) {
             throw new UserError('Page not found.', 404);
         }
 
-        return $this->units->run('users', function (UnitOfWork $uow): int {
-            $n = count(Writes::rows($this->db, "SELECT id FROM users WHERE role = 'admin'"));
-            if ($n > 0) {
-                $uow->write("DELETE FROM users WHERE role = 'admin'", [], 'reset hosted admins', $n);
-            }
-
-            return $n;
+        $this->units->run('users', static function (UnitOfWork $uow): void {
+            $uow->write("DELETE FROM users WHERE role = 'admin'", [], 'reset hosted admins');
         }, UserRepository::ACTIVE_ADMINS);
     }
 }

@@ -60,7 +60,7 @@ final class HostedAdminResetCommand extends BaseCommand
 
                 return 1;
             }
-            $n = $reset->run();
+            $reset->run();
         } catch (UserError) {
             fwrite($err, "The admin accounts could not be reset.\n");
 
@@ -70,11 +70,7 @@ final class HostedAdminResetCommand extends BaseCommand
 
             return 1;
         }
-        if ($n === 0) {
-            fwrite($out, "No admin account to reset. The first-admin claim can be created.\n");
-        } else {
-            fwrite($out, 'Removed ' . $n . ' admin account' . ($n === 1 ? '' : 's') . ". The first-admin claim can be created.\n");
-        }
+        fwrite($out, "Admin accounts were reset. The first-admin claim can be created.\n");
 
         return 0;
     }

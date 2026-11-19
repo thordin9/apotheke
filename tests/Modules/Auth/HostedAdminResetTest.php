@@ -94,10 +94,10 @@ final class HostedAdminResetTest extends CIUnitTestCase
         $users->create('waiting', 'x', 'admin', 'pending', '2026-01-01 00:00:00');
         $users->create('looker', 'x', 'viewer', 'active', '2026-01-01 00:00:00');
 
-        $this->assertSame(2, $this->reset($batch)->run());
+        $this->reset($batch)->run();
         $this->assertSame([['username' => 'looker', 'role' => 'viewer', 'status' => 'active']], $this->accounts());
-        $this->assertSame(0, $this->reset($batch)->run(), 'a second run is a no-op');
-        $this->assertSame([['username' => 'looker', 'role' => 'viewer', 'status' => 'active']], $this->accounts());
+        $this->reset($batch)->run();
+        $this->assertSame([['username' => 'looker', 'role' => 'viewer', 'status' => 'active']], $this->accounts(), 'a second run is a no-op');
     }
 
     #[DataProvider('modes')]
@@ -121,7 +121,7 @@ final class HostedAdminResetTest extends CIUnitTestCase
             $this->assertSame([409, FirstAdminClaim::ADMIN_EXISTS], [$e->getCode(), $e->getMessage()]);
         }
 
-        $this->assertSame(1, $this->reset($batch)->run());
+        $this->reset($batch)->run();
         $made = $claims->create();
         $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]{43}$/D', $made['token']);
         $pw = 'pw-' . bin2hex(random_bytes(8));
@@ -158,7 +158,7 @@ final class HostedAdminResetTest extends CIUnitTestCase
             ["INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES ('boss', 'boss', 'x', 'admin', 'active', '2026-01-01 00:00:00')", []],
         ], 400);
         try {
-            $this->assertSame(1, $this->reset($batch)->run());
+            $this->reset($batch)->run();
         } finally {
             $this->assertStringContainsString('committed', $wait());
         }
@@ -191,9 +191,9 @@ final class HostedAdminResetTest extends CIUnitTestCase
             ['username' => 'looker', 'role' => 'viewer', 'status' => 'active'],
         ], $this->accounts(), 'self-hosted: nothing is changed');
 
-        $this->assertSame([0, "Removed 1 admin account. The first-admin claim can be created.\n", ''], $run($this->reset()));
+        $this->assertSame([0, "Admin accounts were reset. The first-admin claim can be created.\n", ''], $run($this->reset()));
         $this->assertSame([['username' => 'looker', 'role' => 'viewer', 'status' => 'active']], $this->accounts());
-        $this->assertSame([0, "No admin account to reset. The first-admin claim can be created.\n", ''], $run($this->reset()));
+        $this->assertSame([0, "Admin accounts were reset. The first-admin claim can be created.\n", ''], $run($this->reset()));
         $this->assertArrayHasKey('accounts:hosted-reset-admins', Services::commands(false)->getCommands());
     }
 }
