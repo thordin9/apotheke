@@ -11,7 +11,9 @@
 #    stops both; the worker never stops FrankenPHP, and if FrankenPHP exits on its own the container stops
 #  - any other command is exec'd as-is (e.g. `php /var/www/app/bin/migrate.php`)
 #  - refuses to start the app with sign-in off (hardening, SEC-M3): set APP_PASSWORD, keep sign-in on in the
-#    database, or set ALLOW_NO_LOGIN=1 to run without sign-in on purpose
+#    database, or set ALLOW_NO_LOGIN=1 to run without sign-in on purpose. With APOTHEKE_HOSTED=1 APP_PASSWORD is optional:
+#    set, it seeds the account admin as above; not set, sign-in is still on and the first admin comes from the
+#    first-admin claim
 #  - serves Apotheke 3.0 (CodeIgniter 4); APOTHEKE_APP=legacy is refused, since 3.0 has no legacy app
 set -eu
 DATA_DIR="${DATA_DIR:-/data}"
@@ -50,7 +52,8 @@ fi
 # Sign-in must be on unless ALLOW_NO_LOGIN says otherwise. `auth status` asks the app itself (as www-data, so a new
 # SQLite file belongs to it): 0 = on, 3 = off, 4 = APP_PASSWORD too short (it says so on stderr), anything else = no
 # answer (PostgreSQL may still be starting). With APOTHEKE_APP=ci4 (kept by su -p) bin/settings.php runs the CI4 form,
-# `spark apotheke:accounts auth status`: same answers and exit codes, and it does not migrate either.
+# `spark apotheke:accounts auth status`: same answers and exit codes, and it does not migrate either. With
+# APOTHEKE_HOSTED=1 and no APP_PASSWORD it answers 0 once the database answers.
 case "${ALLOW_NO_LOGIN:-}" in
   1|true|yes) echo "apotheke: ALLOW_NO_LOGIN is set, sign-in is not required" ;;
   ''|0|false|no)

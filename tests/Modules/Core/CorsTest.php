@@ -54,12 +54,12 @@ final class CorsTest extends TestCase
         $this->assertSame([
             'Access-Control-Allow-Origin' => 'https://app.example.test',
             'Access-Control-Allow-Credentials' => 'true',
-            'Access-Control-Expose-Headers' => 'ETag, Location, Retry-After, Link',
+            'Access-Control-Expose-Headers' => 'ETag, Location, Retry-After, Link, Apotheke-Limit-Warning',
         ], $cors->headers('https://app.example.test', false));
         $this->assertSame([
             'Access-Control-Allow-Origin' => 'https://app.example.test',
             'Access-Control-Allow-Credentials' => 'true',
-            'Access-Control-Expose-Headers' => 'ETag, Location, Retry-After, Link',
+            'Access-Control-Expose-Headers' => 'ETag, Location, Retry-After, Link, Apotheke-Limit-Warning',
             'Access-Control-Allow-Methods' => 'GET, POST, PATCH, PUT, DELETE',
             'Access-Control-Allow-Headers' => 'Content-Type, X-CSRF-Token, If-Match, Idempotency-Key',
             'Access-Control-Max-Age' => '600',

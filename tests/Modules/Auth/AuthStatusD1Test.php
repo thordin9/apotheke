@@ -33,6 +33,20 @@ final class AuthStatusD1Test extends CIUnitTestCase
         }
     }
 
+    /**
+     * Hosted without APP_PASSWORD: on for a new installation (the first-admin claim makes the first admin). Hosted with
+     * APP_PASSWORD: the same answers as self-hosted.
+     */
+    public function testAHostedNewInstallationIsOnWithoutAppPassword(): void
+    {
+        foreach (['' => [0, "on\n", ''], 'long-enough' => [0, "on\n", ''], 'shortpw' => [4, '', "APP_PASSWORD is too short: use at least 8 characters (not only spaces), or leave it empty.\n"]] as $password => $expected) {
+            $d1 = new D1SqliteStandIn();
+            $this->assertSame($expected, $this->authStatus($d1, (string)$password, true), 'APP_PASSWORD of ' . strlen((string)$password) . ' characters');
+            $this->assertSame([], $d1->batches, 'nothing written');
+            $this->assertSame([], $d1->execLog, 'nothing migrated');
+        }
+    }
+
     /** A new install has no settings table yet: the boot check asks without a failing query on the bridge. */
     public function testANewInstallationRunsNoFailingQuery(): void
     {
@@ -117,13 +131,13 @@ final class AuthStatusD1Test extends CIUnitTestCase
     }
 
     /** @return array{0:int,1:string,2:string} */
-    private function authStatus(D1Executor $d1, string $password): array
+    private function authStatus(D1Executor $d1, string $password, bool $hosted = false): array
     {
         $out = fopen('php://memory', 'w+b');
         $err = fopen('php://memory', 'w+b');
         $this->assertIsResource($out);
         $this->assertIsResource($err);
-        $exit = (new AuthStatus(AuthStatus::d1($d1, self::FAILURE), $password, $out, $err))->run();
+        $exit = (new AuthStatus(AuthStatus::d1($d1, self::FAILURE), $password, $out, $err, $hosted))->run();
         rewind($out);
         rewind($err);
 

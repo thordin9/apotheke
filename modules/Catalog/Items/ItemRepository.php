@@ -10,6 +10,7 @@ use Apotheke\Core\Database\ReadCache;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Hosted\HostedLimits;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\ItemHistory;
 use Apotheke\Core\Libraries\Text;
@@ -35,9 +36,12 @@ final class ItemRepository
 
     private readonly ReadCache $cache;
 
+    private readonly HostedLimits $limits;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     * @param HostedLimits|null $limits the hosted plan's item and photo limits; none when null (self-hosted)
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -50,9 +54,11 @@ final class ItemRepository
         private readonly PhotoRepository $photoRows,
         ?UnitsOfWork $units = null,
         ?ReadCache $cache = null,
+        ?HostedLimits $limits = null,
     ) {
         $this->units = UnitsOfWork::forSite($db, $units);
         $this->cache = $cache ?? ReadCache::off();
+        $this->limits = $limits ?? HostedLimits::off();
     }
 
     /** @var list<string> files a save inside atomically() gives up; removed once the outer transaction has committed (N-126) */
@@ -142,10 +148,18 @@ final class ItemRepository
             'notes' => $in['notes'], 'value_cents' => $in['value_cents'], 'purchase_date' => $in['purchase_date'], 'expires_on' => $in['expires_on'], 'serial' => $in['serial'],
             'barcode' => $in['barcode'] === '' ? null : $in['barcode'], 'search' => $blob, 'sort_key' => Text::natkey($in['name'])];
         $drop = [];
-        $key = $existing === null ? '' : (string)(int)$existing['id'];
+        $key = $existing === null ? ['', ...$this->limits->lockKeys('items')] : [(string)(int)$existing['id']];
+        if ($newImage !== null) {
+            $key = [...$key, ...$this->limits->lockKeys('photos')];
+        }
         // One unit of work (ADR-002, Ref + guards): tags and the cover photo join it; history is queued.
         $result = $this->units->run('items', function (UnitOfWork $uow) use ($existing, $in, $newImage, $removeImage, $now, $cols, &$drop): int|Ref {
             if ($existing === null) {
+                // Hosted: the plan's item and photo limits, counted when the unit runs (HostedLimits).
+                $this->limits->guard($uow, 'items');
+                if ($newImage !== null) {
+                    $this->limits->guard($uow, 'photos');
+                }
                 $ref = $uow->insert('items', $cols + ['image' => $newImage, 'created_at' => $now, 'updated_at' => $now], 'add item');
                 $this->tags->set($ref, $in['tags'], $uow);
                 if ($newImage !== null) {
@@ -201,6 +215,9 @@ final class ItemRepository
             $this->tags->set($id, $in['tags'], $uow);
             if ($newImage !== null || $removeImage) {
                 $cover = $this->photos($id)[0] ?? null;
+                if ($newImage !== null && $cover === null) {
+                    $this->limits->guard($uow, 'photos');   // a first photo adds one; a replaced cover adds none
+                }
                 if ($cover !== null) {
                     $uow->write('DELETE FROM item_photos WHERE id = ?', [$cover['id']], 'remove cover');
                     $drop[] = $cover['file'];

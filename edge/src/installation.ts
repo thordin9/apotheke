@@ -2,9 +2,10 @@
 // database. The container reaches it only through http://d1.internal (D1Outbound), and only while the storage
 // mode is selected. The object answers the same /query, /batch and /exec as the D1 bridge (d1.ts).
 import { DurableObject } from "cloudflare:workers";
+import { handleBridgeRead, type ControlDb } from "./bridge";
 import { d1UnboundResponse, handleD1Request, type D1Like, type D1LikeStatement } from "./d1";
 import { Counter } from "./limits";
-import { storageSelected, type R2Env } from "./r2";
+import { prefixBytes, selectedBucket, storageSelected, type R2Env } from "./r2";
 
 /** The first installation: the routing fallback, with the container object and R2 prefix installations/primary/. */
 export const INSTALLATION_NAME = "primary";
@@ -98,30 +99,91 @@ export function sqlDatabase(storage: DurableObjectStorage): D1Like {
 	};
 }
 
+/** Limits (E5): how old the last recount of the stored bytes (or failed attempt) may be, in the alarm and before a
+ *  refusal. */
+export const RECOUNT_MS = 24 * 60 * 60 * 1000;
+export const RECOUNT_BEFORE_REFUSAL_MS = 60 * 60 * 1000;
+
+/** counted: when the last recount started that succeeded; failed: when the last one started that failed. */
+type StoredBytes = { bytes: number; doName?: string; counted?: number; failed?: number };
+
+/** The time a next recount waits from: a failed attempt waits the same window as a success, so a listing that keeps
+ *  failing is retried at most once an hour before a refusal and once a day in the alarm. */
+function lastRecount(value: StoredBytes): number {
+	return Math.max(value.counted ?? 0, value.failed ?? 0);
+}
+
 export class Installation extends DurableObject<Env & R2Env> {
-	/** Limits (E5): bytes stored under this installation's prefix since metering began, kept by R2Outbound. */
-	private stored?: Counter<{ bytes: number }>;
+	/** Limits (E5): bytes stored under this installation's prefix, kept by R2Outbound and recounted from R2. */
+	private stored?: Counter<StoredBytes>;
+	/** The one recount in flight: concurrent callers share it. */
+	private recounting: Promise<boolean> | null = null;
+
+	private storedCounter(): Counter<StoredBytes> {
+		return (this.stored ??= new Counter<StoredBytes>(this.ctx.storage, "storage_bytes", () => ({ bytes: 0 })));
+	}
 
 	/** Adds delta (negative for a delete or a smaller overwrite) to the stored bytes. With a hard value, refuses (false,
-	 *  nothing added) a non-negative change that would go past it; a change of 0 is refused once the store is full. */
-	async storageAdd(delta: number, hard: number | null): Promise<boolean> {
-		const counter = (this.stored ??= new Counter(this.ctx.storage, "storage_bytes", () => ({ bytes: 0 })));
+	 *  nothing added) a non-negative change that would go past it; a change of 0 is refused once the store is full.
+	 *  Before a refusal the bytes are recounted from R2 when the last recount is over an hour old. doName is the
+	 *  caller's installation (R2Outbound), kept for the recount when the runtime gives this object no name. */
+	async storageAdd(delta: number, hard: number | null, doName?: string): Promise<boolean> {
+		const counter = this.storedCounter();
 		const value = await counter.get();
-		if (hard !== null && delta >= 0 && value.bytes + Math.max(delta, 1) > hard) return false;
+		if (validDoName(doName) && doName !== INSTALLATION_NAME) value.doName = doName;
+		const over = () => hard !== null && delta >= 0 && value.bytes + Math.max(delta, 1) > hard;
+		if (over() && Date.now() - lastRecount(value) >= RECOUNT_BEFORE_REFUSAL_MS && await this.recount(value)) await counter.changed();
+		if (over()) return false;
 		value.bytes = Math.max(0, value.bytes + delta);
 		await counter.changed();
 		return true;
 	}
 
-	/** Writes the stored-bytes counter (set at most FLUSH_MS after a change). */
+	/**
+	 * Resets the stored bytes to the total listed under the installation's prefix. r2.internal reads an object's old
+	 * size, then writes, so concurrent writes to one key can count the same bytes twice (or free them twice); a recount
+	 * ends any such drift. Writes during the listing can leave it off by their own size until the next recount.
+	 * A failed listing keeps the bytes and records its start in failed. True when the value changed (a recount or a
+	 * failure recorded), false when nothing was tried: no bucket, or no installation name (or it is primary).
+	 */
+	private async recount(value: StoredBytes): Promise<boolean> {
+		const bucket = selectedBucket(this.env);
+		const name = this.ctx.id?.name ?? value.doName;
+		if (!bucket || !validDoName(name) || name === INSTALLATION_NAME) return false;
+		this.recounting ??= (async () => {
+			const started = Date.now();
+			try {
+				value.bytes = await prefixBytes(bucket, installationPrefix(name));
+				value.counted = started;
+				return true;
+			} catch (e) {
+				console.error("stored bytes recount failed", String(e));
+				value.failed = started;
+				return true;
+			}
+		})().finally(() => {
+			this.recounting = null;
+		});
+		return this.recounting;
+	}
+
+	/** Writes the stored-bytes counter (set at most FLUSH_MS after a change), recounted first when the last recount is
+	 *  over a day old. The alarm is set only by a change, so an idle installation is not listed. */
 	async alarm(): Promise<void> {
-		await this.stored?.flush();
+		const counter = this.storedCounter();
+		const value = await counter.get();
+		const recounted = Date.now() - lastRecount(value) >= RECOUNT_MS && await this.recount(value);
+		await counter.flush(recounted);
 	}
 
 	async fetch(request: Request): Promise<Response> {
 		// Reached only through D1Outbound; this check keeps the object closed on its own too.
 		if (!storageSelected(this.env)) return d1UnboundResponse();
-		return handleD1Request(request, sqlDatabase(this.ctx.storage));
+		const db = sqlDatabase(this.ctx.storage);
+		// GET /stats, /users and /limits (bridge.ts); the installation is this object's own name, never the request's.
+		const name = this.ctx.id?.name;
+		const control = (this.env as { DB?: ControlDb }).DB;
+		return (await handleBridgeRead(request, db, control, validDoName(name) ? name : undefined)) ?? handleD1Request(request, db);
 	}
 
 	/** Lifecycle purge (src/lifecycle.ts): deletes this installation's database. The caller names the installation, and it

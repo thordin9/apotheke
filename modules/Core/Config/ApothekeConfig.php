@@ -57,6 +57,8 @@ final class ApothekeConfig
         'CORS_ALLOWED_ORIGINS' => 'cors_allowed_origins',
         'REAL_IP_HEADER' => 'real_ip_header',
         'PROXY_SHARED_SECRET' => 'proxy_shared_secret',
+        'APOTHEKE_HOSTED' => 'hosted',
+        'HOSTED_CLAIM_HOURS' => 'hosted_claim_hours',
     ];
 
     public static function repoRoot(): string
@@ -111,6 +113,9 @@ final class ApothekeConfig
         $cfg['timezone'] = (string)$cfg['timezone'] ?: 'UTC';
         $cfg['trusted_proxies'] = (new ProxyList())->parse($cfg['trusted_proxies'] ?? []);
         $cfg['sign_in_fail_ms'] = min(10000, max(400, (int)($cfg['sign_in_fail_ms'] ?? 1000)));
+        // The hosted service (operator console C1): plan ceilings and the first-admin claim. Off unless set.
+        $cfg['hosted'] = filter_var($cfg['hosted'] ?? false, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? false;
+        $cfg['hosted_claim_hours'] = min(720, max(1, (int)($cfg['hosted_claim_hours'] ?? 72)));
 
         return new self($cfg);
     }
@@ -257,6 +262,8 @@ final class ApothekeConfig
             'originals_dir' => '',
             'trusted_proxies' => [],
             'sign_in_fail_ms' => 1000,
+            'hosted' => false,
+            'hosted_claim_hours' => 72,
             'cors_allowed_origins' => '',
             'real_ip_header' => '',
             'proxy_shared_secret' => '',

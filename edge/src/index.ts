@@ -8,7 +8,8 @@ import { d1UnboundResponse, type D1Env } from "./d1";
 import { INSTALLATION_NAME, installationAppKey, installationPrefix, installationStub, lifecycleName, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
 import { routeFor, routeResponse } from "./route";
 import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env, type StorageMeter } from "./r2";
-import { forwardWithLimits, limitsEnabled, takeLimits, UsageMeter, type Limits } from "./limits";
+import { forwardWithLimits, isPreflight, LIMITS_HEADER, limitsEnabled, takeLimits, UsageMeter, WARNING_HEADER, withCors, type Limits } from "./limits";
+import { opsBackupRequest } from "./ops-signature";
 
 export { Installation } from "./installation";
 
@@ -40,7 +41,7 @@ export class R2Outbound extends WorkerEntrypoint<Env & R2Env & InstallationEnv, 
 		const hard = this.ctx?.props?.storageHard;
 		const ns = this.env.INSTALLATION;
 		const meter: StorageMeter | undefined = hard !== undefined && ns && doName !== INSTALLATION_NAME && limitsEnabled(this.env)
-			? { add: (delta, enforce) => installationStub(ns, doName).storageAdd(delta, enforce && typeof hard === "number" ? hard : null) }
+			? { add: (delta, enforce) => installationStub(ns, doName).storageAdd(delta, enforce && typeof hard === "number" ? hard : null, doName) }
 			: undefined;
 		return handleR2Request(request, bucket, installationPrefix(doName), meter);
 	}
@@ -55,6 +56,11 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	private timedOutWaits = 0;
 	/** Limits (E5): this installation's requests and active time this month. Unused for primary or with limits off. */
 	private meter?: UsageMeter;
+	/** True only while opsBackup starts the container: the start gate then also accepts suspended and deleting. */
+	private opsStart = false;
+	/** A public request must pass the public start gate before it is forwarded: after opsBackup, or when this
+	 *  object restarts over a running non-primary container. */
+	private opsOnly = false;
 
 	private sleepAfter(): number {
 		return Number(this.env.SLEEP_AFTER_MS) || 15 * 60 * 1000;
@@ -67,6 +73,9 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		// Re-bind d1.internal so a warm container keeps the outbound handler after a DO eviction.
 		if (c?.running) {
 			this.ready = true;
+			const doName = ctx.id?.name;
+			// Re-check status on the next public request: opsOnly is in memory and would otherwise stay false.
+			if (validDoName(doName) && doName !== INSTALLATION_NAME) this.opsOnly = true;
 			void ctx.blockConcurrencyWhile(async () => {
 				await c.setInactivityTimeout(this.sleepAfter());
 				await this.wireStorage(c);
@@ -112,8 +121,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		if (!validDoName(doName) || !this.env.DB) throw new Error("no installation hosts");
 		const { results } = await this.env.DB
 			// Read fresh at every start: a suspended or deleted installation does not start, even through a cached route.
-			.prepare("SELECT r.host FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE i.do_name = ? AND i.status IN ('provisioning', 'active') ORDER BY r.host")
-			.bind(doName)
+			.prepare("SELECT r.host FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE i.do_name = ? AND (i.status IN ('provisioning', 'active') OR (? = 1 AND i.status IN ('suspended', 'deleting'))) ORDER BY r.host")
+			.bind(doName, this.opsStart ? 1 : 0)
 			.all<{ host: string }>();
 		if (results.length === 0) throw new Error("no installation hosts");
 		return { appKey, allowedHosts: results.map((r) => r.host).join(","), account: { APOTHEKE_HOSTED: "1", APOTHEKE_INSTALLATION: doName } };
@@ -182,6 +191,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	async stopContainer(): Promise<void> {
 		lifecycleName(this.ctx.id?.name);
 		this.ready = false;
+		this.opsOnly = false;
 		const c = this.ctx.container;
 		if (c?.running) await c.destroy();
 	}
@@ -192,6 +202,42 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		await this.ctx.storage.deleteAll();
 	}
 
+	/** Lifecycle export (C2): the app's backup for jobId, through the container's port like the readiness probe, never the
+	 *  public forward (POST http://ops.internal/internal/backup, signed with this installation's APP_KEY). May start the
+	 *  container while the installation is suspended or deleting. Refused like stopContainer. Returns the full key, the
+	 *  status when there is none (200: an answer without a usable key), or a code for a permanent refusal (primary, not
+	 *  startable, missing APP_KEY). */
+	async opsBackup(jobId: string): Promise<{ key: string } | { status: number } | { code: string }> {
+		try {
+			const doName = lifecycleName(this.ctx.id?.name);
+			const c = this.ctx.container;
+			if (!c) throw new Error("no container configured");
+			this.opsOnly = true;
+			if (!c.running || !this.ready) {
+				// A public start already in flight bound the status check without opsStart: wait for it, then start
+				// for the backup. Joining it would fail a suspended or deleting installation as not_startable.
+				if (this.readying && !this.opsStart) await this.readying.catch(() => {});
+				this.opsStart = true;
+				try {
+					await this.ensureReady();
+				} finally {
+					this.opsStart = false;
+				}
+			}
+			const res = await c.getTcpPort(PORT).fetch(await opsBackupRequest(await installationAppKey(doName, this.env.APP_KEY), jobId), { redirect: "manual" });
+			if (res.status !== 200) return { status: res.status };
+			const body = (await res.json().catch(() => null)) as { ok?: unknown; backup?: { job_id?: unknown; key?: unknown } } | null;
+			if (body === null) return { status: 502 };
+			const rel = body.backup?.key;
+			const valid = body.ok === true && body.backup?.job_id === jobId && typeof rel === "string" && BACKUP_MANIFEST_KEY.test(rel);
+			return valid ? { key: installationPrefix(doName) + rel } : { status: 200 };
+		} catch (e) {
+			const code = permanentBackupCode(e);
+			if (code) return { code };
+			throw e;
+		}
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		let cold: number;
 		const taken = takeLimits(request, this.env, this.ctx.id?.name, INSTALLATION_NAME);
@@ -199,11 +245,12 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		request = taken.request;
 		const meter = limits ? (this.meter ??= new UsageMeter(this.ctx.storage, () => this.sleepAfter())) : null;
 		if (limits && meter) {
-			const refused = await meter.admit(limits);
-			if (refused) return refused;
+			const refused = await meter.admit(limits, Date.now(), isPreflight(request, this.env.CORS_ALLOWED_ORIGINS));
+			if (refused) return withCors(refused, request, this.env.CORS_ALLOWED_ORIGINS);
 		}
 		try {
 			cold = await this.ensureReady(limits);
+			if (this.opsOnly) await this.publicStart();
 		} catch (e) {
 			console.error("start failed", String(e));
 			return unavailable();
@@ -219,8 +266,17 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		}
 		const out = new Response(res.body, res);
 		out.headers.append("Server-Timing", `container-start;dur=${cold}`);
+		// Only the edge sets the warning (below): never one from the container.
+		out.headers.delete(WARNING_HEADER);
 		if (limits && meter) await meter.done(limits, out.headers);
 		return out;
+	}
+
+	/** The public start gate for a container opsBackup started: throws unless the installation is provisioning or active. */
+	private async publicStart(): Promise<void> {
+		const row = await this.env.DB?.prepare("SELECT 1 AS ok FROM installations WHERE do_name = ? AND status IN ('provisioning', 'active')").bind(this.ctx.id?.name ?? "").first();
+		if (!row) throw new Error("installation not startable");
+		this.opsOnly = false;
 	}
 
 	/** Writes the limit counters (set at most FLUSH_MS after a change). */
@@ -233,6 +289,18 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	async usage(): Promise<{ period: string; requests: number; container_seconds: number }> {
 		return (this.meter ??= new UsageMeter(this.ctx.storage, () => this.sleepAfter())).usage();
 	}
+}
+
+/** PHP StoredBackups: the relative key is exactly backups/<id>/manifest.json, id YYYYMMDD-HHMMSS- plus six hex digits. */
+const BACKUP_MANIFEST_KEY = /^backups\/\d{8}-\d{6}-[a-f0-9]{6}\/manifest\.json$/;
+
+/** Permanent opsBackup failures: returned as a code so the Workflow fails the job instead of retrying. */
+function permanentBackupCode(e: unknown): string | undefined {
+	const m = e instanceof Error ? e.message : "";
+	if (m === "lifecycle refused for this installation") return "refused";
+	if (m === "APP_KEY is not a 32-byte key") return "bad_app_key";
+	if (m === "no installation hosts" || m === "no installation name" || m === "no container configured") return "not_startable";
+	return undefined;
 }
 
 /** Never show the reason to the client (plan 1A.6). */
@@ -265,7 +333,8 @@ function readinessRequest(allowedHosts: string): Request {
 }
 
 /** Cloudflare Containers accept only http: to the TCP port. Rewrite the incoming URL, overwrite
- *  forwarded proto/host (never pass through a client value), and do not follow a 3xx inside the Worker. */
+ *  forwarded proto/host (never pass through a client value), and do not follow a 3xx inside the Worker.
+ *  The limits headers never reach PHP, whoever sent them and whatever LIMITS_ENABLED is. */
 function toContainer(request: Request): Request {
 	const url = new URL(request.url);
 	const proto = url.protocol === "https:" ? "https" : "http";
@@ -276,6 +345,8 @@ function toContainer(request: Request): Request {
 	headers.set("X-Forwarded-Proto", proto);
 	headers.set("X-Forwarded-Host", host);
 	headers.delete("X-Apotheke-Client-IP");
+	headers.delete(LIMITS_HEADER);
+	headers.delete(WARNING_HEADER);
 	const connecting = (request.headers.get("cf-connecting-ip") ?? "").trim();
 	if (connecting !== "") {
 		headers.set("X-Apotheke-Client-IP", connecting);
@@ -301,6 +372,6 @@ export default {
 		const stub = env.APOTHEKE.getByName(route.doName);
 		// primary is never limited, and with LIMITS_ENABLED off every request is forwarded as before.
 		if (!limited || route.doName === INSTALLATION_NAME) return stub.fetch(request);
-		return forwardWithLimits(request, route.limits ?? {}, (r) => stub.fetch(r));
+		return forwardWithLimits(request, route.limits ?? {}, (r) => stub.fetch(r), env.CORS_ALLOWED_ORIGINS);
 	},
 } satisfies ExportedHandler<Env & D1Env>;

@@ -7,7 +7,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.42.0). The 2.6.x line has security support from `old`
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.48.0). The 2.6.x line has security support from `old`
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
@@ -68,11 +68,21 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   signed-out `/api` body gets problem+json 413 or 401. A missing asset's 404 is `no-store`. Empty answers carry no
   `Content-Type`; the OpenAPI version is `1.0.0-p3` with a `servers` entry.
 
+- Operator console C1 (#317) and C2 (#320) are released in v3.47.0 and v3.48.0: read-only `GET /stats`, `/users` and
+  `/limits` on `d1.internal`; with `APOTHEKE_HOSTED` the plan's limits, always-on sign-in, the first-admin claim and
+  one stored backup per lifecycle job on `ops.internal`. The container does not set `APOTHEKE_HOSTED` yet
+  ([operator console](operator-console.md#hosted-installations); [log](history/handoff-log.md#pull-requests)).
+- Operator console follow-up (`feat/operator-console-followup-main`): with `APOTHEKE_HOSTED`, `APP_PASSWORD` is
+  optional (set, it seeds `admin` as before; unset, nothing is seeded and the claim makes the first admin); once an
+  active admin exists the claim gives one answer for any token; the backup dump is one read transaction, a job's backup
+  stops before a takeover could overlap it, and parts without a manifest are removed after a day; out-of-range or
+  non-finite plan limits are refused.
+
 ## Open pull requests
 
 - E1 (#300, ready for review): the edge deploy applies `edge/migrations/control/` to D1 `apotheke-api` before `wrangler deploy`. Schema SQL is on main (#299). Awaiting *Account > D1 > Edit* on the existing deploy token before merge.
 - Backup restore on d1 is in v3.41.0; #308 fixes its confirm on the hosted database. FrankenPHP worker mode is on for the hosted container from #297 (`APOTHEKE_PHP_WORKER=1`; rollback in [Deployment and operations](deployment-and-operations.md#the-frankenphp-image)). For other open work, see the open pull requests on GitHub.
-- Branch `test/unit-lock-timing`: `UnitOfWorkLockTest` proves that another key does not wait with a unit that has no wait budget, and that a busy key gives up while the other client still holds it, instead of wall-clock upper bounds.
+- Branch `test/unit-lock-held` (after #310): the no-wait checks in `UnitOfWorkLockTest` also see the unit hold its key's lock until it ends, and a busy key with no wait budget answers 503 instead of waiting.
 - The account lifecycle rules for incomplete multipart uploads on `apotheke-api-storage` are reported applied by the PM (7 days for the bucket, 1 day under `installations/primary/`). The marked-upload sweep stays an uncalled helper.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
@@ -102,5 +112,4 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
   [Deployment and operations](deployment-and-operations.md).
 - Open: [L-2041](qa/apotheke-l2041-hosted-container-early-exit.md), preview containers stopping with code 0 before the sleep timer. N-1986 accepted as platform behaviour (PM, 2026-11-12).
 - Open: [N-2058](qa/apotheke-n2058-pgsql-staged-restore-flake.md), `StagedRestoreTest` preflight case flaking once on pgsql in CI.
-- Open: [N-2103](qa/apotheke-n2103-unit-of-work-lock-timing-flake.md), `UnitOfWorkLockTest` multi-key timing assertion flaking once in CI.
 - CI4 Playwright: the `CI4_UNPORTED` skip list (`tests/visual/fixtures.ts`) is empty.

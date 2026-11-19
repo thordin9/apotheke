@@ -1169,4 +1169,12 @@
         : 'Testing the connection…';
     });
   }
+
+  /* Hosted first-admin claim (/claim#code): copy the code from the link into the form and drop it from the
+     address bar. Without JS the owner pastes it. */
+  const claimToken = $('#claim-token');
+  if (claimToken && location.hash.length > 1) {
+    claimToken.value = location.hash.slice(1);
+    history.replaceState(null, '', location.pathname + location.search);
+  }
 })();

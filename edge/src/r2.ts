@@ -20,6 +20,19 @@ function storageFull(): Response {
 	return json({ ok: false, code: "storage_full", error: "Storage full: delete photos or attachments, or upgrade" }, 507);
 }
 
+/** Limits (E5): the bytes stored under prefix as r2.internal counts them (upload markers are not counted), listed page
+ *  by page. The Installation object resets its counter to this (Installation.storageAdd). */
+export async function prefixBytes(bucket: R2Bucket, prefix: string): Promise<number> {
+	let total = 0;
+	let cursor: string | undefined;
+	do {
+		const page = await bucket.list({ prefix, cursor, limit: 1000 });
+		for (const o of page.objects) if (o.key.startsWith(prefix) && !o.key.slice(prefix.length).split("/").some(internalSegment)) total += o.size;
+		cursor = page.truncated ? page.cursor : undefined;
+	} while (cursor !== undefined);
+	return total;
+}
+
 async function storedSize(bucket: R2Bucket, path: string): Promise<number> {
 	return (await bucket.head(path))?.size ?? 0;
 }

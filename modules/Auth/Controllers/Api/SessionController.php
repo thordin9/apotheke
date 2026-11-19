@@ -108,7 +108,7 @@ final class SessionController extends AuthPages
         return [
             'signed_in' => $signedIn,
             'sign_in_enabled' => $settings->signInEnabled(),
-            'registration_open' => $settings->signInEnabled() && !$settings->get('auth_register_disabled'),
+            'registration_open' => $settings->registrationOpen(),
             'user' => $signedIn ? ['id' => $me['id'], 'username' => $me['username'], 'role' => $me['role']] : null,
             'permissions' => $this->permissions($me),
             'csrf_token' => (new SessionToken(time()))->get(),

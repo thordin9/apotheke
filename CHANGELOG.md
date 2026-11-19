@@ -10,8 +10,85 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
-- **edge:** plan limits in the Worker for installations other than `primary`: monthly requests (429), monthly container active time (402), request body size (413) and stored bytes (507 to the app), with soft values as a response header. Off by default with the new Worker var `LIMITS_ENABLED` ([#315](https://github.com/thordin9/apotheke/pull/315))
 - **edge:** installations other than `primary` start with `APOTHEKE_HOSTED=1` and `APOTHEKE_INSTALLATION` set to their own name, and without `APP_PASSWORD`; `primary`'s container env is unchanged ([#318](https://github.com/thordin9/apotheke/pull/318))
+
+## [3.49.2] - 2026-11-19
+
+### Fixed
+
+- operator console follow-up (hosted start, limits, backup) ([#326](https://github.com/thordin9/apotheke/pull/326))
+
+### Maintenance
+
+- **edge:** test: cover encoded /api paths with a bad percent escape ([#330](https://github.com/thordin9/apotheke/pull/330))
+
+### Changed
+
+- **auth:** with `APOTHEKE_HOSTED`, `APP_PASSWORD` is optional: without it the app starts, creates no account and the first-admin claim makes the first admin; with it, the account `admin` is created as before; and plan limits from the bridge that are negative, not finite or beyond the largest whole number are refused like any other unreadable answer ([#326](https://github.com/thordin9/apotheke/pull/326))
+
+## [3.49.1] - 2026-11-19
+
+### Fixed
+
+- **edge:** a failed lifecycle backup still stops a non-active container (including after the last retry, and after a Workflow step has turned the error into a plain Error), a public request after a container-object restart re-checks status, a backup key has to be `backups/<id>/manifest.json`, a refused or unstartable backup fails the job without a retry, and a backup start does not join a public start already in flight ([#328](https://github.com/thordin9/apotheke/pull/328))
+
+## [3.49.0] - 2026-11-19
+
+### Added
+
+- **edge:** the lifecycle jobs' backup step calls the container's backup endpoint through `ApothekeContainer.opsBackup`, and the backup can start a suspended or deleting installation while public requests stay refused (L-2167) ([#324](https://github.com/thordin9/apotheke/pull/324))
+
+## [3.48.1] - 2026-11-19
+
+### Fixed
+
+- **edge:** with plan limits on, every `OPTIONS` request counts toward the monthly request limit and only a real CORS preflight from an allowed origin is never refused, `/api` paths are read decoded as the app reads them, and a failed stored-bytes recount is saved ([#325](https://github.com/thordin9/apotheke/pull/325))
+
+## [3.48.0] - 2026-11-19
+
+### Added
+
+- operator console C2 (backup per lifecycle job) ([#320](https://github.com/thordin9/apotheke/pull/320))
+- **backup:** with `APOTHEKE_HOSTED`, `POST /internal/backup` on `ops.internal` makes one stored backup per lifecycle job id and answers its id, size and key; the edge has the signed request helper ([#320](https://github.com/thordin9/apotheke/pull/320))
+
+## [3.47.0] - 2026-11-18
+
+### Added
+
+- operator console C1 (stats, plan limits, first-admin claim) ([#317](https://github.com/thordin9/apotheke/pull/317))
+- **edge:** the installation bridge answers read-only `GET /stats`, `/users` and `/limits` for the operator console ([#317](https://github.com/thordin9/apotheke/pull/317))
+- **core:** with `APOTHEKE_HOSTED`, the plan's limits cap items, photos and user accounts inside the unit of work that adds them, and cap the upload size settings; off when self-hosted ([#317](https://github.com/thordin9/apotheke/pull/317))
+- **auth:** a one-time first-admin claim for hosted installations (`php spark accounts:claim-create`, `/claim`), valid for `HOSTED_CLAIM_HOURS` (default 72); 404 when self-hosted ([#317](https://github.com/thordin9/apotheke/pull/317))
+
+## [3.46.2] - 2026-11-18
+
+### Fixed
+
+- **edge:** with plan limits on, a CORS preflight under `/api` is never refused or counted, a failed stored-bytes recount waits like a successful one before the next try, and a body that does not match its `Content-Length` gets a 400 ([#322](https://github.com/thordin9/apotheke/pull/322))
+
+## [3.46.1] - 2026-11-18
+
+### Fixed
+
+- **edge:** plan limits follow-ups: client copies of the limits headers never reach the app, every request body is capped as it streams, the 413, 429 and 402 answers carry the app's CORS headers (and the app exposes `Apotheke-Limit-Warning`), and the stored-bytes counter is recounted from R2 daily and before a 507 ([#321](https://github.com/thordin9/apotheke/pull/321))
+
+## [3.46.0] - 2026-11-18
+
+### Added
+
+- **edge:** plan limit key `photos_per_item` (most photos per item) in the control plane's `plan_limits`, allowed by migration `0004_plan_limits_photos_per_item`; no plan has a value yet and the Worker does not enforce it ([#319](https://github.com/thordin9/apotheke/pull/319))
+
+### Maintenance
+
+- ci: bump @playwright/test to 1.65.0 and pin the Playwright image ([#311](https://github.com/thordin9/apotheke/pull/311))
+- **core:** test: check that a no-wait unit holds its key's lock ([#316](https://github.com/thordin9/apotheke/pull/316))
+- ci: bump @playwright/test to 1.65.0 and pin the Playwright image ([#311](https://github.com/thordin9/apotheke/pull/311))
+
+## [3.45.0] - 2026-11-13
+
+### Added
+
+- **edge:** plan limits in the Worker for installations other than `primary`: monthly requests (429), monthly container active time (402), request body size (413) and stored bytes (507 to the app), with soft values as a response header. Off by default with the new Worker var `LIMITS_ENABLED` ([#315](https://github.com/thordin9/apotheke/pull/315))
 
 ## [3.44.0] - 2026-11-13
 
@@ -1772,7 +1849,17 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.44.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.49.2...HEAD
+[3.49.2]: https://github.com/thordin9/apotheke/compare/v3.49.1...v3.49.2
+[3.49.1]: https://github.com/thordin9/apotheke/compare/v3.49.0...v3.49.1
+[3.49.0]: https://github.com/thordin9/apotheke/compare/v3.48.1...v3.49.0
+[3.48.1]: https://github.com/thordin9/apotheke/compare/v3.48.0...v3.48.1
+[3.48.0]: https://github.com/thordin9/apotheke/compare/v3.47.0...v3.48.0
+[3.47.0]: https://github.com/thordin9/apotheke/compare/v3.46.2...v3.47.0
+[3.46.2]: https://github.com/thordin9/apotheke/compare/v3.46.1...v3.46.2
+[3.46.1]: https://github.com/thordin9/apotheke/compare/v3.46.0...v3.46.1
+[3.46.0]: https://github.com/thordin9/apotheke/compare/v3.45.0...v3.46.0
+[3.45.0]: https://github.com/thordin9/apotheke/compare/v3.44.0...v3.45.0
 [3.44.0]: https://github.com/thordin9/apotheke/compare/v3.43.0...v3.44.0
 [3.43.0]: https://github.com/thordin9/apotheke/compare/v3.42.5...v3.43.0
 [3.42.5]: https://github.com/thordin9/apotheke/compare/v3.42.4...v3.42.5

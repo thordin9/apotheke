@@ -6,6 +6,7 @@ namespace Apotheke\Settings;
 
 use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Hosted\HostedLimits;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\ActorGate;
 use Apotheke\Core\Security\Nobody;
@@ -58,11 +59,14 @@ final class SettingsService
 
     private readonly SecretBox $secrets;
 
+    private readonly HostedLimits $hosted;
+
     /**
      * @param array<string,mixed> $config ApothekeConfig values (for config-backed defaults)
      * @param (Closure(string):void)|null $log warning sink; error_log() like legacy autofill_log()
      * @param ?ActorGate $actor who imports (SEC-M1); none = not an admin
      * @param ?SecretBox $secrets at-rest sealing; none = APP_KEY and APP_KEY_FILE from the environment
+     * @param ?HostedLimits $hosted the hosted plan's ceilings; none = self-hosted
      */
     public function __construct(
         private readonly SettingsRepository $repository,
@@ -73,12 +77,37 @@ final class SettingsService
         ?Closure $log = null,
         ?ActorGate $actor = null,
         ?SecretBox $secrets = null,
+        ?HostedLimits $hosted = null,
     ) {
         $this->log = $log ?? static function (string $message): void {
             error_log($message);
         };
         $this->actor = $actor ?? new Nobody();
         $this->secrets = $secrets ?? SecretBox::fromEnvironment(getenv(), self::backupRoots($config), $this->log);
+        $this->hosted = $hosted ?? HostedLimits::off();
+    }
+
+    /** Whether this is a hosted installation (APOTHEKE_HOSTED): sign-in stays on and the plan sets some ceilings. */
+    public function isHosted(): bool
+    {
+        return $this->hosted->isHosted();
+    }
+
+    /**
+     * Why a tenant admin may not save $value for $key on a hosted installation, or null when it may: a setting
+     * the hosting side sets, or a value above the plan's ceiling. Always null when self-hosted.
+     */
+    private function hostedProblem(string $key, mixed $value): ?string
+    {
+        if (!$this->hosted->isHosted()) {
+            return null;
+        }
+        if ($this->hosted->fixed($key)) {
+            return $value === ($this->values()[$key] ?? null) ? null : 'Set by your hosting plan.';
+        }
+        $ceiling = $this->hosted->ceiling($key);
+
+        return $ceiling !== null && is_int($value) && $value > $ceiling ? 'Your plan allows at most ' . $ceiling . '.' : null;
     }
 
     /**
@@ -251,12 +280,25 @@ final class SettingsService
      */
     public function signInEnabled(): bool
     {
+        // Hosted: always on, also before the first admin claims the installation (no open catalog).
+        if ($this->hosted->isHosted()) {
+            return true;
+        }
         if (!$this->get('auth_enabled')) {
             return false;
         }
 
         // APP_PASSWORD first: then the account count is not read at all.
         return (string)($this->config['app_password'] ?? '') !== '' || $this->repository->userCount() > 0;
+    }
+
+    /**
+     * Whether /register takes new accounts: sign-in on and registration not turned off. Hosted, only once an
+     * account exists: the first admin comes from the first-admin claim.
+     */
+    public function registrationOpen(): bool
+    {
+        return $this->signInEnabled() && !$this->get('auth_register_disabled') && !($this->hosted->isHosted() && $this->accountCount() === 0);
     }
 
     /** Number of accounts (legacy users_count()), for the CLI `list` line. */
@@ -279,6 +321,10 @@ final class SettingsService
         foreach ($raw as $key => $value) {
             try {
                 $ok[(string)$key] = $this->schema()->validate((string)$key, $value);
+                $problem = $this->hostedProblem((string)$key, $ok[(string)$key]);
+                if ($problem !== null) {
+                    $err[(string)$key] = $problem;
+                }
             } catch (UserError $e) {
                 $err[(string)$key] = $e->getMessage();
             }
@@ -376,9 +422,18 @@ final class SettingsService
                 continue;
             }
             try {
-                $ok[$key] = $this->schema()->validate($key, is_bool($value) ? $value : (is_scalar($value) || $value === null ? (string)$value : $value));
+                $valid = $this->schema()->validate($key, is_bool($value) ? $value : (is_scalar($value) || $value === null ? (string)$value : $value));
+                $problem = $this->hostedProblem($key, $valid);
             } catch (UserError $e) {
                 $err[$key] = $e->getMessage();
+                continue;
+            }
+            if ($problem === null) {
+                $ok[$key] = $valid;
+            } elseif ($this->hosted->fixed($key)) {
+                $ignored[] = $key;   // a restore or import keeps the hosting side's value
+            } else {
+                $err[$key] = $problem;
             }
         }
         $cleared = $this->store($ok, $guard);

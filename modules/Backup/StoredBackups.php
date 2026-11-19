@@ -18,12 +18,16 @@ use Throwable;
  * per backup:
  *
  * - `backups/<id>/part-00001` … the zip in parts of PART_BYTES, so a download reads one part at a time;
- * - `backups/<id>/manifest.json`, written last: a backup is listed only once all its parts are stored.
+ * - `backups/<id>/manifest.json`, written last: a backup is listed only once all its parts are stored. It lists each
+ *   part (`files`: key relative to `backups/<id>/`, size, sha256); manifests written before that have no `files`.
  *
  * The id is the UTC time and a random suffix (`20261112-093000-1a2b3c`), so ids sort oldest first. After each
- * new backup the oldest beyond `backup.keep` are deleted (manifest first, so a half-deleted one is never listed).
+ * new backup the oldest beyond `backup.keep` are deleted (manifest first, so a half-deleted one is never listed);
+ * exports made for the hosting side are not counted and not deleted. Parts that never got a manifest are deleted
+ * once they are ORPHAN_SECONDS old.
  *
- * @phpstan-type Manifest array{id:string,created_at:string,kind:string,size:int,sha256:string,parts:int,by:?string}
+ * @phpstan-type Part array{key:string,size:int,sha256:string}
+ * @phpstan-type Manifest array{id:string,created_at:string,kind:string,size:int,sha256:string,parts:int,by:?string,files:?list<Part>}
  */
 final class StoredBackups
 {
@@ -34,7 +38,16 @@ final class StoredBackups
 
     public const KIND_PRE_RESTORE = 'pre-restore';
 
+    /** A backup the hosting side asked for (OpsBackups): kept until the hosting side removes it, never pruned here. */
+    public const KIND_EXPORT = 'export';
+
     public const FAILED = 'The current catalog could not be backed up before the restore, so nothing was restored.';
+
+    /**
+     * Parts with no manifest this long after their backup's id time are left by a store() that stopped: prune()
+     * deletes them. A store() still running is far younger.
+     */
+    public const ORPHAN_SECONDS = 86400;
 
     private const ID = '/^\d{8}-\d{6}-[a-f0-9]{6}$/D';
 
@@ -57,15 +70,21 @@ final class StoredBackups
 
     /**
      * Back up the whole catalog with Backups::create() and keep it; then delete the oldest beyond keep().
+     * $proceed, when given, runs before each part and before the manifest is written; it throws to stop the
+     * backup (nothing is kept then, and the UserError's previous is what it threw).
      *
+     * @param (\Closure():void)|null $proceed
      * @return Manifest
      * @throws UserError FAILED when the backup could not be made or stored (nothing is kept then)
      */
-    public function store(string $kind, ?string $by): array
+    public function store(string $kind, ?string $by, ?\Closure $proceed = null): array
     {
+        $proceed ??= static function (): void {
+        };
         $tmp = $this->backups->tmpDir() . '/stored-' . bin2hex(random_bytes(8)) . '.zip';
         $id = gmdate('Ymd-His', strtotime($this->clock->now() . ' UTC') ?: time()) . '-' . bin2hex(random_bytes(3));
         $parts = 0;
+        $files = [];
         try {
             $this->backups->create($tmp);
             $size = (int)filesize($tmp);
@@ -79,13 +98,16 @@ final class StoredBackups
                     if ($bytes === '' && $parts > 0) {
                         break;
                     }
+                    $proceed();
                     $this->store->write(self::part($id, ++$parts), $bytes);
+                    $files[] = ['key' => self::partName($parts), 'size' => strlen($bytes), 'sha256' => hash('sha256', $bytes)];
                 }
             } finally {
                 fclose($fh);
             }
             $manifest = ['id' => $id, 'created_at' => $this->clock->now(), 'kind' => $kind, 'size' => $size,
-                'sha256' => (string)hash_file('sha256', $tmp), 'parts' => $parts, 'by' => $by];
+                'sha256' => (string)hash_file('sha256', $tmp), 'parts' => $parts, 'by' => $by, 'files' => $files];
+            $proceed();
             $this->store->write(self::manifestKey($id), json_encode($manifest, self::JSON));
         } catch (Throwable $e) {
             for ($n = 1; $n <= $parts; $n++) {
@@ -128,7 +150,7 @@ final class StoredBackups
             return null;
         }
         try {
-            $m = json_decode($raw, true, 4, JSON_THROW_ON_ERROR);
+            $m = json_decode($raw, true, 5, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return null;
         }
@@ -136,9 +158,41 @@ final class StoredBackups
             || !is_string($m['created_at'] ?? null) || !is_string($m['kind'] ?? null) || !is_string($m['sha256'] ?? null)) {
             return null;
         }
+        $files = null;
+        if (array_key_exists('files', $m)) {
+            $files = self::files($m['files'], $m['parts'], $m['size']);
+            if ($files === null) {
+                return null;
+            }
+        }
 
         return ['id' => $id, 'created_at' => $m['created_at'], 'kind' => $m['kind'], 'size' => $m['size'], 'sha256' => $m['sha256'],
-            'parts' => $m['parts'], 'by' => is_string($m['by'] ?? null) ? $m['by'] : null];
+            'parts' => $m['parts'], 'by' => is_string($m['by'] ?? null) ? $m['by'] : null, 'files' => $files];
+    }
+
+    /**
+     * A manifest's `files`, or null unless it is exactly one entry per part, in order: key `part-0000n` (relative to
+     * the backup's folder), a size, and a sha256, the sizes adding up to the backup's size.
+     *
+     * @return list<Part>|null
+     */
+    private static function files(mixed $files, int $parts, int $size): ?array
+    {
+        if (!is_array($files) || !array_is_list($files) || count($files) !== $parts) {
+            return null;
+        }
+        $out = [];
+        $total = 0;
+        foreach ($files as $i => $f) {
+            if (!is_array($f) || ($f['key'] ?? null) !== self::partName($i + 1) || !is_int($f['size'] ?? null) || $f['size'] < 0
+                || !is_string($f['sha256'] ?? null) || preg_match('/^[a-f0-9]{64}$/D', $f['sha256']) !== 1) {
+                return null;
+            }
+            $total += $f['size'];
+            $out[] = ['key' => $f['key'], 'size' => $f['size'], 'sha256' => $f['sha256']];
+        }
+
+        return $total === $size ? $out : null;
     }
 
     /**
@@ -158,19 +212,81 @@ final class StoredBackups
         }
     }
 
-    /** Delete the oldest backups beyond keep(). */
+    /**
+     * Delete the oldest backups beyond keep(). Exports (KIND_EXPORT) are neither counted nor deleted. Also deletes
+     * the parts of a backup that has no manifest ORPHAN_SECONDS after its id time (a store() that stopped).
+     */
     public function prune(): void
     {
-        $ids = array_values(array_filter($this->ids(), fn (string $id): bool => $this->get($id) !== null));
+        $all = $this->ids();
+        $ids = array_values(array_filter($all, fn (string $id): bool => ($m = $this->get($id)) !== null && $m['kind'] !== self::KIND_EXPORT));
         sort($ids, SORT_STRING);
         foreach (array_slice($ids, 0, max(0, count($ids) - $this->keep)) as $id) {
-            $m = $this->get($id);
-            $this->forget(self::manifestKey($id));
-            for ($n = 1; $n <= ($m['parts'] ?? 0); $n++) {
-                $this->forget(self::part($id, $n));
-            }
-            $this->removeFolder($id);
+            $this->discard($id);
         }
+        $now = $this->clock->unix();
+        foreach ($all as $id) {
+            $made = \DateTimeImmutable::createFromFormat('!Ymd-His', substr($id, 0, 15), new \DateTimeZone('UTC'));
+            if ($made === false || $now - $made->getTimestamp() < self::ORPHAN_SECONDS) {
+                continue;
+            }
+            try {
+                if ($this->store->exists(self::manifestKey($id))) {
+                    continue;
+                }
+                foreach ($this->keysOf($id) as $key) {
+                    $this->forget($key);
+                }
+                $this->removeFolder($id);
+            } catch (Throwable) {
+                // Best effort: the next prune tries again.
+            }
+        }
+    }
+
+    /**
+     * Delete one backup: the manifest first, so a half-deleted backup is never listed, then its parts. Used by
+     * prune() and by a job that lost its claim after storing (OpsBackups).
+     */
+    public function discard(string $id): void
+    {
+        if (preg_match(self::ID, $id) !== 1) {
+            return;
+        }
+        $m = $this->get($id);
+        $this->forget(self::manifestKey($id));
+        for ($n = 1; $n <= ($m['parts'] ?? 0); $n++) {
+            $this->forget(self::part($id, $n));
+        }
+        $this->removeFolder($id);
+    }
+
+    /** @return list<string> every key stored under the backup's folder */
+    private function keysOf(string $id): array
+    {
+        $folder = self::PREFIX . $id . '/';
+        $keys = [];
+        if ($this->store instanceof R2Storage) {
+            $cursor = '';
+            do {
+                $page = $this->store->list(rtrim($folder, '/'), $cursor, 1000);
+                foreach ($page['objects'] as $key) {
+                    if (str_starts_with($key, $folder)) {
+                        $keys[] = $key;
+                    }
+                }
+                $cursor = (string)$page['cursor'];
+            } while ($page['cursor'] !== null);
+        } elseif ($this->store instanceof LocalStorage) {
+            $dir = $this->store->pathFor(rtrim($folder, '/'));
+            foreach (is_dir($dir) ? (scandir($dir) ?: []) : [] as $name) {
+                if ($name !== '.' && $name !== '..' && is_file($dir . '/' . $name)) {
+                    $keys[] = $folder . $name;
+                }
+            }
+        }
+
+        return $keys;
     }
 
     /** On local disk the backup's folder goes too, once it is empty. */
@@ -215,7 +331,13 @@ final class StoredBackups
 
     private static function part(string $id, int $n): string
     {
-        return self::PREFIX . $id . '/part-' . sprintf('%05d', $n);
+        return self::PREFIX . $id . '/' . self::partName($n);
+    }
+
+    /** A part's key relative to its backup's folder. */
+    private static function partName(int $n): string
+    {
+        return 'part-' . sprintf('%05d', $n);
     }
 
     private static function manifestKey(string $id): string

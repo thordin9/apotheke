@@ -12,6 +12,7 @@ use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
+use Apotheke\Core\Hosted\HostedLimits;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
 use CodeIgniter\Database\Exceptions\DatabaseException;
@@ -24,18 +25,25 @@ use PDOException;
  */
 final class UserRepository
 {
+    /** The unit-of-work key of every unit that can add, remove or demote an active admin. */
+    public const ACTIVE_ADMINS = 'active-admins';
+
     private readonly UnitsOfWork $units;
 
     private readonly ReadCache $cache;
 
+    private readonly HostedLimits $limits;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     * @param HostedLimits|null $limits the hosted plan's account limit; none when null (self-hosted)
      */
-    public function __construct(private readonly BaseConnection $db, private readonly SessionEpoch $epoch = new SessionEpoch(), ?UnitsOfWork $units = null, ?ReadCache $cache = null)
+    public function __construct(private readonly BaseConnection $db, private readonly SessionEpoch $epoch = new SessionEpoch(), ?UnitsOfWork $units = null, ?ReadCache $cache = null, ?HostedLimits $limits = null)
     {
         $this->units = UnitsOfWork::forSite($db, $units);
         $this->cache = $cache ?? ReadCache::off();
+        $this->limits = $limits ?? HostedLimits::off();
     }
 
     /**
@@ -168,7 +176,7 @@ final class UserRepository
      */
     public function underActiveAdminGuard(callable $fn): mixed
     {
-        return $this->units->run('users', $fn, 'active-admins');
+        return $this->units->run('users', $fn, self::ACTIVE_ADMINS);
     }
 
 
@@ -178,7 +186,7 @@ final class UserRepository
         // N-1769: same unit key as admin changes so a caller that skips the guard still serialises.
         $this->units->run('users', function (UnitOfWork $uow) use ($id): void {
             $uow->write("UPDATE users SET status = 'active' WHERE id = ?", [$id], 'users approve');
-        }, 'active-admins');
+        }, self::ACTIVE_ADMINS);
     }
 
     /** Legacy user_set_role(). */
@@ -195,7 +203,7 @@ final class UserRepository
                 1,
                 static fn (): UserError => new UserError('That change would leave the install without an admin.', 409),
             );
-        }, 'active-admins');
+        }, self::ACTIVE_ADMINS);
     }
 
     /** Legacy user_rename(). The caller has validated the name. */
@@ -219,20 +227,40 @@ final class UserRepository
                 1,
                 static fn (): UserError => new UserError('That change would leave the install without an admin.', 409),
             );
-        }, 'active-admins');
+        }, self::ACTIVE_ADMINS);
     }
 
-    /** A new account (legacy user_create()'s INSERT); returns its id. The caller has validated every value. */
+    /**
+     * A new account (legacy user_create()'s INSERT); returns its id. The caller has validated every value.
+     * Hosted, the plan's account limit is checked in the same unit as the insert.
+     */
     public function create(string $name, string $hash, string $role, string $status, string $now): int
     {
-        $ref = $this->units->run('users', function (UnitOfWork $uow) use ($name, $hash, $role, $status, $now): Ref {
+        return $this->createIn(null, $name, $hash, $role, $status, $now)->id();
+    }
+
+    /**
+     * create() inside a caller's unit of work ($uow), or its own when null; the Ref is resolved once the unit ran.
+     * The plan's account limit is checked in that unit, before the insert. Its own unit for an active admin also
+     * takes the active-admins key, so it waits for a first-admin claim and the other admin changes.
+     */
+    public function createIn(?UnitOfWork $uow, string $name, string $hash, string $role, string $status, string $now): Ref
+    {
+        $insert = function (UnitOfWork $uow) use ($name, $hash, $role, $status, $now): Ref {
+            $this->limits->guard($uow, 'users');
+
             return $uow->insert('users', [
                 'username' => $name, 'username_key' => self::key($name), 'password_hash' => $hash,
                 'role' => $role, 'status' => $status, 'created_at' => $now,
             ], 'users insert');
-        });
+        };
 
-        return $ref->id();
+        $keys = $this->limits->lockKeys('users');
+        if ($role === 'admin' && $status === 'active') {
+            $keys[] = self::ACTIVE_ADMINS;
+        }
+
+        return $uow !== null ? $insert($uow) : $this->units->run('users', $insert, $keys);
     }
 
     /** Legacy login(): the sign-in time. */

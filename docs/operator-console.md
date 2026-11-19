@@ -18,13 +18,20 @@ side table and calls the same plan and status changes the console uses.
 Migrations live in [`edge/migrations/control/`](../edge/migrations/control/), numbered for
 `wrangler d1 migrations apply` (`0001_…sql`, `0002_…sql`). They are additive only: a later migration adds tables or
 columns and never drops or renames, so the previous Worker version keeps working. Applying them is part of the deploy
-job, not of this repository's tests.
+job, not of this repository's tests. The one exception is `0004`: it rebuilds `plan_limits` with the same columns and
+rows so its key `CHECK` also allows `photos_per_item` (SQLite cannot change a `CHECK` in place). It is safe to apply
+again, and the tests pin it by sha256 like the others. The tests also fail when a migration drops a `plan_limits` key
+or gives a foreign key an `ON DELETE` or `ON UPDATE` action.
+
+Applied migrations are never edited, comments included, so two header comments stay as written. `0001`'s "Additive
+only: … never drop or rename" predates the `0004` exception above. `0004`'s "the app's max_photos setting is capped by
+it" describes a later app change: nothing caps `max_photos` with `photos_per_item` yet.
 
 | Table | Purpose |
 |---|---|
 | `installations` | One row per installation: `id`, `do_name` (1-63 lower-case letters and digits in `-`-separated groups), `r2_prefix` (always `installations/<do_name>/`; neither ever changes: triggers refuse an update and a `REPLACE` over an existing installation), lifecycle `status` (`provisioning`, `active`, `suspended`, `deleting`, `deleted`), owner contact, notes |
 | `installation_routes` | Host (lower case, no port, no empty label or label starting or ending with `-`) → installation; several hosts may point at one installation |
-| `plans`, `plan_limits` | Plans and their soft and hard limits per key (`items`, `storage_bytes`, `photos`, `users`, `autofill_calls_month`, `requests_month`, `container_hours_month`, `sleep_after_ms`, `import_file_bytes`). No row for a key means no limit |
+| `plans`, `plan_limits` | Plans and their soft and hard limits per key (`items`, `storage_bytes`, `photos`, `users`, `autofill_calls_month`, `requests_month`, `container_hours_month`, `sleep_after_ms`, `import_file_bytes`, `photos_per_item`). No row for a key means no limit. `photos` is the total across all items; `photos_per_item` is the most photos one item may have (no plan has a value yet; the Worker does not enforce it) |
 | `subscriptions` | One row per installation: plan, manual status, `trial_end`, `period_end`, notes |
 | `usage_counters` | Per installation, month (`YYYY-MM`) and metric |
 | `operator_audit` | Every operator change, control-plane fields only. Append-only: triggers refuse updates, deletes and inserts over an existing id (`INSERT OR REPLACE`) |
@@ -88,8 +95,8 @@ console API.
 |---|---|---|---|
 | Requests per month (`requests_month`) | Counter in the container object | `Apotheke-Limit-Warning: requests_month` on responses | 429 "This Apotheke reached its monthly request limit. The owner can upgrade the plan." |
 | Container active time per month (`container_hours_month`, hours) | Container object, start to stop | `Apotheke-Limit-Warning: container_hours_month` | 402 "This month's active time is used up", without waking the container |
-| Request body (`import_file_bytes`) | Worker, before the body is read: `Content-Length`, or a streaming cap when there is none | none | 413 "File is larger than your plan allows (N MB)" |
-| Stored bytes (`storage_bytes`) | `r2.internal` on a write and a multipart complete, against a counter in the `Installation` object | none yet | 507 to PHP, `code` `storage_full` |
+| Request body (`import_file_bytes`) | Worker: a valid `Content-Length` over the hard value before the body is read, and a streaming cap on every body | none | 413 "File is larger than your plan allows (N MB)" |
+| Stored bytes (`storage_bytes`) | `r2.internal` on a write and a multipart complete, against a counter in the `Installation` object, recounted from R2 | none yet | 507 to PHP, `code` `storage_full` |
 
 - **Off switch.** The Worker var `LIMITS_ENABLED` (`"0"` in `edge/wrangler.jsonc`) turns everything off: each request
   is forwarded exactly as before, with no limits lookup and no counting. `"1"` turns enforcement on. The var is read
@@ -99,10 +106,41 @@ console API.
 - **Active time** is measured as the inactivity timeout defines it: a run starts with a request that finds the
   container asleep and ends `SLEEP_AFTER_MS` after the last request. Once the month is used up, every request gets the
   402 page and the container sleeps after its timeout.
-- **Stored bytes** count from when metering begins: files already stored before then are not counted until a later
-  reconciliation. An overwrite counts the difference and a delete gives its bytes back. A multipart upload is refused
-  at completion only when the store is already full, so one upload can go past the hard value by its own size.
-  Concurrent writes near the limit can pass it by the bytes in flight.
+- **Stored bytes** are counted on each write: an overwrite counts the difference and a delete gives its bytes back. A
+  multipart upload is refused at completion only when the store is already full, so one upload can go past the hard
+  value by its own size. Concurrent writes near the limit can pass it by the bytes in flight.
+- **Recount.** Concurrent writes to one key can count the same bytes twice, and files stored before metering began are
+  not counted on write. The `Installation` object therefore resets the counter to the total listed under the
+  installation's R2 prefix (paged, upload markers not counted): in its alarm when the last recount is over a day old,
+  and before a 507 when it is over an hour old. The alarm is set only by a change, so an idle installation is not
+  listed. Writes during a listing can leave the counter off by their own size until the next recount. A failed
+  listing leaves the counter as it was and counts as a recount for those waits, so a listing that keeps failing is
+  retried at most once an hour before a 507 and once a day in the alarm. `primary` is never listed.
+- **Headers.** `X-Apotheke-Limits` and `Apotheke-Limit-Warning` sent by a client are removed before a request reaches
+  the app, for every installation and whatever `LIMITS_ENABLED` is. The only `Apotheke-Limit-Warning` on a response
+  is the one the Worker sets. `X-Apotheke-Limits` is only for the Worker and the container object: the container
+  object removes the Worker's own copy too, so the app never sees it and cannot read limits from it.
+- **Preflights.** Every request counts toward `requests_month`, `OPTIONS` included. A real CORS preflight (`OPTIONS`
+  under `/api` with `Access-Control-Request-Method` and an `Origin` in `CORS_ALLOWED_ORIGINS`) is never refused by the
+  request or active-time limits, so a browser can read the refusal of the request that follows. In a used-up month the
+  container object answers it 204 with the CORS headers, without waking the container and without counting it;
+  otherwise it is counted and forwarded like any other request. Any other `OPTIONS` is counted and refused like a
+  `GET`.
+- **`/api` paths.** The Worker reads the path as the app does: the URL's path with each `%XX` decoded once
+  (`rawurldecode()`), so `/%61pi/…` and `/api%2F…` are under `/api` and `/%2561pi/…` is not. Two rare spellings
+  differ, because PHP's `parse_url()` reads them otherwise: a path with a `:` and up to five digits as a segment (such
+  as `/api/a:1`) is under `/api` in the Worker but `/` in the app, and a path starting with `//` is never under `/api`
+  in the Worker. Both are still counted; only a real preflight's exemption and the CORS headers on a refusal depend on
+  the path.
+- **Content-Length.** Only digits count as a valid `Content-Length`; anything else is treated as missing. A body
+  longer or shorter than a valid one gets 400 "Request body does not match Content-Length" instead of the app's
+  answer. The app may already have started on the part of the body it was sent, and an answer it sends before the
+  mismatch is seen is passed on as it is.
+- **CORS.** The 400, 413, 429 and 402 answers and the 204 preflight under `/api` carry the same CORS headers the app
+  sends for an origin in `CORS_ALLOWED_ORIGINS` (exact https origins, `Vary: Origin`), so the app on another origin can
+  read them. As in the app, only `/api` paths get them (not `/apix` or `/index.php/api`), and each listed origin is
+  trimmed of the same whitespace PHP's `trim()` removes. The app's
+  `Access-Control-Expose-Headers` includes `Apotheke-Limit-Warning`.
 - **Counters** are kept in memory in the owning object and written to its storage by an alarm at most 60 seconds after
   a change. `ApothekeContainer.usage()` returns the month's `requests` and
   `container_seconds` for the Cron that will copy them into `usage_counters` (not scheduled yet).
@@ -120,7 +158,11 @@ When a container starts, its object sets two values for its own installation:
 - `ALLOWED_HOSTS`: `primary` keeps the Worker's `ALLOWED_HOSTS`. Any other installation gets its own hosts from
   `installation_routes`, comma-separated. With no hosts, or no readable control plane, it does not start. It also
   does not start unless its status, read when the container starts, is `provisioning` or `active` (`primary` is
-  never gated).
+  never gated). The one exception is a lifecycle job's backup (see [Lifecycle jobs](#lifecycle-jobs)), which may also
+  start a `suspended` or `deleting` installation. A public request to a container started that way is forwarded only
+  after the status is read again and is `provisioning` or `active`; otherwise it gets 503. If the container object
+  restarts while the container is still running, a public request for any installation other than `primary` goes
+  through that check again.
 
 No new Worker variables or secrets. `edge/tests/installation-secrets.test.mjs` pins `primary`'s values and checks the
 derivation against an independent HKDF with fake keys.
@@ -137,8 +179,8 @@ per installation first.
 `primary` gets the Worker's `APP_PASSWORD` and the same container env as before, with no new variables. Any other
 installation gets no `APP_PASSWORD`; it gets `APOTHEKE_HOSTED=1` and `APOTHEKE_INSTALLATION` set to its own `do_name`,
 so the app starts without a shared password and its first admin comes from the first-admin claim (C1). Both values are
-set only from the container object's own name, never from a request. A hosted container needs an app and entrypoint
-that start without `APP_PASSWORD` when `APOTHEKE_HOSTED=1`.
+set only from the container object's own name, never from a request. With `APOTHEKE_HOSTED`, `APP_PASSWORD` is optional
+(see [Hosted installations](#hosted-installations)), so a hosted container can start without one.
 
 ## Lifecycle jobs
 
@@ -161,15 +203,111 @@ step by `LifecycleWorkflow` (`edge/src/lifecycle-workflow.ts`) over the step fun
 | provision | The installation row and at least one route exist (status `provisioning`); refuse if anything is stored under its R2 prefix; start the container with `BOOTSTRAP=1` and no `APP_PASSWORD`; create the first-admin claim; status `active` |
 | suspend | Status `suspended`, drop cached routes, stop and destroy the container. No data is touched. Routing can serve the cached `active` route for up to 30 seconds, but the container no longer starts (see [Per-installation APP_KEY and ALLOWED_HOSTS](#per-installation-app_key-and-allowed_hosts)) |
 | resume | Status `active`, drop cached routes. The next request starts the container |
-| export | The app's own backup, once per job, written by the app under the installation's prefix (`installations/<do_name>/`, in its backups folder); its key is kept on the job |
-| delete | Soft delete: status `deleting` (routing answers 410 once the cached route expires, within 30 seconds; the container no longer starts), stop and destroy the container, export. The job needs a retention period in days (30 is planned; the final value is the owner's decision) and has no default. The export stays under the prefix until a purge, which cannot run before the retention is over |
+| export | The app's own backup, once per job, written by the app under the installation's prefix (`installations/<do_name>/`, in its backups folder); its key is kept on the job. The container object asks its container for it (`ApothekeContainer.opsBackup`, see [Backup for a lifecycle job](#backup-for-a-lifecycle-job)), starting it if needed, also while `suspended`. Then, unless the installation is `active`, the container is stopped again, including when the backup fails the job |
+| delete | Soft delete: status `deleting` (routing answers 410 once the cached route expires, within 30 seconds; the container no longer starts), stop and destroy the container, export (which starts the container for the backup only), stop the container again, including when the backup fails the job. The job needs a retention period in days (30 is planned; the final value is the owner's decision) and has no default. The export stays under the prefix until a purge, which cannot run before the retention is over |
 | purge | Only after a soft delete that finished (its export made) and whose retention is over: now is at least the time that delete job finished plus its retention days. Before then, or after a delete that failed, creating, confirming and every step of a purge are refused and change nothing. There is no immediate purge. Then: abort unfinished multipart uploads that have a marker and delete their markers, then delete everything under `installations/<do_name>/` in pages of at most 1,000 keys (one page per step, so a retry carries on), then delete the `Installation` and container objects' storage, then status `deleted`. The row stays as a tombstone, so the DO names are never reused |
 
-Not wired yet, and failing closed until they are: the `BOOTSTRAP=1` start and the claim (C1), the backup call into
-the container, and the download link for an export (the console API, E6). Routes are cached only inside each
-`apotheke-api` isolate for at most 30 seconds, so there is no shared cache to purge yet. The Workflow is deployed with
-the operator Worker (D1), not with `apotheke-api`, whose configuration is unchanged.
+Not wired yet, and failing closed until they are: the `BOOTSTRAP=1` start and the claim (C1), and the download link
+for an export (the console API, E6).
+
+**Backup step.** The Workflow calls `opsBackup(jobId)` on the installation's container object, which signs the request
+with the installation's `APP_KEY` (`opsBackupRequest`) and sends it to the container's port, as the readiness probe
+does, never through the public forward. `APP_KEY` stays in `apotheke-api`; the Workflow's environment has none. The
+recorded key is `installations/<do_name>/` plus the answer's relative key, refused (`bad_export`) unless that key is
+exactly `backups/<id>/manifest.json` (the id is the stored backup's, `YYYYMMDD-HHMMSS` and six hex digits) and is for
+the same job. A future download link must use that key as stored and must not decode it. A refused installation, one
+that cannot start (including `deleted`), or a missing `APP_KEY` fails the job at once. 409, 5xx other than 503, and a
+call that did not finish are retried; 400, 401, 404, 410 and 503 fail the job as `backup_<status>`. The two export
+steps (`export.backup`, `delete.export`) have a 20-minute timeout and up to 10 retries 3 minutes apart, so a retry that
+gets 409 while the first call still runs (up to 900 seconds) keeps waiting. If the backup fails the job, including
+after the last of those retries, `export.stop` or `delete.export.stop` still runs, so a container started for a
+suspended or deleting installation is not left running. The job records the backup's error code even after the
+Workflow step has turned the error into a plain Error. The backup endpoint answers only with `APOTHEKE_HOSTED`,
+which the container object does not set yet; until it does, the step fails as `backup_404`. Routes are cached only
+inside each `apotheke-api` isolate for at most 30 seconds, so there is no shared cache to purge yet. The Workflow is
+deployed with the operator Worker (D1), not with `apotheke-api`, whose configuration is unchanged.
 
 A purge takes one Workflow step per page of up to 1,000 keys (plus one per 100 unfinished uploads). The Workflow's
 step limit per instance therefore caps one purge at about 10 million objects (about 1 million on the Free plan's
 1,024 steps). Past the limit the instance fails without reaching its last step, and the job is left in `running`.
+
+## Hosted installations
+
+`APOTHEKE_HOSTED=1` in the container's environment marks a hosted installation. Without it the app behaves exactly as
+when self-hosted: no plan limits are read, nothing below is active, and `/claim` answers 404.
+
+**Bridge reads.** The `Installation` object answers three read-only requests on `d1.internal`, next to the SQL bridge
+and only in storage mode (`STORAGE`, `DB` and `INSTALLATION` bound). They follow the edge's storage mode, not
+`APOTHEKE_HOSTED`, which is set in the container's environment and is not visible to the Worker:
+
+- `GET /stats`: counts of items, photos, user accounts, and accounts signed in during the last 30 days.
+- `GET /users`: id, name, role, status, created and last sign-in for each account. No password hashes or sessions.
+- `GET /limits`: the plan and its limits (`{key: {soft, hard}}`) for the object's own installation, looked up by its
+  `do_name` through its subscription and read as the Worker reads them (`edge/src/limits.ts`, see [Limits](#limits)):
+  only keys with a hard value, soft 80% of hard when it has none. The app reads a fractional soft value as the next
+  whole number. A value that is negative, not finite or beyond the largest whole number makes the answer unreadable,
+  like any other bad value. 404 when the installation has no subscription, 503 when the control plane is not bound.
+
+**Plan limits.** With `APOTHEKE_HOSTED`, the app reads `/limits` once per request when it needs them. The hard
+values of `items`, `photos` and `users` cap adding items, photos and accounts: the count is checked inside the unit
+of work that adds the rows, and the unit also takes a `plan-limit:<key>` key, so two adds at once cannot pass a
+limit together. Edits, deletes and replacing a cover are not adds. `import_file_bytes` caps the Control Panel's
+upload size settings (`max_upload_mb`, `attach_max_mb`); the autofill URL is set by the hosting side and cannot be
+changed there. If the limits cannot be read, adds that need them are refused with 503. Limit values come only from
+`plan_limits`; the app has no built-in tier numbers. Restoring a backup, undoing a delete and the photos copied by
+Duplicate are not counted.
+
+**First-admin claim.** A new installation starts with no account. `php spark accounts:claim-create` (run through the
+bridge) prints a one-time token and stores only its SHA-256 and expiry (`HOSTED_CLAIM_HOURS`, default 72) as a
+settings row outside the Control Panel's keys, so it is never exported or backed up. A new claim replaces the old one.
+While an active `admin` exists, `accounts:claim-create` makes no claim and leaves any claim row as it is: it prints
+`An active admin already exists, so no claim was made.` and exits 1. It checks this in a unit with the `active-admins`
+key, like the claim itself.
+The link is `https://<host>/claim#<token>`: the page reads the token from the fragment, and the owner picks a user
+name and password and becomes an active `admin`. The claim row is deleted in the same unit as the account insert, so
+a link works once. The claim works only while the installation has no active `admin`: that is checked in the same
+unit, which takes the `active-admins` key like every unit that adds an active admin. Once an active `admin` exists,
+every claim request gets the same 410 answer, whatever its token, and the claim row is removed. Registration stays
+closed until the first account exists, and sign-in cannot be turned off.
+
+**`APP_PASSWORD` is optional.** With `APOTHEKE_HOSTED` and no `APP_PASSWORD`, the container starts (the start-up
+check `auth status` answers on once the database answers), the first migration turns sign-in on and creates no
+account, and the first-admin claim makes the first admin. With `APOTHEKE_HOSTED` and `APP_PASSWORD` set, the first
+start creates the account `admin` from it exactly as on a self-hosted install, so the claim is not the way to the first
+admin there, and `accounts:claim-create` refuses. `APOTHEKE_INSTALLATION` alone changes nothing. Without `APOTHEKE_HOSTED`, a missing `APP_PASSWORD` on a new
+install still stops the start as before ([Deployment and operations](deployment-and-operations.md)).
+
+## Backup for a lifecycle job
+
+Export and soft delete lifecycle jobs (operator console E4) need the app's own backup, once per job. With
+`APOTHEKE_HOSTED`, the container answers `POST /internal/backup` for that, on the host `ops.internal` only. The
+Worker never routes that host, so the request comes only from the installation's container object through the
+container's port (`edge/src/ops-signature.ts`, `opsBackupRequest`). A request with the Worker's forwarding headers
+(`X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-For`, `X-Apotheke-Client-IP`), another host or another path is
+not this endpoint and gets the usual 404. Self-hosted, it doesn't exist.
+
+- **Request:** body `{"job_id":"<id>"}` (letters, digits, `_` and `-`, at most 64), header
+  `X-Apotheke-Ops-Signature: t=<unix seconds>,v1=<hex>`. The key is HMAC-SHA256 of `apotheke-ops-v1` under the
+  installation's `APP_KEY` bytes; `v1` is HMAC-SHA256 under that key of `POST`, the path, `t` and the body's SHA-256
+  (hex), joined by newlines. It is accepted within 300 seconds of the container's clock.
+- **Answer:** 200
+  `{"ok":true,"created":…,"backup":{"job_id","id","key","prefix","size","sha256","parts","files","created_at"}}`.
+  `key` is the backup's manifest, `backups/<id>/manifest.json`, relative to the installation's storage; the Worker
+  adds `installations/<do_name>/`. A future download link must use that key as stored and must not decode it. Every
+  object of the backup is under `prefix`. `files` lists the parts in order
+  (`{"key":"part-00001","size":…,"sha256":…}`, keys relative to `prefix`), as the manifest does; the parts joined in
+  order are the zip with `size` and `sha256`. Errors are `{"ok":false,"code":…}`: 400 `bad_request`,
+  401 `unauthorized`, 405, 409 `backup_in_progress` (retry later), 410 `backup_gone`, 500 `backup_failed`,
+  503 `not_configured`.
+- **Once per job:** the same job id returns the same backup with `created: false`. The job is recorded in the
+  settings row `ops_backup_job:<id>` (outside the Control Panel's keys), claimed in a unit of work keyed by that row,
+  so two requests for one job never make two backups. A claim left by a request that stopped is taken over after
+  two hours. A backup still running stops before its next part or its manifest once its claim is 1 h 50 min old, or
+  as soon as another request has taken the claim, and keeps nothing; a backup stored after its claim was taken is
+  deleted again. So a takeover never overlaps a backup that is still writing. The backup is a stored backup of kind
+  `export`; `backup.keep` doesn't prune exports.
+- **One snapshot:** the catalog is dumped inside one read transaction (one `REPEATABLE READ, READ ONLY` snapshot on
+  PostgreSQL, one read transaction on SQLite), so every table comes from the same moment. The hosted database reads
+  in pages without one.
+- **Left-over parts:** parts under `backups/<id>/` with no manifest a day after the backup's id time (a backup that
+  stopped) are deleted when the next backup is stored. A folder with a manifest is never touched by this.

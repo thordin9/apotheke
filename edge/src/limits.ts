@@ -18,7 +18,15 @@ export function limitsEnabled(env: { LIMITS_ENABLED?: string }): boolean {
 	return env.LIMITS_ENABLED === "1";
 }
 
-/** plan_limits rows as the route query returns them ({"key": [soft, hard]}, JSON). Soft defaults to 80% of hard. */
+/**
+ * The plan_limits of installation i's subscription as one JSON value ({"key": [soft, hard]}; NULL without a
+ * subscription or limit rows), for a query that has the installations row as i. Only rows with a hard value.
+ * parseLimits() reads it.
+ */
+export const PLAN_LIMITS_JSON_SQL = "(SELECT json_group_object(l.limit_key, json_array(l.soft_value, l.hard_value))"
+	+ " FROM subscriptions s JOIN plan_limits l ON l.plan_id = s.plan_id WHERE s.installation_id = i.id AND l.hard_value IS NOT NULL)";
+
+/** plan_limits rows as PLAN_LIMITS_JSON_SQL returns them ({"key": [soft, hard]}, JSON). Soft defaults to 80% of hard. */
 export function parseLimits(raw: unknown): Limits {
 	const out: Limits = {};
 	let rows: unknown;
@@ -44,42 +52,142 @@ export function tooLarge(bytes: number): Response {
 	return text(413, `File is larger than your plan allows (${Math.floor(bytes / 104_857.6) / 10} MB)`);
 }
 
+/** A body that does not have the length its valid Content-Length gives. */
+export function lengthMismatch(): Response {
+	return text(400, "Request body does not match Content-Length");
+}
+
+/** The app's API paths: /api and /api/..., no other spelling (ApiResponse::isApi()). */
+export function isApiPath(path: string): boolean {
+	return path === "/api" || path.startsWith("/api/");
+}
+
+/** The path as the app reads it (LegacyPathRouter::legacyPath()): the URL's path with each %XX decoded once, as
+ *  rawurldecode() does, so /%61pi and /api%2Fv1 are under /api too. Bytes, not UTF-8, so a bad escape never throws. */
+export function appPath(request: Request): string {
+	return new URL(request.url).pathname.replace(/%([0-9A-Fa-f]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+/**
+ * A real CORS preflight the app answers for the SPA: OPTIONS under /api (appPath()) with Access-Control-Request-Method
+ * and an Origin in CORS_ALLOWED_ORIGINS (corsAllowed()). Counted like any request but never refused, since a browser
+ * needs a 2xx preflight to read the refusal of the request that follows. Any other OPTIONS is an ordinary request.
+ */
+export function isPreflight(request: Request, configured: string | undefined): boolean {
+	return request.method.toUpperCase() === "OPTIONS" && request.headers.has("Access-Control-Request-Method")
+		&& isApiPath(appPath(request)) && corsAllowed(request, configured) !== null;
+}
+
+/** PHP's trim(): only space, tab, newline, carriage return, NUL and vertical tab, not every Unicode space. A loop, not
+ *  a regex, so a long run of these characters stays linear. */
+function phpTrim(s: string): string {
+	const space = " \t\n\r\0\x0B";
+	let start = 0;
+	let end = s.length;
+	while (start < end && space.includes(s[start])) start++;
+	while (end > start && space.includes(s[end - 1])) end--;
+	return s.slice(start, end);
+}
+
+/** The exposed response headers, as the app sends them on /api (modules/Core/Http/Cors.php). */
+export const CORS_EXPOSE = "ETag, Location, Retry-After, Link, " + WARNING_HEADER;
+
+/** scheme://host[:port] in lower case, or null (Cors::origin()). */
+function corsOrigin(raw: string): string | null {
+	let origin = phpTrim(raw).toLowerCase();
+	while (origin.endsWith("/")) origin = origin.slice(0, -1);
+	return /^https?:\/\/(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(:[0-9]{1,5})?$/.test(origin) ? origin : null;
+}
+
+/** One trailing dot of the host is the same host (SameOrigin::normalise()). */
+function corsNormalise(origin: string): string {
+	return origin.replace(/^([a-z][a-z0-9+.-]*:\/\/[^/:[\]]+)\.(:\d+)?$/, "$1$2");
+}
+
+/** The usable https origins of CORS_ALLOWED_ORIGINS, normalised (Cors::__construct(), production rules). */
+function corsOrigins(configured: string | undefined): string[] {
+	return (configured ?? "").split(",").map(corsOrigin).filter((o): o is string => o !== null && o.startsWith("https://")).map(corsNormalise);
+}
+
+/** The request's Origin as the app echoes it when it is in CORS_ALLOWED_ORIGINS (Cors::allows()), else null. */
+function corsAllowed(request: Request, configured: string | undefined): string | null {
+	const sent = corsOrigin(request.headers.get("Origin") ?? "");
+	return sent !== null && corsOrigins(configured).includes(corsNormalise(sent)) ? sent : null;
+}
+
+/**
+ * Adds to a refusal the edge answers itself the CORS headers the app would send (ApiFilter::after() with
+ * modules/Core/Http/Cors.php, production rules): only on /api, only for an exact https origin in CORS_ALLOWED_ORIGINS,
+ * and Vary: Origin whenever that list has an origin. Nothing changes when the list is empty.
+ */
+export function withCors(res: Response, request: Request, configured: string | undefined): Response {
+	if (!isApiPath(appPath(request)) || corsOrigins(configured).length === 0) return res;
+	res.headers.set("Vary", "Origin");
+	const sent = corsAllowed(request, configured);
+	if (sent === null) return res;
+	res.headers.set("Access-Control-Allow-Origin", sent);
+	res.headers.set("Access-Control-Allow-Credentials", "true");
+	res.headers.set("Access-Control-Expose-Headers", CORS_EXPOSE);
+	if (request.method.toUpperCase() === "OPTIONS") {
+		res.headers.set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE");
+		res.headers.set("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token, If-Match, Idempotency-Key");
+		res.headers.set("Access-Control-Max-Age", "600");
+	}
+	return res;
+}
+
 /**
  * The Worker side, for an installation other than primary: refuses a body over import_file_bytes before reading it
- * (Content-Length, or a streaming cap when there is none) and forwards with the limits in LIMITS_HEADER, overwriting
- * any client value.
+ * when a valid Content-Length says so, and always counts the bytes as they stream, so a missing, invalid or wrong
+ * Content-Length is capped the same. Forwards with the limits in LIMITS_HEADER, overwriting any client value.
+ * corsOrigins is CORS_ALLOWED_ORIGINS, for the 413.
  */
-export async function forwardWithLimits(request: Request, limits: Limits, forward: (r: Request) => Promise<Response>): Promise<Response> {
+export async function forwardWithLimits(request: Request, limits: Limits, forward: (r: Request) => Promise<Response>, corsOrigins?: string): Promise<Response> {
 	const max = limits.import_file_bytes?.hard;
 	const headers = new Headers(request.headers);
 	headers.set(LIMITS_HEADER, JSON.stringify(limits));
 	const init: RequestInit & { duplex?: "half" } = { headers };
 	let over = false;
+	let mismatch = false;
 	if (max !== undefined && request.body !== null) {
-		const length = request.headers.get("content-length");
-		if (length !== null && Number(length) > max) return tooLarge(max);
-		if (length === null) {
-			let seen = 0;
-			init.body = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-				transform(chunk, controller) {
-					seen += chunk.byteLength;
-					if (seen > max) {
-						over = true;
-						controller.error(new Error("request body over the plan limit"));
-					} else controller.enqueue(chunk);
-				},
-			}));
-			init.duplex = "half";
-		}
+		const length = (request.headers.get("content-length") ?? "").trim();
+		const declared = /^[0-9]+$/.test(length) ? Number(length) : null;
+		if (declared !== null && declared > max) return withCors(tooLarge(max), request, corsOrigins);
+		let seen = 0;
+		let body = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+			transform(chunk, controller) {
+				seen += chunk.byteLength;
+				// A valid length is at most max, so a longer body fails here first: a 400, not a 413.
+				if (declared !== null && seen > declared) {
+					mismatch = true;
+					controller.error(new Error("request body longer than its Content-Length"));
+				} else if (seen > max) {
+					over = true;
+					controller.error(new Error("request body over the plan limit"));
+				} else controller.enqueue(chunk);
+			},
+			flush() {
+				if (declared !== null && seen !== declared) {
+					mismatch = true;
+					throw new Error("request body shorter than its Content-Length");
+				}
+			},
+		}));
+		// The runtime's FixedLengthStream keeps a valid Content-Length on the forwarded request. A body of another length
+		// fails above first and is answered 400. Otherwise, as for a body without one, it is forwarded without a length.
+		headers.delete("content-length");
+		if (declared !== null && typeof FixedLengthStream === "function") body = body.pipeThrough(new FixedLengthStream(declared));
+		init.body = body;
+		init.duplex = "half";
 	}
 	try {
 		const res = await forward(new Request(request, init));
-		if (!over) return res;
+		if (!over && !mismatch) return res;
 		await res.body?.cancel();
 	} catch (e) {
-		if (!over) throw e;
+		if (!over && !mismatch) throw e;
 	}
-	return tooLarge(max!);
+	return withCors(mismatch ? lengthMismatch() : tooLarge(max!), request, corsOrigins);
 }
 
 /** The container object's view: the limits from LIMITS_HEADER (null for primary, when off, or without the header),
@@ -104,6 +212,7 @@ export function takeLimits(request: Request, env: { LIMITS_ENABLED?: string }, d
 /** A value kept in memory and written to the object's storage under one key, at most FLUSH_MS after a change. */
 export class Counter<T extends object> {
 	private value?: T;
+	private loading?: Promise<T>;
 	private dirty = false;
 	private readonly storage: DurableObjectStorage;
 	private readonly key: string;
@@ -114,8 +223,11 @@ export class Counter<T extends object> {
 		this.init = init;
 	}
 
+	/** One load from storage: callers before it finishes share the same value, so no change is lost. */
 	async get(): Promise<T> {
-		return (this.value ??= (await this.storage.get<T>(this.key)) ?? this.init());
+		if (this.value) return this.value;
+		this.loading ??= this.storage.get<T>(this.key).then((v) => (this.value ??= v ?? this.init()));
+		return this.loading;
 	}
 
 	async changed(now = Date.now()): Promise<void> {
@@ -124,9 +236,9 @@ export class Counter<T extends object> {
 		if ((await this.storage.getAlarm()) === null) await this.storage.setAlarm(now + FLUSH_MS);
 	}
 
-	/** Called from the object's alarm. */
-	async flush(): Promise<void> {
-		if (!this.dirty || !this.value) return;
+	/** Called from the object's alarm. force writes a value changed without changed() (a recount in the alarm). */
+	async flush(force = false): Promise<void> {
+		if ((!this.dirty && !force) || !this.value) return;
 		this.dirty = false;
 		await this.storage.put(this.key, this.value);
 	}
@@ -170,13 +282,19 @@ export class UsageMeter {
 		u.lastActivity = now;
 	}
 
-	/** Before forwarding: the refusal for a used-up month, else counts the request. */
-	async admit(limits: Limits, now = Date.now()): Promise<Response | null> {
+	/**
+	 * Before forwarding: the refusal for a used-up month, else counts the request. A real preflight (isPreflight()) is
+	 * never refused: in a used-up month it gets the app's empty 204 without waking the container and is not counted,
+	 * like a refusal; otherwise it is counted and forwarded like any other request.
+	 */
+	async admit(limits: Limits, now = Date.now(), preflight = false): Promise<Response | null> {
 		const u = await this.current(now);
 		const hours = limits.container_hours_month;
-		if (hours && u.containerMs >= hours.hard * 3_600_000) return text(402, "This month's active time is used up");
 		const requests = limits.requests_month;
-		if (requests && u.requests >= requests.hard) return text(429, "This Apotheke reached its monthly request limit. The owner can upgrade the plan.");
+		const refusal = hours && u.containerMs >= hours.hard * 3_600_000 ? text(402, "This month's active time is used up")
+			: requests && u.requests >= requests.hard ? text(429, "This Apotheke reached its monthly request limit. The owner can upgrade the plan.")
+			: null;
+		if (refusal) return preflight ? new Response(null, { status: 204 }) : refusal;
 		u.requests += 1;
 		this.activity(u, now);
 		await this.counter.changed(now);
