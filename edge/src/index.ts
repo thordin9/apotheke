@@ -212,7 +212,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		request = taken.request;
 		const meter = limits ? (this.meter ??= new UsageMeter(this.ctx.storage, () => this.sleepAfter())) : null;
 		if (limits && meter) {
-			const refused = await meter.admit(limits, Date.now(), isPreflight(request));
+			const refused = await meter.admit(limits, Date.now(), isPreflight(request, this.env.CORS_ALLOWED_ORIGINS));
 			if (refused) return withCors(refused, request, this.env.CORS_ALLOWED_ORIGINS);
 		}
 		try {

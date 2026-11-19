@@ -12,6 +12,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** with plan limits on, an installation other than primary reaches autofill at `http://autofill.internal` through the `AUTOFILL` service binding, with its installation and monthly autofill limit set by the Worker and no bearer token in the container ([#327](https://github.com/thordin9/apotheke/pull/327))
 
+### Fixed
+
+- **edge:** with plan limits on, every `OPTIONS` request counts toward the monthly request limit and only a real CORS preflight from an allowed origin is never refused, `/api` paths are read decoded as the app reads them, and a failed stored-bytes recount is saved ([#325](https://github.com/thordin9/apotheke/pull/325))
+
 ## [3.48.0] - 2026-11-19
 
 ### Added
