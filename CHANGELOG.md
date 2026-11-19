@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.49.1] - 2026-11-19
+
 ### Fixed
 
 - **edge:** a failed lifecycle backup still stops a non-active container (including after the last retry, and after a Workflow step has turned the error into a plain Error), a public request after a container-object restart re-checks status, a backup key has to be `backups/<id>/manifest.json`, a refused or unstartable backup fails the job without a retry, and a backup start does not join a public start already in flight ([#328](https://github.com/thordin9/apotheke/pull/328))
@@ -1829,7 +1831,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.49.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.49.1...HEAD
+[3.49.1]: https://github.com/thordin9/apotheke/compare/v3.49.0...v3.49.1
 [3.49.0]: https://github.com/thordin9/apotheke/compare/v3.48.1...v3.49.0
 [3.48.1]: https://github.com/thordin9/apotheke/compare/v3.48.0...v3.48.1
 [3.48.0]: https://github.com/thordin9/apotheke/compare/v3.47.0...v3.48.0
