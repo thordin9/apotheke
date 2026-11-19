@@ -164,9 +164,10 @@ reads:
 
 Every other header from the container (`Authorization`, `Cookie`, any installation or limit header) is dropped; only
 `Content-Type`, `Content-Length` and `Accept` are kept. The answer is 503 without calling the service when limits are
-off, for primary, or when the `AUTOFILL` binding is not on the Worker. Primary is not wired. The binding
-(`"services": [{ "binding": "AUTOFILL", "service": "apotheke-autofill", "entrypoint": "HostedAutofill" }]`) is added
-by the deploy owner; `edge/wrangler.jsonc` does not declare it yet.
+off, for primary, or when the `AUTOFILL` binding is not on the Worker. Primary is not wired. `edge/wrangler.jsonc`
+declares the binding (`"services": [{ "binding": "AUTOFILL", "service": "apotheke-autofill", "entrypoint":
+"HostedAutofill" }]`, that is `AUTOFILL` -> `apotheke-autofill#HostedAutofill`). `LIMITS_ENABLED` stays "0" on prod, so
+until it is "1" every hosted autofill call still answers 503 without calling the service.
 
 `HostedAutofill` has no route: only a Worker on the same Cloudflare account can bind to it, so the account is the
 trust boundary for the installation and limit headers it reads.
@@ -175,7 +176,7 @@ Turning it on, in this order:
 
 1. Deploy the autofill service with `HostedAutofill` (apotheke-autofill-service#42).
 2. Deploy this Worker with `AutofillOutbound` ([#327](https://github.com/thordin9/apotheke/pull/327)).
-3. Add the `AUTOFILL` service binding above to the Worker (deploy owner).
+3. Deploy this Worker with the `AUTOFILL` service binding above ([#329](https://github.com/thordin9/apotheke/pull/329)).
 4. Set each hosted installation's `autofill_url` to `http://autofill.internal`.
 5. Set `LIMITS_ENABLED` to "1".
 

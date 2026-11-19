@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** the `AUTOFILL` service binding to the autofill Worker's `HostedAutofill` entrypoint (`apotheke-autofill`), used only with plan limits on ([#329](https://github.com/thordin9/apotheke/pull/329))
+
 ## [3.50.0] - 2026-11-19
 
 ### Added
