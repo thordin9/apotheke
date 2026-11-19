@@ -83,7 +83,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Stocktake & labels | 47.6 % | 95.6 % | 96.0 % |
 | Users, roles & sign-in | 65.1 % | 70.8 % | 84.4 % |
 | CSV import & export | 54.6 % | 79.9 % | 91.0 % |
-| Photos & autofill | 69.2 % | 17.9 % | 70.6 % |
+| Photos & autofill | 69.2 % | 18.2 % | 70.8 % |
 | Notes & layout | 87.5 % | 75.4 % | 94.8 % |
 | Settings & Control Panel | 54.3 % | 48.6 % | 69.6 % |
 | Backup & restore | 70.1 % | 60.7 % | 82.2 % |

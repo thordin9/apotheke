@@ -12,6 +12,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** the lifecycle jobs' backup step calls the container's backup endpoint through `ApothekeContainer.opsBackup`, and the backup can start a suspended or deleting installation while public requests stay refused (L-2167) ([#324](https://github.com/thordin9/apotheke/pull/324))
 
+## [3.48.1] - 2026-11-19
+
+### Fixed
+
+- **edge:** with plan limits on, every `OPTIONS` request counts toward the monthly request limit and only a real CORS preflight from an allowed origin is never refused, `/api` paths are read decoded as the app reads them, and a failed stored-bytes recount is saved ([#325](https://github.com/thordin9/apotheke/pull/325))
+
 ## [3.48.0] - 2026-11-19
 
 ### Added
@@ -1817,7 +1823,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.48.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.48.1...HEAD
+[3.48.1]: https://github.com/thordin9/apotheke/compare/v3.48.0...v3.48.1
 [3.48.0]: https://github.com/thordin9/apotheke/compare/v3.47.0...v3.48.0
 [3.47.0]: https://github.com/thordin9/apotheke/compare/v3.46.2...v3.47.0
 [3.46.2]: https://github.com/thordin9/apotheke/compare/v3.46.1...v3.46.2
