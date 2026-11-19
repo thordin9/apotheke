@@ -110,6 +110,15 @@ function config_load(string $root, ?string $file, array $env): array
     $cfg['expiry_soon_days'] = min(3650, max(1, (int)$cfg['expiry_soon_days']));
     $cfg['seed_defaults'] = filter_var($cfg['seed_defaults'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
     $cfg['app_password'] = (string)$cfg['app_password'];
+    // Hosted (APOTHEKE_HOSTED, read as ApothekeConfig reads it): 'hosted' is true, so the migrations seed sign-in on
+    // also without APP_PASSWORD. APP_PASSWORD is read as before. Not hosted, the array is as before (a 'hosted'
+    // from config.php reads false).
+    $hosted = is_string($env['APOTHEKE_HOSTED'] ?? null) && $env['APOTHEKE_HOSTED'] !== '' ? $env['APOTHEKE_HOSTED'] : ($cfg['hosted'] ?? false);
+    if (filter_var($hosted, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) === true) {
+        $cfg['hosted'] = true;
+    } elseif (array_key_exists('hosted', $cfg)) {
+        $cfg['hosted'] = false;
+    }
     $cfg['timezone'] = (string)$cfg['timezone'] ?: 'UTC';
     $cfg['trusted_proxies'] = config_proxy_list($cfg['trusted_proxies'] ?? []);
     $cfg['sign_in_fail_ms'] = min(10000, max(400, (int)($cfg['sign_in_fail_ms'] ?? 1000)));

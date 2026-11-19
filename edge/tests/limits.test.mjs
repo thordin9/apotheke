@@ -67,8 +67,8 @@ function readyBox(name, vars, storage = kvStorage(), reply = () => new Response(
     getTcpPort: () => ({ fetch: async (input) => { calls.push(input); return reply(); } }),
   };
   const ctx = { id: { name }, container, storage, blockConcurrencyWhile: (f) => f(), waitUntil() {},
-    exports: { D1Outbound: () => ({}), R2Outbound: (o) => { wired.push(o.props); return {}; } } };
-  const env = { APP_PASSWORD: 'p', APP_KEY: 'k', STORAGE: {}, DB: {}, INSTALLATION: {}, ...vars };
+    exports: { D1Outbound: () => ({}), R2Outbound: (o) => { wired.push(o.props); return {}; }, AutofillOutbound: () => ({}) } };
+  const env = { APP_PASSWORD: 'p', APP_KEY: 'k', STORAGE: {}, DB: controlDb(), INSTALLATION: {}, ...vars };
   return { box: new ApothekeContainer(ctx, env), calls, wired, storage };
 }
 const limited = (limits) => new Request('https://b.example.test/api/v1/items', { headers: { [LIMITS_HEADER]: JSON.stringify(limits) } });
@@ -548,7 +548,7 @@ test('E5: a real preflight under /api is never refused: 204 without waking the c
     assert.equal(storage.alarm, null, 'nothing changed');
     assert.equal((await box.usage()).requests, usage.requests, 'not counted, like a refusal');
     // As the app reads the path: decoded once (N-2207).
-    for (const path of ['/api', '/api/', '/%61pi/v1/items', '/api%2Fv1%2Fitems']) assert.equal((await box.fetch(preflight(path))).status, 204, path);
+    for (const path of ['/api', '/api/', '/%61pi/v1/items', '/api%2Fv1%2Fitems', '/%61pi/%FF', '/%61pi/%zz']) assert.equal((await box.fetch(preflight(path))).status, 204, path);
     assert.equal(calls.length, 0);
   }
   // Anything else in a used-up month is refused and not forwarded.
@@ -649,10 +649,10 @@ test('E5: a body longer or shorter than its valid Content-Length is a clean 400,
   await assert.rejects(publicWorker.fetch(new Request('https://b.example.test/api/v1/import', { method: 'POST', body: '12345', headers: { 'content-length': '5' } }), failing), /down/);
 });
 
-test('E5: CORS only on /api and /api/... as the app reads the path, decoded once: not /apix or /index.php/api (N-2203 M21, N-2205, N-2207)', () => {
+test('E5: CORS only on /api and /api/... as the app reads the path, decoded once: not /apix or /index.php/api (N-2203 M21, N-2205, N-2207, N-2210)', () => {
   const configured = ORIGINS.CORS_ALLOWED_ORIGINS;
   const at = (path) => corsOf(withCors(new Response(null, { status: 429 }), new Request(`https://b.example.test${path}`, { headers: { Origin: 'https://app.example.test' } }), configured));
-  for (const path of ['/api', '/api/', '/api/v1/items', '/%61pi/v1/items', '/%61%70%69', '/api%2Fv1', '/api%2fv1', '/api/%FF%fe']) assert.deepEqual(at(path), ALLOWED, path);
+  for (const path of ['/api', '/api/', '/api/v1/items', '/%61pi/v1/items', '/%61%70%69', '/api%2Fv1', '/api%2fv1', '/api/%FF%fe', '/%61pi/%FF', '/%61pi/%zz']) assert.deepEqual(at(path), ALLOWED, path);
   for (const path of ['/apix', '/apix/v1', '/index.php/api/v1/items', '/API/v1/items', '/%41PI/v1', '/%2561pi/v1/items', '/api%', '/api%zz', '/', '/import']) assert.deepEqual(at(path), {}, path);
   // Documented differences, where PHP's parse_url() reads the path otherwise: the edge is under /api for a ':' and
   // digits segment (PHP: '/'), and not for a path that starts with '//' (PHP: the path after the first segment).

@@ -16,6 +16,7 @@ use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\CommandLine;
 use Apotheke\Core\Security\OpsSignature;
 use Apotheke\Core\Storage\LocalStorage;
+use Apotheke\Core\Storage\Storage;
 use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
@@ -71,11 +72,85 @@ final class OpsBackupsTest extends CIUnitTestCase
             $d->config->values(), static fn (string $m): null => null, new CommandLine());
     }
 
-    private function stored(int $keep = 5, ?string $dataDir = null): StoredBackups
+    /** @param (\Closure(string):void)|null $tableDone after each table of the dump */
+    private function stored(int $keep = 5, ?string $dataDir = null, ?\Closure $tableDone = null, ?Storage $store = null): StoredBackups
     {
         $d = $this->d();
 
-        return new StoredBackups(new LocalStorage($d->dataDir()), new Backups($d->db, new Clock(), $this->settings(), $dataDir ?? $d->dataDir(), $d->config->originalsDir()), new Clock(), $keep);
+        return new StoredBackups($store ?? new LocalStorage($d->dataDir()), new Backups($d->db, new Clock(), $this->settings(), $dataDir ?? $d->dataDir(), $d->config->originalsDir(), null, null, null, $tableDone), new Clock(), $keep);
+    }
+
+    /** The files under DATA_DIR/backups, relative to it. @return list<string> */
+    private function backupFiles(): array
+    {
+        $dir = $this->d()->dataDir() . '/' . rtrim(StoredBackups::PREFIX, '/');
+        $out = [];
+        if (is_dir($dir)) {
+            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)) as $f) {
+                $out[] = substr((string)$f, strlen($dir) + 1);
+            }
+        }
+        sort($out);
+
+        return $out;
+    }
+
+    /**
+     * DATA_DIR's storage, recording each key written in $written and calling $then right after a key ending in
+     * "/$after" is written.
+     *
+     * @param list<string> $written
+     */
+    private function watched(\Closure $then, string $after, array &$written): Storage
+    {
+        return new class (new LocalStorage($this->d()->dataDir()), $then, $after, $written) implements Storage {
+            /** @param list<string> $written */
+            public function __construct(private readonly LocalStorage $inner, private readonly \Closure $then, private readonly string $after, private array &$written)
+            {
+            }
+
+            public function read(string $key): ?string
+            {
+                return $this->inner->read($key);
+            }
+
+            public function write(string $key, string $bytes): void
+            {
+                $this->inner->write($key, $bytes);
+                $this->written[] = $key;
+                if ($this->after !== '' && str_ends_with($key, '/' . $this->after)) {
+                    ($this->then)();
+                }
+            }
+
+            public function writeStream(string $key, mixed $stream): void
+            {
+                $this->inner->writeStream($key, $stream);
+                $this->written[] = $key;
+            }
+
+            public function delete(string $key): void
+            {
+                $this->inner->delete($key);
+            }
+
+            public function exists(string $key): bool
+            {
+                return $this->inner->exists($key);
+            }
+
+            public function modifiedAt(string $key): ?int
+            {
+                return $this->inner->modifiedAt($key);
+            }
+        };
+    }
+
+    /** Another request takes the job's claim over (as after STALE_SECONDS). */
+    private function takeOver(string $job): void
+    {
+        Writes::check($this->d()->connectAgain()->query('UPDATE settings SET value = ? WHERE name = ?',
+            [(string)json_encode(['state' => 'running', 'since' => (new Clock())->unix(), 'token' => 'other']), OpsBackups::SETTING_PREFIX . $job]), 'take over');
     }
 
     private function ops(bool $batch = false, ?StoredBackups $stored = null): OpsBackups
@@ -171,6 +246,78 @@ final class OpsBackupsTest extends CIUnitTestCase
         unlink($this->d()->dataDir() . '/' . StoredBackups::PREFIX . $export['id'] . '/manifest.json');
         $this->refused(fn () => $this->ops()->forJob('job-1'), 'backup_gone', 410);
         $this->refused(fn () => $this->ops()->forJob('bad id'), 'bad_request', 400);
+    }
+
+    /**
+     * A backup still running when its claim is GUARD_SECONDS from STALE_SECONDS old stops before its next part and
+     * keeps nothing, so a takeover never overlaps it; one second earlier it finishes.
+     */
+    #[DataProvider('modes')]
+    public function testABackupStopsAtItsDeadline(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $this->assertSame(7200 - 600, OpsBackups::STALE_SECONDS - OpsBackups::GUARD_SECONDS);
+        foreach (['job-late' => '2026-06-01 11:50:00', 'job-in-time' => '2026-06-01 11:49:59'] as $job => $at) {
+            putenv('APOTHEKE_CLOCK=2026-06-01 10:00:00');
+            $later = static function (string $table) use ($at): void {
+                putenv('APOTHEKE_CLOCK=' . $at);
+            };
+            $ops = new OpsBackups($this->d()->db, $this->stored(5, null, $later), new Clock(), $batch ? UnitsOfWork::on(new LocalBatchExecutor($this->d()->db)) : null);
+            if ($job === 'job-late') {
+                $this->refused(fn () => $ops->forJob($job), 'backup_failed', 500);
+                $this->assertNull($this->record($job), 'the claim is released');
+                $this->assertSame([], $this->backupIds());
+                $this->assertSame([], $this->backupFiles(), 'no part is left');
+            } else {
+                $this->assertTrue($ops->forJob($job)['created']);
+                $this->assertCount(1, $this->backupIds());
+            }
+        }
+    }
+
+    /** A claim taken over while the backup runs: it stops before its next write, keeps nothing and says so (409). */
+    #[DataProvider('modes')]
+    public function testATakenOverBackupStopsBeforeItWrites(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $taken = false;
+        $tableDone = function (string $table) use (&$taken): void {
+            if (!$taken) {
+                $taken = true;
+                $this->takeOver('job-1');
+            }
+        };
+        $written = [];
+        $store = $this->watched(static function (): void {
+        }, '', $written);
+        $ops = new OpsBackups($this->d()->db, $this->stored(5, null, $tableDone, $store), new Clock(), $batch ? UnitsOfWork::on(new LocalBatchExecutor($this->d()->db)) : null);
+        $this->refused(fn () => $ops->forJob('job-1'), 'backup_in_progress', 409);
+        $this->assertTrue($taken);
+        $this->assertSame([], $written, 'nothing was written');
+        $this->assertSame('other', json_decode((string)$this->record('job-1'), true)['token'], 'the other request keeps its claim');
+        $this->assertSame([], $this->backupIds());
+        $this->assertSame([], $this->backupFiles());
+    }
+
+    /**
+     * Taken over after the last part and before the manifest: the manifest is never written and the parts go. Taken
+     * over after the manifest, before the job is recorded: that backup is deleted again.
+     */
+    #[DataProvider('modes')]
+    public function testATakenOverBackupKeepsNoManifest(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        foreach (['part-00001' => 'job-parts', 'manifest.json' => 'job-manifest'] as $after => $job) {
+            $written = [];
+            $store = $this->watched(fn () => $this->takeOver($job), $after, $written);
+            $ops = new OpsBackups($this->d()->db, $this->stored(5, null, null, $store), new Clock(), $batch ? UnitsOfWork::on(new LocalBatchExecutor($this->d()->db)) : null);
+            $this->refused(fn () => $ops->forJob($job), 'backup_in_progress', 409);
+            $this->assertSame('other', json_decode((string)$this->record($job), true)['token'], $after);
+            $this->assertSame([], $this->backupIds(), $after);
+            $this->assertSame([], array_values(array_filter($this->backupFiles(), static fn (string $f): bool => str_contains($f, '/'))), $after . ': no part or manifest left');
+            $manifests = array_values(array_filter($written, static fn (string $k): bool => str_ends_with($k, '/manifest.json')));
+            $this->assertCount($after === 'manifest.json' ? 1 : 0, $manifests, $after . ': the manifest is written only when the claim was still held');
+        }
     }
 
     /**

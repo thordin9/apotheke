@@ -7,7 +7,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.42.0). The 2.6.x line has security support from `old`
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.48.0). The 2.6.x line has security support from `old`
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
@@ -68,16 +68,15 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   signed-out `/api` body gets problem+json 413 or 401. A missing asset's 404 is `no-store`. Empty answers carry no
   `Content-Type`; the OpenAPI version is `1.0.0-p3` with a `servers` entry.
 
-- Operator console C1 (`feat/operator-console-c1`): the `Installation` object answers read-only `GET /stats`,
-  `/users` and `/limits` on `d1.internal` in storage mode. `APOTHEKE_HOSTED` turns on the plan's limits (checked
-  inside the adding unit of work, with a `plan-limit:<key>` key), the upload-size ceilings, always-on sign-in and the
-  one-time first-admin claim (`accounts:claim-create`, `/claim#<token>`, only while no active admin exists); off,
-  nothing changes. The container does not set `APOTHEKE_HOSTED` yet (edge `index.ts`); limit values come only from
-  `plan_limits` ([operator console](operator-console.md#hosted-installations)).
-- Operator console C2 (`feat/operator-console-c2`, on C1): with `APOTHEKE_HOSTED`, `POST /internal/backup` on
-  `ops.internal` makes one stored backup per lifecycle job id (signed with a key derived from `APP_KEY`; not routed
-  from public hosts) and answers its id, size and relative key; `edge/src/ops-signature.ts` builds the request
-  ([operator console](operator-console.md#backup-for-a-lifecycle-job)).
+- Operator console C1 (#317) and C2 (#320) are released in v3.47.0 and v3.48.0: read-only `GET /stats`, `/users` and
+  `/limits` on `d1.internal`; with `APOTHEKE_HOSTED` the plan's limits, always-on sign-in, the first-admin claim and
+  one stored backup per lifecycle job on `ops.internal`. The container does not set `APOTHEKE_HOSTED` yet
+  ([operator console](operator-console.md#hosted-installations); [log](history/handoff-log.md#pull-requests)).
+- Operator console follow-up (`feat/operator-console-followup-main`): with `APOTHEKE_HOSTED`, `APP_PASSWORD` is
+  optional (set, it seeds `admin` as before; unset, nothing is seeded and the claim makes the first admin); once an
+  active admin exists the claim gives one answer for any token; the backup dump is one read transaction, a job's backup
+  stops before a takeover could overlap it, and parts without a manifest are removed after a day; out-of-range or
+  non-finite plan limits are refused.
 
 ## Open pull requests
 
