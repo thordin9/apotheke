@@ -24,10 +24,10 @@ final class LegacyPathRouterTest extends CIUnitTestCase
     /** @return iterable<string,array{0:string,1:string}> REQUEST_URI => the routed path, or '' for a 404 */
     public static function paths(): iterable
     {
-        foreach (['/stats' => 'stats', '/' => '/', '/stats?x=1' => 'stats', '/%73tats' => 'stats', 'http://host.test/stats' => 'stats'] as $uri => $routed) {
+        foreach (['/stats' => 'stats', '/' => '/', '/stats?x=1' => 'stats', '/stats?x=a:1' => 'stats', '/?next=/stats:1' => '/', '/%73tats' => 'stats', 'http://host.test/stats' => 'stats'] as $uri => $routed) {
             yield $uri => [$uri, $routed];
         }
-        foreach (['/stats+', '/stats%2B', '/+stats', '/stats%20%2B', '/sta+ts', '/stats/', '/./stats', '/%2e/stats', '/a/../stats', '/stats%20', '/%2573tats', '//stats/x', '/stats//'] as $uri) {
+        foreach (['/stats+', '/stats%2B', '/+stats', '/stats%20%2B', '/sta+ts', '/stats/', '/./stats', '/%2e/stats', '/a/../stats', '/stats%20', '/%2573tats', '//stats/x', '/stats//', '/stats:1', '/stats:1?x=1', '/stats%3A1', '/:1', '///stats'] as $uri) {
             yield $uri => [$uri, ''];
         }
     }
@@ -56,7 +56,7 @@ final class LegacyPathRouterTest extends CIUnitTestCase
         $routes = Services::routes();
         $routes->loadRoutes();
         $config = config(App::class);
-        foreach (['/barcode/123', '/barcode/', '/barcode/a+b', '/barcode/a%2Fb/', '/barcode/a/../b', '/barcode//x', '/barcode/%2e'] as $uri) {
+        foreach (['/barcode/123', '/barcode/', '/barcode/a+b', '/barcode/a%2Fb/', '/barcode/a/../b', '/barcode//x', '/barcode/%2e', '/barcode/a:1'] as $uri) {
             $request = new IncomingRequest($config, new SiteURI($config, ltrim((string)parse_url($uri, PHP_URL_PATH), '/')), null, new UserAgent());
             $request->setGlobal('server', ['REQUEST_URI' => $uri, 'REQUEST_METHOD' => 'GET'] + $_SERVER);
             $router = new LegacyPathRouter($routes, $request->withMethod('GET'));
@@ -80,6 +80,13 @@ final class LegacyPathRouterTest extends CIUnitTestCase
         $this->assertSame('/stats%2B', LegacyPathRouter::legacyPath('/stats%252B'));
         $this->assertSame('/stats+', LegacyPathRouter::legacyPath('/stats%2B?q=a+b'));
         $this->assertSame('/healthz', LegacyPathRouter::legacyPath('http://host.test/healthz'));
+        // #323: a target parse_url() rejects keeps its path (up to "?" or "#"), never "/".
+        $this->assertSame('/stats:1', LegacyPathRouter::legacyPath('/stats:1'));
+        $this->assertSame('/api/a:1', LegacyPathRouter::legacyPath('/api/a:1?x=1#y'));
+        $this->assertSame('/stats:1', LegacyPathRouter::legacyPath('/stats%3A1'));
+        $this->assertSame('/originals/a:1', LegacyPathRouter::legacyPath('/originals/a:1'));
+        $this->assertSame('///stats', LegacyPathRouter::legacyPath('///stats'));
+        $this->assertSame('/', LegacyPathRouter::legacyPath('/?x=a:1'));
         $this->assertFalse(LegacyPathRouter::exact('/stats+'));
         $this->assertFalse(LegacyPathRouter::exact('/stats +'));
         $this->assertTrue(LegacyPathRouter::exact('/item/1/edit'));

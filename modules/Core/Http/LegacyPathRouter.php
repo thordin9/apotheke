@@ -35,7 +35,7 @@ final class LegacyPathRouter extends Router
     /** Legacy's path for a REQUEST_URI. */
     public static function legacyPath(string $requestUri): string
     {
-        return rawurldecode((string)(parse_url($requestUri, PHP_URL_PATH) ?: '/'));
+        return RequestPath::of($requestUri);
     }
 
     /** Whether the request is legacy's /healthz or /health, answered before sessions and settings (exact path). */
