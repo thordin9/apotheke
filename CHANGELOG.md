@@ -13,10 +13,6 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **edge:** installations other than `primary` start with `APOTHEKE_HOSTED=1` and `APOTHEKE_INSTALLATION` set to their own name, and without `APP_PASSWORD`; `primary`'s container env is unchanged ([#318](https://github.com/thordin9/apotheke/pull/318))
 - **auth:** `php spark accounts:hosted-reset-admins` removes existing admin accounts on a hosted installation so the first-admin claim can be used ([#318](https://github.com/thordin9/apotheke/pull/318))
 
-### Changed
-
-- **cli:** `accounts:claim-create` refuses while an active admin exists ([#326](https://github.com/thordin9/apotheke/pull/326))
-
 ## [3.49.2] - 2026-11-19
 
 ### Fixed
