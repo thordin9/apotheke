@@ -120,15 +120,25 @@ console API.
   the app, for every installation and whatever `LIMITS_ENABLED` is. The only `Apotheke-Limit-Warning` on a response
   is the one the Worker sets. `X-Apotheke-Limits` is only for the Worker and the container object: the container
   object removes the Worker's own copy too, so the app never sees it and cannot read limits from it.
-- **Preflights.** An `OPTIONS` request under `/api` (as the app answers it: `/api` or `/api/…`) is never refused by the
-  request or active-time limits and never counted as a request, so a browser can read the refusal of the request that
-  follows. In a used-up month the container object answers it 204 with the CORS headers, without waking the container;
-  otherwise it is forwarded and the app answers it, and its container time is metered like any other.
+- **Preflights.** Every request counts toward `requests_month`, `OPTIONS` included. A real CORS preflight (`OPTIONS`
+  under `/api` with `Access-Control-Request-Method` and an `Origin` in `CORS_ALLOWED_ORIGINS`) is never refused by the
+  request or active-time limits, so a browser can read the refusal of the request that follows. In a used-up month the
+  container object answers it 204 with the CORS headers, without waking the container and without counting it;
+  otherwise it is counted and forwarded like any other request. Any other `OPTIONS` is counted and refused like a
+  `GET`.
+- **`/api` paths.** The Worker reads the path as the app does: the URL's path with each `%XX` decoded once
+  (`rawurldecode()`), so `/%61pi/…` and `/api%2F…` are under `/api` and `/%2561pi/…` is not. Two rare spellings
+  differ, because PHP's `parse_url()` reads them otherwise: a path with a `:` and up to five digits as a segment (such
+  as `/api/a:1`) is under `/api` in the Worker but `/` in the app, and a path starting with `//` is never under `/api`
+  in the Worker. Both are still counted; only a real preflight's exemption and the CORS headers on a refusal depend on
+  the path.
 - **Content-Length.** Only digits count as a valid `Content-Length`; anything else is treated as missing. A body
-  longer or shorter than a valid one gets 400 "Request body does not match Content-Length" and never reaches the app.
+  longer or shorter than a valid one gets 400 "Request body does not match Content-Length" instead of the app's
+  answer. The app may already have started on the part of the body it was sent, and an answer it sends before the
+  mismatch is seen is passed on as it is.
 - **CORS.** The 400, 413, 429 and 402 answers and the 204 preflight under `/api` carry the same CORS headers the app
   sends for an origin in `CORS_ALLOWED_ORIGINS` (exact https origins, `Vary: Origin`), so the app on another origin can
-  read them. As in the app, only the path as sent counts (not `/apix` or `/index.php/api`), and each listed origin is
+  read them. As in the app, only `/api` paths get them (not `/apix` or `/index.php/api`), and each listed origin is
   trimmed of the same whitespace PHP's `trim()` removes. The app's
   `Access-Control-Expose-Headers` includes `Apotheke-Limit-Warning`.
 - **Counters** are kept in memory in the owning object and written to its storage by an alarm at most 60 seconds after
