@@ -190,7 +190,9 @@ When a container starts, its object sets two values for its own installation:
 - `ALLOWED_HOSTS`: `primary` keeps the Worker's `ALLOWED_HOSTS`. Any other installation gets its own hosts from
   `installation_routes`, comma-separated. With no hosts, or no readable control plane, it does not start. It also
   does not start unless its status, read when the container starts, is `provisioning` or `active` (`primary` is
-  never gated).
+  never gated). The one exception is a lifecycle job's backup (see [Lifecycle jobs](#lifecycle-jobs)), which may also
+  start a `suspended` or `deleting` installation. A public request to a container started that way is forwarded only
+  after the status is read again and is `provisioning` or `active`; otherwise it gets 503.
 
 No new Worker variables or secrets. `edge/tests/installation-secrets.test.mjs` pins `primary`'s values and checks the
 derivation against an independent HKDF with fake keys.
@@ -224,12 +226,22 @@ step by `LifecycleWorkflow` (`edge/src/lifecycle-workflow.ts`) over the step fun
 | provision | The installation row and at least one route exist (status `provisioning`); refuse if anything is stored under its R2 prefix; start the container with `BOOTSTRAP=1` and no `APP_PASSWORD`; create the first-admin claim; status `active` |
 | suspend | Status `suspended`, drop cached routes, stop and destroy the container. No data is touched. Routing can serve the cached `active` route for up to 30 seconds, but the container no longer starts (see [Per-installation APP_KEY and ALLOWED_HOSTS](#per-installation-app_key-and-allowed_hosts)) |
 | resume | Status `active`, drop cached routes. The next request starts the container |
-| export | The app's own backup, once per job, written by the app under the installation's prefix (`installations/<do_name>/`, in its backups folder); its key is kept on the job |
-| delete | Soft delete: status `deleting` (routing answers 410 once the cached route expires, within 30 seconds; the container no longer starts), stop and destroy the container, export. The job needs a retention period in days (30 is planned; the final value is the owner's decision) and has no default. The export stays under the prefix until a purge, which cannot run before the retention is over |
+| export | The app's own backup, once per job, written by the app under the installation's prefix (`installations/<do_name>/`, in its backups folder); its key is kept on the job. The container object asks its container for it (`ApothekeContainer.opsBackup`, see [Backup for a lifecycle job](#backup-for-a-lifecycle-job)), starting it if needed, also while `suspended`. Then, unless the installation is `active`, the container is stopped again |
+| delete | Soft delete: status `deleting` (routing answers 410 once the cached route expires, within 30 seconds; the container no longer starts), stop and destroy the container, export (which starts the container for the backup only), stop the container again. The job needs a retention period in days (30 is planned; the final value is the owner's decision) and has no default. The export stays under the prefix until a purge, which cannot run before the retention is over |
 | purge | Only after a soft delete that finished (its export made) and whose retention is over: now is at least the time that delete job finished plus its retention days. Before then, or after a delete that failed, creating, confirming and every step of a purge are refused and change nothing. There is no immediate purge. Then: abort unfinished multipart uploads that have a marker and delete their markers, then delete everything under `installations/<do_name>/` in pages of at most 1,000 keys (one page per step, so a retry carries on), then delete the `Installation` and container objects' storage, then status `deleted`. The row stays as a tombstone, so the DO names are never reused |
 
-Not wired yet, and failing closed until they are: the `BOOTSTRAP=1` start and the claim (C1), the backup call into
-the container, and the download link for an export (the console API, E6). Routes are cached only inside each
+Not wired yet, and failing closed until they are: the `BOOTSTRAP=1` start and the claim (C1), and the download link
+for an export (the console API, E6).
+
+**Backup step.** The Workflow calls `opsBackup(jobId)` on the installation's container object, which signs the request
+with the installation's `APP_KEY` (`opsBackupRequest`) and sends it to the container's port, as the readiness probe
+does, never through the public forward. `APP_KEY` stays in `apotheke-api`; the Workflow's environment has none. The
+recorded key is `installations/<do_name>/` plus the answer's relative `backups/…` key, refused (`bad_export`) unless it
+is under `backups/` with no empty, `.` or `..` part and is for the same job. 409, 5xx other than 503, and a call that
+did not finish are retried; 400, 401, 404, 410 and 503 fail the job as `backup_<status>`. The two export steps
+(`export.backup`, `delete.export`) have a 20-minute timeout and up to 10 retries 3 minutes apart, so a retry that gets
+409 while the first call still runs (up to 900 seconds) keeps waiting. The backup endpoint answers only with
+`APOTHEKE_HOSTED`, which the container object does not set yet; until it does, the step fails as `backup_404`. Routes are cached only inside each
 `apotheke-api` isolate for at most 30 seconds, so there is no shared cache to purge yet. The Workflow is deployed with
 the operator Worker (D1), not with `apotheke-api`, whose configuration is unchanged.
 

@@ -996,4 +996,5 @@ await import(new URL('./installation-secrets.test.mjs', import.meta.url).href);
 await import(new URL('./lifecycle.test.mjs', import.meta.url).href);
 await import(new URL('./bridge-reads.test.mjs', import.meta.url).href);
 await import(new URL('./ops-signature.test.mjs', import.meta.url).href);
+await import(new URL('./ops-backup.test.mjs', import.meta.url).href);
 await import(new URL('./autofill.test.mjs', import.meta.url).href);

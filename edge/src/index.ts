@@ -10,6 +10,7 @@ import { routeFor, routeResponse } from "./route";
 import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env, type StorageMeter } from "./r2";
 import { AUTOFILL_HOST, handleAutofill, type AutofillEnv, type AutofillProps } from "./autofill";
 import { forwardWithLimits, isPreflight, LIMITS_HEADER, limitsEnabled, takeLimits, UsageMeter, WARNING_HEADER, withCors, type Limits } from "./limits";
+import { opsBackupRequest } from "./ops-signature";
 
 export { Installation } from "./installation";
 
@@ -64,6 +65,10 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	private timedOutWaits = 0;
 	/** Limits (E5): this installation's requests and active time this month. Unused for primary or with limits off. */
 	private meter?: UsageMeter;
+	/** True only while opsBackup starts the container: the start gate then also accepts suspended and deleting. */
+	private opsStart = false;
+	/** The container was started by opsBackup: a public request passes the public start gate before it is forwarded. */
+	private opsOnly = false;
 
 	private sleepAfter(): number {
 		return Number(this.env.SLEEP_AFTER_MS) || 15 * 60 * 1000;
@@ -124,8 +129,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		if (!validDoName(doName) || !this.env.DB) throw new Error("no installation hosts");
 		const { results } = await this.env.DB
 			// Read fresh at every start: a suspended or deleted installation does not start, even through a cached route.
-			.prepare("SELECT r.host FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE i.do_name = ? AND i.status IN ('provisioning', 'active') ORDER BY r.host")
-			.bind(doName)
+			.prepare("SELECT r.host FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE i.do_name = ? AND (i.status IN ('provisioning', 'active') OR (? = 1 AND i.status IN ('suspended', 'deleting'))) ORDER BY r.host")
+			.bind(doName, this.opsStart ? 1 : 0)
 			.all<{ host: string }>();
 		if (results.length === 0) throw new Error("no installation hosts");
 		return { appKey, allowedHosts: results.map((r) => r.host).join(",") };
@@ -195,6 +200,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	async stopContainer(): Promise<void> {
 		lifecycleName(this.ctx.id?.name);
 		this.ready = false;
+		this.opsOnly = false;
 		const c = this.ctx.container;
 		if (c?.running) await c.destroy();
 	}
@@ -203,6 +209,33 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	async purge(): Promise<void> {
 		await this.stopContainer();
 		await this.ctx.storage.deleteAll();
+	}
+
+	/** Lifecycle export (C2): the app's backup for jobId, through the container's port like the readiness probe, never the
+	 *  public forward (POST http://ops.internal/internal/backup, signed with this installation's APP_KEY). May start the
+	 *  container while the installation is suspended or deleting. Refused like stopContainer. Returns the full key, or
+	 *  the status when there is none (200: an answer without a usable key). */
+	async opsBackup(jobId: string): Promise<{ key: string } | { status: number }> {
+		const doName = lifecycleName(this.ctx.id?.name);
+		const c = this.ctx.container;
+		if (!c) throw new Error("no container configured");
+		if (!c.running || !this.ready) {
+			if (!c.running) this.opsOnly = true;
+			this.opsStart = true;
+			try {
+				await this.ensureReady();
+			} finally {
+				this.opsStart = false;
+			}
+		}
+		const res = await c.getTcpPort(PORT).fetch(await opsBackupRequest(await installationAppKey(doName, this.env.APP_KEY), jobId), { redirect: "manual" });
+		if (res.status !== 200) return { status: res.status };
+		const body = (await res.json().catch(() => null)) as { ok?: unknown; backup?: { job_id?: unknown; key?: unknown } } | null;
+		if (body === null) return { status: 502 };
+		const rel = body.backup?.key;
+		const key = installationPrefix(doName) + String(rel);
+		const valid = body.ok === true && body.backup?.job_id === jobId && typeof rel === "string" && /^backups\/[^/]/.test(rel) && !rel.split("/").some((p) => p === "" || p === "." || p === "..");
+		return valid && key.startsWith(installationPrefix(doName)) ? { key } : { status: 200 };
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -217,6 +250,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		}
 		try {
 			cold = await this.ensureReady(limits);
+			if (this.opsOnly) await this.publicStart();
 		} catch (e) {
 			console.error("start failed", String(e));
 			return unavailable();
@@ -236,6 +270,13 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		out.headers.delete(WARNING_HEADER);
 		if (limits && meter) await meter.done(limits, out.headers);
 		return out;
+	}
+
+	/** The public start gate for a container opsBackup started: throws unless the installation is provisioning or active. */
+	private async publicStart(): Promise<void> {
+		const row = await this.env.DB?.prepare("SELECT 1 AS ok FROM installations WHERE do_name = ? AND status IN ('provisioning', 'active')").bind(this.ctx.id?.name ?? "").first();
+		if (!row) throw new Error("installation not startable");
+		this.opsOnly = false;
 	}
 
 	/** Writes the limit counters (set at most FLUSH_MS after a change). */
