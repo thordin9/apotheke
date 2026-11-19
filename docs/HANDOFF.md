@@ -7,7 +7,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.51.0). The 2.6.x line has security support from `old`
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.52.0). The 2.6.x line has security support from `old`
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
@@ -86,6 +86,8 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   change hold an admin seeded from the shared `APP_PASSWORD`; restart the container and run
   `php spark accounts:hosted-reset-admins` before a tenant gets access (that also drops their sessions and any
   first-admin claim).
+- Hosted installations with no `autofill_url` use `http://autofill.internal`; an explicit value is kept
+  ([#331](https://github.com/thordin9/apotheke/pull/331)).
 
 ## Open pull requests
 
