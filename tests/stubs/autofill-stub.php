@@ -14,6 +14,7 @@ declare(strict_types=1);
  *                                              | fault (503 backend_error: the model failed on this photo)
  *                                              | warmup (503 backend_unavailable "model … is warming up" + Retry-After)
  *                                              | cold (the same 503 on every other /v1/suggest, starting with the first)
+ *                                              | ratelimit (429 rate_limited + Retry-After) | month (429 autofill_limit) | near (200 + warning)
  *   http://127.0.0.1:8090/t/<token>            requires "Authorization: Bearer <token>" on everything but /healthz
  *   http://127.0.0.1:8090/m/slow/t/s3cret      both
  * More prefixes, in any order before /t/:
@@ -163,6 +164,8 @@ if ($path === '/v1/suggest' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($mode === 'fault') fail(503, 'backend_error', 'model returned no usable answer', $opt['r'] > 1 ? ['Retry-After: ' . $opt['r']] : []);
     if ($mode === 'warmup') fail(503, 'backend_unavailable', "model 'qwen2.5vl-jetson:3b' is warming up", ['Retry-After: ' . $opt['r']]);
     if ($mode === 'busy') fail(503, 'backend_unavailable', 'backend busy, queue full', ['Retry-After: ' . $opt['r']]);
+    if ($mode === 'ratelimit') fail(429, 'rate_limited', 'too many requests', ['Retry-After: ' . $opt['r']]);
+    if ($mode === 'month') fail(429, 'autofill_limit', 'Autofill limit reached for this month', ['Retry-After: ' . $opt['r']]);
     if ($mode === 'cold') {
         // every other call is "cold": the state lives next to the log (or in the temp dir), one file per stub port
         $state = (getenv('STUB_LOG') ?: sys_get_temp_dir() . '/af-stub-' . ($_SERVER['SERVER_PORT'] ?? '0')) . '.cold';
@@ -186,6 +189,7 @@ if ($path === '/v1/suggest' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'category' => ['value' => $opt['s'] ?? $cats[0] ?? 'Misc', 'confidence' => 0.5],
         'tags' => array_map(fn($t) => ['value' => $t, 'confidence' => 0.5], $tags),
         'description' => ['value' => "$kind image, " . strlen($data) . ' bytes', 'confidence' => 0.5],
-    ] + ($used !== null ? ['model_used' => $used] : []));
+    ] + ($used !== null ? ['model_used' => $used] : [])
+      + ($mode === 'near' ? ['warning' => "Autofill is close to this month's limit"] : []));
 }
 fail(404, 'not_found', 'not found');

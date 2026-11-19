@@ -86,8 +86,11 @@ once, clamps again and uploads once more; a second 413 is the "too large" messag
 
 **Test connection** checks the address and timeout *as typed* (nothing is saved):
 
-1. `GET /healthz` (no token) – is anything listening?
-2. `GET /v1/info` (with a token) – is it the autofill service, API v1, and does it accept the token?
+1. `GET /v1/info` (with a token when one is sent) – is it the autofill service, API v1, does it accept the token, and is it ready?
+
+A `/healthz` probe is not used: `/v1/info` is the API v1 check for self-hosted and hosted services. Some
+front ends only forward `/v1/info` and `/v1/suggest`, so a Test that called `/healthz` would fail even when
+suggest works.
 
 The stored token is only sent when the typed address is the **saved** address (compared after trimming
 trailing slashes and lower-casing scheme and host). For any other address no token is sent, unless one is
@@ -133,9 +136,11 @@ context. It shows:
 It uses the **Model** and **Image size** as currently chosen in the form, saved or not, so you can try a model before
 saving it.
 
-Each request stays within the time still left of the timeout as typed. A `503` with `Retry-After` of at most 60
-seconds, and no longer than that timeout, is retried once after the wait (a cold model, including the first photo
-after a model switch), so the test can take as long as the timeout. A longer `Retry-After` is not waited out. A service that is down, slow or refusing the token ends with a clear message
+Each request stays within the time still left of the timeout as typed. A `503` `backend_unavailable` or a `429`
+`rate_limited` with `Retry-After` of at most 60 seconds, and no longer than that timeout, is retried once after
+the wait (a cold model, including the first photo after a model switch, or a short rate limit), so the test can
+take as long as the timeout. A longer `Retry-After`, including a monthly allowance that resets next month, is
+not waited out. A service that is down, slow or refusing the token ends with a clear message
 instead of a hanging page. The token is never shown. Like Test connection it is a plain form button: it works
 without JavaScript (with JavaScript the result area says *Sending the sample photo…* while it runs) and nothing
 is saved.
@@ -221,13 +226,21 @@ stays usable the whole time:
    is a `role="progressbar"` with `aria-valuenow` and `aria-valuetext`; the stage text is a polite live
    region. With *reduce motion* the bar does not animate.
 3. **Suggestions ready** (and which fields were filled), **No suggestions for this photo**, or the reason it
-   failed (table below). On success the bar jumps to 100 % and disappears.
+   failed (table below). On success the bar jumps to 100 % and disappears. A service `warning` is shown under
+   the status line when present.
 
-**Warming up or busy.** When the service answers `503` `backend_unavailable` with a `Retry-After` of at most 60
-seconds and no longer than the timeout, the browser shows **Model is warming up… retrying in N s** (the message says
-*loading* or *warming up*) or **Service is busy… retrying in N s** with a countdown, then resends the same analysis
+**Warming up, busy, or rate limited.** When the service answers `503` `backend_unavailable` or `429`
+`rate_limited` with a `Retry-After` of at most 60 seconds and no longer than the timeout, the browser shows
+**Model is warming up… retrying in N s** (the message says *loading* or *warming up*), **Service is busy…
+retrying in N s**, or **Too many requests… retrying in N s** with a countdown, then resends the same analysis
 JPEG **once**. Saving stays available during the wait. There is no retry when another photo was picked meanwhile or
-when `Retry-After` is longer (a daily cap that counts down to 00:00 UTC): that is *the service is busy or not ready*.
+when `Retry-After` is longer (a monthly allowance, or a cap that counts down to 00:00 UTC). A monthly
+`autofill_limit` is shown as *this installation has used its autofill allowance for this month* (try again next
+month) and is never retried automatically.
+
+**Near the monthly limit.** A successful suggestion may include a `warning` string (for example *Autofill is
+close to this month's limit*). The item form shows it as a quiet note under the status line. The same wording
+on every call is updated in place, not stacked, and it does not block saving.
 
 **Only empty fields are filled, never one you have touched, and never one an earlier analysis filled.** Typing in
 a field (even if you then clear it), picking from a list (even the same value) or removing a tag chip makes it yours.
@@ -255,7 +268,11 @@ Every problem means "no suggestions" plus a short reason in the status line; not
 | Backend failed on this photo (`503` `backend_error`) | *the service had a problem with this photo. Try again, or fill in the fields yourself* (no retry) |
 | Model loading (`503` + `Retry-After`, "model … is loading / warming up") | *Model is warming up… retrying in N s*, one retry; then *the model is warming up. Try again in N s* |
 | Queue full (`503` + `Retry-After` ≤ 60 s, e.g. "backend busy, queue full") | *Service is busy… retrying in N s*, one retry; then *the service is busy. Try again in N s* |
-| `Retry-After` over 60 s (a daily cap) | *the service is busy or not ready*, no retry, save at once |
+| `Retry-After` over 60 s on a `503` busy/warming response (a long cap) | *the service is busy or not ready*, no retry, save at once |
+| Too many requests (`429` `rate_limited`, `Retry-After` ≤ 60 s and within the timeout) | *Too many requests… retrying in N s*, one retry; then *too many autofill requests right now. Try again in N s* |
+| `429` `rate_limited` with a longer `Retry-After`, or none | *too many autofill requests right now*, no automatic retry (*Try again later* when the wait is long) |
+| Monthly allowance used (`429` `autofill_limit`) | *this installation has used its autofill allowance for this month* (*Try again next month* when `Retry-After` is longer than 60 s), no retry, save at once |
+| Other HTTP 429 | *the service answered with HTTP 429*, plus a short retry hint when `Retry-After` is present, no automatic retry |
 | Photo too large (`413`, or the analysis copy cannot be made to fit the byte cap) | *the photo is too large (max N MiB / N bytes)*, with the cap from [Maximum image size](#maximum-image-size); a 413 is retried once after refetching `/v1/info` |
 | Image type not supported (`415`) | *cannot read this kind of image* |
 | Not an image, or a photo that cannot be turned into a stripped JPEG (no GD/Imagick, HEIC without libheif, broken file) | *cannot be read as a photo* – checked locally, nothing is sent |
@@ -316,7 +333,7 @@ token are picked by a path prefix of the address, e.g. `http://127.0.0.1:PORT/m/
 
 | Prefix | Effect |
 |---|---|
-| `/m/<mode>` | `ok`, `error` (503), `malformed`, `slow`, `toolarge` (413), `unsupported` (415), `empty`, `badinfo`, `warming`, `fault` (503 `backend_error`), `busy` (503 + `Retry-After`, "queue full"), `warmup` ("is warming up"), `cold` (503 "is loading" + `Retry-After` on every other suggestion), `switch` (with `/n/`: a suggestion for a model that is not loaded answers 503 once and loads it) |
+| `/m/<mode>` | `ok`, `error` (503), `malformed`, `slow`, `toolarge` (413), `unsupported` (415), `empty`, `badinfo`, `warming`, `fault` (503 `backend_error`), `busy` (503 + `Retry-After`, "queue full"), `warmup` ("is warming up"), `cold` (503 "is loading" + `Retry-After` on every other suggestion), `switch` (with `/n/`: a suggestion for a model that is not loaded answers 503 once and loads it), `ratelimit` (429 `rate_limited` + `Retry-After`), `month` (429 `autofill_limit`), `near` (200 with a near-limit `warning`) |
 | `/r/<s>`, `/l/<ms>`, `/d/<ms>`, `/s/<name>` | the `Retry-After` value, `avg_latency_ms` in `/v1/info`, a delay before the suggestion, the suggested category |
 | `/n/<models>` | `/v1/info` lists these `models`, comma-separated (URL-encode `:`); `*` marks the default, `=<ms>` its `avg_latency_ms`, e.g. `/n/qwen2.5vl-jetson%3A3b*=14000,qwen3-vl-2b=6000` |
 | `/z/<sizes>` | `/v1/info` lists these `image_sizes`; `*` marks the recommended one, e.g. `/z/448,672*,1024` |

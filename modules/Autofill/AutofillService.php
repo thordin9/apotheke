@@ -249,19 +249,6 @@ final class AutofillService
             return ['ok' => false, 'code' => 'not_configured', 'message' => 'Enter the service address first.'];
         }
         $fail = static fn (string $code, string $msg): array => ['ok' => false, 'code' => $code, 'message' => $msg];
-        $h = $this->http->request('GET', $url . '/healthz', null, '', $timeout);
-        if ($h['error'] === 'timeout') {
-            return $fail('timeout', "No answer within $timeout seconds. Is the service busy or the timeout too short?");
-        }
-        if ($h['error'] === 'unreachable') {
-            return $fail('unreachable', 'Could not connect. Check the address, that the service is running and that this server can reach it.');
-        }
-        if ($h['error'] === 'unavailable') {
-            return $fail('unavailable', 'This PHP has no curl extension, which autofill needs.');
-        }
-        if ($h['status'] !== 200) {
-            return $fail('bad_response', 'The service answered /healthz with HTTP ' . $h['status'] . ' – is this the autofill service (API v1)?');
-        }
         $token ??= $this->settings->autofillToken();
         $r = $this->http->request('GET', $url . '/v1/info', null, $token, $timeout);
         if ($r['error'] === 'timeout') {
@@ -339,7 +326,7 @@ final class AutofillService
             [$r, $opened] = $this->postAnalysis($base, $token, $left, $opened, fn (): array => $this->analysis->open($bytes, $side, $contextJson, null, $this->samplePath));
             $analysis = is_string($opened['path'] ?? null) ? $opened['path'] : $analysis;
             $wait = (int)($r['retry_after'] ?? 0);
-            if (!$r['ok'] && ($r['code'] ?? '') === 'busy' && $wait > 0 && $wait <= ResponseClassifier::RETRY_AFTER_MAX && $wait <= $timeout) {
+            if (!$r['ok'] && in_array($r['code'] ?? '', ['busy', 'rate_limited'], true) && $wait > 0 && $wait <= ResponseClassifier::RETRY_AFTER_MAX && $wait <= $timeout) {
                 ($this->sleep)($wait);
                 $left = max(1, (int)floor($timeout - (microtime(true) - $t0)));
                 $r = $this->suggestAt($base, $token, $left, $opened['body'], $opened['content_type'], strlen((string)($opened['jpeg'] ?? '')));

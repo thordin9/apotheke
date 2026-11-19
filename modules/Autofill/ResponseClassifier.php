@@ -266,6 +266,17 @@ final class ResponseClassifier
         return $v === '' ? null : $v;
     }
 
+    public function parseWarning(string $body): ?string
+    {
+        $v = ($this->jsonObject($body) ?? [])['warning'] ?? null;
+        if (!is_string($v)) {
+            return null;
+        }
+        $v = Text::cleanLine($v, 200);
+
+        return $v === '' ? null : $v;
+    }
+
     public function contentTypeIsJson(string $contentType): bool
     {
         $ct = strtolower(trim(explode(';', $contentType, 2)[0]));
@@ -362,6 +373,30 @@ final class ResponseClassifier
                 return $fail('too_large', $tooLarge) + ['http_413' => true];
             case 415:
                 return $fail('unsupported', 'No suggestions: the service cannot read this kind of image.');
+            case 429:
+                $api = $this->apiError($http['content_type'], $http['body']);
+                $n = $http['retry_after'] !== null ? max(0, $http['retry_after']) : null;
+                $extra = $n !== null ? ['retry_after' => $n] : [];
+                $code = $api['code'] ?? null;
+                if ($code === 'autofill_limit') {
+                    return $fail(
+                        'autofill_limit',
+                        'No suggestions: this installation has used its autofill allowance for this month.'
+                            . $this->retryHint($n, ' Try again next month.'),
+                    ) + $extra;
+                }
+                if ($code === 'rate_limited') {
+                    return $fail(
+                        'rate_limited',
+                        'No suggestions: too many autofill requests right now.' . $this->retryHint($n),
+                    ) + $extra;
+                }
+                $log->warning('suggest: HTTP 429');
+
+                return $fail(
+                    'bad_response',
+                    'No suggestions: the service answered with HTTP 429.' . $this->retryHint($n),
+                ) + $extra;
             case 503:
                 $api = $this->apiError($http['content_type'], $http['body']);
                 if ($api === null) {
@@ -412,12 +447,31 @@ final class ResponseClassifier
             'elapsed_ms' => $this->elapsed($startedNs),
             'model_used' => $this->parseModelUsed($http['body']),
         ];
+        $warning = $this->parseWarning($http['body']);
+        if ($warning !== null) {
+            $out['warning'] = $warning;
+        }
         $filled = array_keys(array_filter($s, static fn (mixed $v): bool => $v !== null && $v !== []));
         if ($filled === []) {
             return ['ok' => true, 'code' => 'empty', 'message' => 'No suggestions for this photo.'] + $out;
         }
 
         return ['ok' => true, 'code' => 'ok', 'message' => 'Suggestions from the photo'] + $out;
+    }
+
+    /**
+     * A short "try again" clause. Long waits (a monthly cap) never dump a huge second count.
+     */
+    private function retryHint(?int $seconds, string $whenLong = ' Try again later.'): string
+    {
+        if ($seconds === null) {
+            return '';
+        }
+        if ($seconds > 0 && $seconds <= self::RETRY_AFTER_MAX) {
+            return ' Try again in ' . max(1, $seconds) . ' s.';
+        }
+
+        return $whenLong;
     }
 
     private function elapsed(int $startedNs): int

@@ -377,8 +377,58 @@ test.describe('AI autofill suggestions', () => {
     await expect(page.locator('#af-status')).toContainText('Suggestions ready');
   });
 
+  test('rate limited: waits for Retry-After, then retries once', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/m/ratelimit/r/1' });
+    let calls = 0;
+    page.on('request', r => { if (r.url().includes('/autofill/suggest')) calls++; });
+    await app.go('/new');
+    await pick(page, app.image('af-ratelimit.jpg', [160, 80, 40]));
+    await expect(page.locator('#af-status')).toContainText('Too many requests… retrying in 1 s', { timeout: 5_000 });
+    await expect(page.locator('#af-status')).toContainText('too many autofill requests right now. Try again in 1 s', { timeout: 8_000 });
+    await expect(page.locator('#af-status')).toHaveClass(/af-fail/);
+    await expect(page.locator('#af-warning')).toBeHidden();
+    expect(calls, 'exactly one retry').toBe(2);
+  });
+
+  test('monthly autofill limit is not retried', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/m/month/r/90', timeout: '60' });
+    let calls = 0;
+    page.on('request', r => { if (r.url().includes('/autofill/suggest')) calls++; });
+    await app.go('/new');
+    await pick(page, app.image('af-month.jpg', [80, 40, 160]));
+    await expect(page.locator('#af-status')).toContainText('allowance for this month', { timeout: 8_000 });
+    await expect(page.locator('#af-status')).toContainText('Try again next month');
+    await expect(page.locator('#af-status')).toHaveClass(/af-fail/);
+    await expect(page.locator('#af-progress')).toBeHidden();
+    await expect(page.locator('#af-warning')).toBeHidden();
+    expect(calls, 'no retry for a monthly cap').toBe(1);
+    await page.locator('#name').fill('Saved after monthly cap');
+    await page.locator('#save').click();
+    await page.waitForURL(/saved=\d+/);
+  });
+
+  test('near-limit warning is a quiet note under the status line', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/m/near' });
+    await app.go('/new');
+    await pick(page, app.image('af-near.jpg', [40, 180, 90]));
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready', { timeout: 8_000 });
+    await expect(page.locator('#af-status')).not.toHaveClass(/af-fail/);
+    const warn = page.locator('#af-warning');
+    await expect(warn).toHaveText("Autofill is close to this month's limit");
+    await expect(warn).toBeVisible();
+    // a second photo updates the same note; it does not stack or block save
+    await pick(page, app.image('af-near2.jpg', [90, 40, 180]));
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready', { timeout: 8_000 });
+    await expect(warn).toHaveCount(1);
+    await expect(warn).toHaveText("Autofill is close to this month's limit");
+    await page.locator('#save').click();
+    await page.waitForURL(/saved=\d+/);
+  });
+
   for (const c of [
     { name: 'service down', url: 'http://127.0.0.1:1', msg: 'unavailable' },
+    { name: 'rate limited (429, long wait)', url: () => stub.base + '/m/ratelimit/r/90', timeout: '60', msg: 'too many autofill requests right now. Try again later' },
+    { name: 'monthly autofill limit (429)', url: () => stub.base + '/m/month/r/90', timeout: '60', msg: 'allowance for this month' },
     { name: 'backend unavailable (503)', url: () => stub.base + '/m/error', msg: 'busy or not ready' },
     { name: 'backend error (503)', url: () => stub.base + '/m/fault', msg: 'had a problem with this photo. Try again, or fill in the fields yourself' },
     { name: 'malformed response', url: () => stub.base + '/m/malformed', msg: 'unavailable' },
