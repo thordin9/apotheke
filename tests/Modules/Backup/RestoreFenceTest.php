@@ -130,22 +130,27 @@ final class RestoreFenceTest extends CIUnitTestCase
         }
     }
 
-    public function testAClaimWaitsUntilTheOpenFenceTransactionCommits(): void
+    #[DataProvider('drivers')]
+    public function testAClaimWaitsUntilTheOpenFenceTransactionCommits(string $driver): void
     {
-        $database = TestDatabase::create('sqlite');
+        $database = TestDatabase::create($driver);
+        $waiting = $this->waitingFifo();
+        $wait = $release = null;
         try {
             RestoreFence::claim($database->db, 'holder-a');
-            $wait = $database->holdInAnotherClient([
+            [$wait, $release] = $database->holdUntilReleased([
                 ['UPDATE restore_marker SET applied_at = ? WHERE run = ? AND sha256 = ?', ['2026-01-01 00:00:00.held', RestoreFence::RUN, 'holder-a']],
-            ], 700);
-            $other = $database->connectAgain();
-            $started = hrtime(true);
-            RestoreFence::claim($other, 'holder-b');
-            $waited = (hrtime(true) - $started) / 1e9;
-            $output = $wait();
-            $this->assertStringContainsString('committed', $output);
-            $this->assertGreaterThan(0.4, $waited, 'claim() ran while the other transaction still held the row.');
-            $row = $other->query('SELECT sha256 FROM restore_marker WHERE run = ?', [RestoreFence::RUN])->getRowArray();
+            ]);
+            $claimer = $this->worker(['claim', json_encode($database->clientEnv(), JSON_THROW_ON_ERROR), 'holder-b'], $this->waitingEnv($waiting));
+            $started = $this->readUntil($claimer[1], "started\n");
+            $this->assertSame((string)60_000, $this->readWaiting($waiting));
+            $this->assertSame('started', trim($started));
+            $this->assertSame('', stream_get_contents($claimer[1]));
+            $release();
+            $this->assertStringContainsString("claimed\n", $this->finish($claimer));
+            $this->assertStringContainsString('committed', $wait());
+            $wait = $release = null;
+            $row = $database->connectAgain()->query('SELECT sha256 FROM restore_marker WHERE run = ?', [RestoreFence::RUN])->getRowArray();
             $this->assertSame('holder-b', $row['sha256'] ?? null);
             try {
                 Writes::transaction($database->db, static function () use ($database): void {
@@ -159,6 +164,13 @@ final class RestoreFenceTest extends CIUnitTestCase
             $kept = $database->db->table('settings')->where('name', 'app_name')->get()->getRowArray();
             $this->assertNotSame('"Stale"', $kept['value'] ?? null);
         } finally {
+            if (is_callable($release)) {
+                $release();
+            }
+            if (is_callable($wait)) {
+                $wait();
+            }
+            @unlink($waiting);
             $database->drop();
         }
     }
@@ -167,19 +179,22 @@ final class RestoreFenceTest extends CIUnitTestCase
     public function testAClaimWaitsPastTheUsualSqliteTimeout(string $driver): void
     {
         $database = TestDatabase::create($driver);
+        $waiting = $this->waitingFifo();
+        $wait = $release = null;
         try {
             RestoreFence::claim($database->db, 'holder-a');
-            $wait = $database->holdInAnotherClient([
+            [$wait, $release] = $database->holdUntilReleased([
                 ['UPDATE restore_marker SET applied_at = ? WHERE run = ? AND sha256 = ?', ['2026-01-01 00:00:00.held', RestoreFence::RUN, 'holder-a']],
-            ], 12000);
+            ]);
+            $claimer = $this->worker(['claim', json_encode($database->clientEnv(), JSON_THROW_ON_ERROR), 'holder-b'], $this->waitingEnv($waiting));
+            $this->readUntil($claimer[1], "started\n");
+            $this->assertSame((string)60_000, $this->readWaiting($waiting), 'claim() raises the SQLite busy timeout before it waits.');
+            $this->assertSame('', stream_get_contents($claimer[1]));
+            $release();
+            $this->assertStringContainsString("claimed\n", $this->finish($claimer));
+            $this->assertStringContainsString('committed', $wait());
+            $wait = $release = null;
             $other = $database->connectAgain();
-            $started = hrtime(true);
-            RestoreFence::claim($other, 'holder-b');
-            $waited = (hrtime(true) - $started) / 1e9;
-            $output = $wait();
-            $this->assertStringContainsString('committed', $output);
-            $this->assertGreaterThan(10, $waited, 'claim() waited through the old SQLite busy timeout.');
-            $this->assertLessThan(30, $waited);
             $row = $other->query('SELECT sha256 FROM restore_marker WHERE run = ?', [RestoreFence::RUN])->getRowArray();
             $this->assertSame('holder-b', $row['sha256'] ?? null);
             if ($driver === 'sqlite') {
@@ -198,6 +213,13 @@ final class RestoreFenceTest extends CIUnitTestCase
             $kept = $database->db->table('settings')->where('name', 'app_name')->get()->getRowArray();
             $this->assertNotSame('"Late"', $kept['value'] ?? null);
         } finally {
+            if (is_callable($release)) {
+                $release();
+            }
+            if (is_callable($wait)) {
+                $wait();
+            }
+            @unlink($waiting);
             $database->drop();
         }
     }
@@ -227,12 +249,13 @@ final class RestoreFenceTest extends CIUnitTestCase
             $this->assertSame('pointer-b', $storage->read('map/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'));
 
             RestoreFence::claim($database->db, 'holder-a');
+            $waiting = $this->waitingFifo();
             file_get_contents($url . '/hold-next');
             $holder = $this->worker(['replace', json_encode($database->clientEnv(), JSON_THROW_ON_ERROR), $url, 'map/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'from-a', 'holder-a']);
             $this->assertSame('1', $this->waitHolding($url));
-            $challenger = $this->worker(['takeover', json_encode($database->clientEnv(), JSON_THROW_ON_ERROR), 'holder-b', $url, 'map/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'from-b']);
+            $challenger = $this->worker(['takeover', json_encode($database->clientEnv(), JSON_THROW_ON_ERROR), 'holder-b', $url, 'map/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'from-b'], $this->waitingEnv($waiting));
             $started = $this->readUntil($challenger[1], "started\n");
-            usleep(300000);
+            $this->assertSame((string)60_000, $this->readWaiting($waiting));
             $this->assertSame('started', trim($started));
             $this->assertSame('', stream_get_contents($challenger[1]));
             $this->assertNull($storage->read('map/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'));
@@ -246,6 +269,9 @@ final class RestoreFenceTest extends CIUnitTestCase
             $owner = $database->connectAgain()->query('SELECT sha256 FROM restore_marker WHERE run = ?', [RestoreFence::RUN])->getRowArray();
             $this->assertSame('holder-b', $owner['sha256'] ?? null);
         } finally {
+            if (isset($waiting)) {
+                @unlink($waiting);
+            }
             file_get_contents($url . '/stop');
             $database->drop();
         }
@@ -295,9 +321,10 @@ final class RestoreFenceTest extends CIUnitTestCase
 
     /**
      * @param list<string> $args
+     * @param array<string,string> $env
      * @return array{0:resource,1:resource,2:resource}
      */
-    private function worker(array $args): array
+    private function worker(array $args, array $env = []): array
     {
         $pipes = [];
         $process = proc_open(
@@ -305,7 +332,7 @@ final class RestoreFenceTest extends CIUnitTestCase
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             null,
-            ['PATH' => (string)getenv('PATH'), 'CI_ENVIRONMENT' => 'testing'],
+            ['PATH' => (string)getenv('PATH'), 'CI_ENVIRONMENT' => 'testing'] + $env,
         );
         $this->assertIsResource($process);
         $this->processes[] = $process;
@@ -317,31 +344,53 @@ final class RestoreFenceTest extends CIUnitTestCase
 
     private function waitHolding(string $url): string
     {
-        $until = microtime(true) + 5;
-        $holding = '';
-        do {
-            $holding = (string)file_get_contents($url . '/holding');
-            if ($holding === '1') {
-                return $holding;
-            }
-            usleep(20000);
-        } while (microtime(true) < $until);
-
-        return $holding;
+        return (string)file_get_contents($url . '/wait-holding');
     }
 
     /** @param resource $pipe */
     private function readUntil($pipe, string $text): string
     {
-        $until = microtime(true) + 5;
+        stream_set_blocking($pipe, true);
         $body = '';
-        do {
-            $body .= (string)stream_get_contents($pipe);
-            if (str_contains($body, $text)) {
-                return $body;
+        while (!str_contains($body, $text)) {
+            $chunk = fread($pipe, 8192);
+            if ($chunk === false || $chunk === '') {
+                break;
             }
-            usleep(20000);
-        } while (microtime(true) < $until);
+            $body .= $chunk;
+        }
+        stream_set_blocking($pipe, false);
+
+        return $body;
+    }
+
+    private function waitingFifo(): string
+    {
+        $path = sys_get_temp_dir() . '/apotheke-fence-wait-' . bin2hex(random_bytes(6));
+        $this->assertTrue(posix_mkfifo($path, 0600));
+
+        return $path;
+    }
+
+    /** @return array<string,string> */
+    private function waitingEnv(string $path): array
+    {
+        return ['APOTHEKE_RESTORE_FENCE_WAITING' => $path];
+    }
+
+    private function readWaiting(string $path): string
+    {
+        $fh = fopen($path, 'r+');
+        $this->assertIsResource($fh);
+        stream_set_blocking($fh, false);
+        $read = [$fh];
+        $write = $except = [];
+        if (stream_select($read, $write, $except, 30) !== 1) {
+            fclose($fh);
+            $this->fail('claim() did not signal that it was about to wait.');
+        }
+        $body = (string)stream_get_contents($fh);
+        fclose($fh);
 
         return $body;
     }

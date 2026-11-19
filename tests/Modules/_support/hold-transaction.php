@@ -56,6 +56,10 @@ if (isset($argv[3])) {
     }
     echo "second\n";
 }
-usleep(1000 * (int)$argv[2]);
+if ((int)$argv[2] < 0) {
+    fgets(STDIN);
+} else {
+    usleep(1000 * (int)$argv[2]);
+}
 $pdo->exec('COMMIT');
 echo "committed\n";

@@ -2,6 +2,7 @@ import net from 'node:net';
 
 const objects = new Map();
 const held = [];
+const holdingWaiters = [];
 let seq = 0;
 let swapNext = false;
 let holdNext = false;
@@ -77,6 +78,15 @@ const server = net.createServer((socket) => {
       send(socket, 200, String(held.length));
       return true;
     }
+    if (url.pathname === '/wait-holding') {
+      if (held.length > 0) {
+        send(socket, 200, '1');
+        return true;
+      }
+      settled = true;
+      holdingWaiters.push(socket);
+      return true;
+    }
     if (url.pathname === '/release-holds') {
       for (const item of held.splice(0)) {
         const result = applyPut(item.key, item.body, item.ifNone, item.ifMatch);
@@ -100,6 +110,9 @@ const server = net.createServer((socket) => {
         holdNext = false;
         settled = true;
         held.push({ socket, key, body, ifNone, ifMatch });
+        for (const waiter of holdingWaiters.splice(0)) {
+          send(waiter, 200, '1');
+        }
         return true;
       }
       const result = applyPut(key, body, ifNone, ifMatch);

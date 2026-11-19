@@ -33,6 +33,14 @@ try {
         fflush(STDOUT);
         exit(0);
     }
+    if ($mode === 'claim') {
+        fwrite(STDOUT, "started\n");
+        fflush(STDOUT);
+        RestoreFence::claim($database->db, $argv[3]);
+        fwrite(STDOUT, "claimed\n");
+        fflush(STDOUT);
+        exit(0);
+    }
     if ($mode === 'takeover') {
         fwrite(STDOUT, "started\n");
         fflush(STDOUT);

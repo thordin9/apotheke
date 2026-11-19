@@ -186,6 +186,55 @@ final class TestDatabase
     }
 
     /**
+     * Another client that holds the transaction until $release is called, then
+     * commits. No timed sleep. Returns [wait for the commit output, release].
+     *
+     * @param list<array{0:string,1:list<int|string|null>}> $statements
+     * @return array{0:\Closure():string,1:\Closure():void}
+     */
+    public function holdUntilReleased(array $statements): array
+    {
+        $env = $this->env + ['PATH' => (string)getenv('PATH')];
+        $proc = proc_open(
+            [PHP_BINARY, __DIR__ . '/hold-transaction.php', (string)json_encode($statements), '-1'],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            $env,
+        );
+        if (!is_resource($proc)) {
+            throw new \RuntimeException('cannot start the other client');
+        }
+        $out = (string)fgets($pipes[1]);
+        $released = false;
+        $release = static function () use ($pipes, &$released): void {
+            if ($released) {
+                return;
+            }
+            $released = true;
+            fwrite($pipes[0], "release\n");
+            fflush($pipes[0]);
+            fclose($pipes[0]);
+        };
+        $wait = static function () use ($proc, $pipes, $release, &$out, &$released): string {
+            if (!$released) {
+                $release();
+            }
+            $out .= stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($proc);
+
+            return $out;
+        };
+        if ($out !== "held\n") {
+            throw new \RuntimeException('the other client failed: ' . $wait());
+        }
+
+        return [$wait, $release];
+    }
+
+    /**
      * The item repository (and its collaborators) on this database or on
      * $db (from connectAgain()), with no actor in the history.
      *
