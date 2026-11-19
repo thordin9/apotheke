@@ -13,6 +13,18 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **edge:** installations other than `primary` start with `APOTHEKE_HOSTED=1` and `APOTHEKE_INSTALLATION` set to their own name, and without `APP_PASSWORD`; `primary`'s container env is unchanged ([#318](https://github.com/thordin9/apotheke/pull/318))
 - **auth:** `php spark accounts:hosted-reset-admins` removes existing admin accounts, their session records and any first-admin claim on a hosted installation so the first-admin claim can be used ([#318](https://github.com/thordin9/apotheke/pull/318))
 
+## [3.51.0] - 2026-11-19
+
+### Added
+
+- **edge:** the `AUTOFILL` service binding to the autofill Worker's `HostedAutofill` entrypoint (`apotheke-autofill`), used only with plan limits on ([#329](https://github.com/thordin9/apotheke/pull/329))
+
+## [3.50.0] - 2026-11-19
+
+### Added
+
+- **edge:** with plan limits on, an installation other than primary reaches autofill at `http://autofill.internal` through the `AUTOFILL` service binding, with its installation and monthly autofill limit set by the Worker and no bearer token in the container ([#327](https://github.com/thordin9/apotheke/pull/327))
+
 ## [3.49.2] - 2026-11-19
 
 ### Fixed
@@ -1850,7 +1862,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.49.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.51.0...HEAD
+[3.51.0]: https://github.com/thordin9/apotheke/compare/v3.50.0...v3.51.0
+[3.50.0]: https://github.com/thordin9/apotheke/compare/v3.49.2...v3.50.0
 [3.49.2]: https://github.com/thordin9/apotheke/compare/v3.49.1...v3.49.2
 [3.49.1]: https://github.com/thordin9/apotheke/compare/v3.49.0...v3.49.1
 [3.49.0]: https://github.com/thordin9/apotheke/compare/v3.48.1...v3.49.0

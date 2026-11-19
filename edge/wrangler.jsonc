@@ -26,6 +26,9 @@
 		"bindings": [{ "name": "APOTHEKE", "class_name": "ApothekeContainer" }]
 	},
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["ApothekeContainer"] }],
+	// Hosted autofill (L-2190): the autofill Worker's HostedAutofill entrypoint, reached only through this binding and
+	// only with LIMITS_ENABLED "1" (src/autofill.ts). No token, no var: the binding is the credential.
+	"services": [{ "binding": "AUTOFILL", "service": "apotheke-autofill", "entrypoint": "HostedAutofill" }],
 	// P4 storage (D1 DB, R2 STORAGE in the eu jurisdiction, the Installation Durable Object and its v2 migration) is in
 	// edge/storage.jsonc, merged in only by the deploy job behind EDGE_STORAGE_READY (scripts/edge-storage-config.mjs).
 

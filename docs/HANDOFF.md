@@ -7,7 +7,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.49.2). The 2.6.x line has security support from `old`
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.51.0). The 2.6.x line has security support from `old`
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
@@ -77,6 +77,9 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   the claim gives one answer for any token, and `accounts:claim-create` refuses; the backup dump is one read
   transaction, a job's backup stops before a takeover could overlap it, and parts without a manifest are removed after
   a day; out-of-range or non-finite plan limits are refused.
+- Hosted autofill (#327, released in v3.50.0; the `AUTOFILL` binding #329, released in v3.51.0): with plan limits on,
+  an installation other than primary reaches autofill at `http://autofill.internal` through the `AUTOFILL` service
+  binding; primary is not wired.
 - Hosted installation env (#318): the Worker sets `APOTHEKE_HOSTED=1` and `APOTHEKE_INSTALLATION` to the installation's
   own name, and no `APP_PASSWORD`, for installations other than `primary`; `primary` is unchanged.
   `APOTHEKE_INSTALLATION` alone does not mark an install as hosted. Non-primary installations started before this
