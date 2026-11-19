@@ -39,6 +39,8 @@ Control Panel → **AI autofill** (`/settings/autofill`, needs the *Settings* pe
 The values live in the `settings` table (`autofill_enabled`, `autofill_auto`, `autofill_url`, `autofill_timeout`,
 `autofill_model` (`''` = service default), `autofill_image_size` (`0` = recommended), `autofill_max_image_bytes`,
 `autofill_token`). Everything but the token is exported and imported with the other settings.
+On a hosted installation, when `autofill_url` is not set it defaults to `http://autofill.internal`. An explicit
+value is kept. Non-hosted installations are unchanged.
 
 ### Model and image size (API v1.2)
 

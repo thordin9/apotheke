@@ -377,7 +377,7 @@ final class HostedLimitsTest extends CIUnitTestCase
         $this->assertSame(['max_upload_mb' => 'Your plan allows at most 5.'], $r['errors']);
         $this->assertSame(['autofill_url'], $r['ignored']);
         $fresh = $this->settings(self::plan([]));
-        $this->assertSame(['', 5, 'Mine'], [$fresh->get('autofill_url'), $fresh->get('max_upload_mb'), $fresh->get('app_name')]);
+        $this->assertSame([SettingsService::HOSTED_AUTOFILL_URL, 5, 'Mine'], [$fresh->get('autofill_url'), $fresh->get('max_upload_mb'), $fresh->get('app_name')]);
         // No ceiling in the plan: any valid value.
         $this->assertSame([], $fresh->save(['max_upload_mb' => '150']));
         // Self-hosted: as before.

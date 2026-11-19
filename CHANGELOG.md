@@ -12,6 +12,16 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **core:** paths with an unparsable form, such as `/stats:1`, now return 404 instead of the home page; under `/api` they get the API's 404 ([#332](https://github.com/thordin9/apotheke/pull/332))
 
+## [3.53.0] - 2026-11-19
+
+### Added
+
+- **autofill:** hosted installs default to autofill.internal ([#331](https://github.com/thordin9/apotheke/pull/331))
+
+### Changed
+
+- **hosted:** when `APOTHEKE_HOSTED` is set and `autofill_url` is not, it defaults to `http://autofill.internal` ([#331](https://github.com/thordin9/apotheke/pull/331))
+
 ## [3.52.0] - 2026-11-19
 
 ### Added
@@ -1868,7 +1878,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.52.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.53.0...HEAD
+[3.53.0]: https://github.com/thordin9/apotheke/compare/v3.52.0...v3.53.0
 [3.52.0]: https://github.com/thordin9/apotheke/compare/v3.51.0...v3.52.0
 [3.51.0]: https://github.com/thordin9/apotheke/compare/v3.50.0...v3.51.0
 [3.50.0]: https://github.com/thordin9/apotheke/compare/v3.49.2...v3.50.0
