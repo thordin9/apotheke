@@ -25,7 +25,12 @@ final class FirstAdminClaim
     /** The settings row (no Control Panel key has this name). */
     public const SETTING = 'hosted_first_admin_claim';
 
+    /** create() refuses with this (409) while an active admin exists. */
+    public const ADMIN_EXISTS = 'An active admin already exists, so no claim was made.';
+
     private const NO_LONGER_VALID = 'This claim link is no longer valid.';
+
+    private const NO_ACTIVE_ADMIN = "NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active')";
 
     private readonly UnitsOfWork $units;
 
@@ -52,7 +57,8 @@ final class FirstAdminClaim
     }
 
     /**
-     * A new claim: the token to put in the link (shown once, never stored) and when it expires (UTC).
+     * A new claim: the token to put in the link (shown once, never stored) and when it expires (UTC). Refused (409,
+     * ADMIN_EXISTS) while an active admin exists, checked in a unit with the active-admins key, as claim() does.
      *
      * @return array{token:string,expires_at:string}
      */
@@ -63,10 +69,12 @@ final class FirstAdminClaim
         $expires = $this->clock->unix() + $this->hours * 3600;
         $value = (string)json_encode(['sha256' => hash('sha256', $token), 'expires' => $expires]);
         $now = $this->clock->now();
-        $this->units->run('settings', static function (UnitOfWork $uow) use ($value, $now): void {
+        // The unit and key of claim(): while an active admin exists no claim is made, and nothing is changed.
+        $this->units->run('users', static function (UnitOfWork $uow) use ($value, $now): void {
+            $uow->assert(self::NO_ACTIVE_ADMIN, [], 'no admin yet', static fn (): UserError => new UserError(self::ADMIN_EXISTS, 409));
             $uow->write('DELETE FROM settings WHERE name = ?', [self::SETTING], 'replace claim');
             $uow->write('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)', [self::SETTING, $value, $now], 'store claim');
-        });
+        }, UserRepository::ACTIVE_ADMINS);
 
         return ['token' => $token, 'expires_at' => gmdate('Y-m-d H:i:s', $expires) . ' UTC'];
     }
@@ -104,7 +112,7 @@ final class FirstAdminClaim
             $ref = $this->units->run('users', function (UnitOfWork $uow) use ($stored, $name, $hash, $now, &$adminExists): \Apotheke\Core\Database\Ref {
                 $uow->write('DELETE FROM settings WHERE name = ? AND value = ?', [self::SETTING, $stored], 'use claim', 1,
                     static fn (): UserError => new UserError('This claim link has already been used.', 410));
-                $uow->assert("NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active')", [], 'no admin yet',
+                $uow->assert(self::NO_ACTIVE_ADMIN, [], 'no admin yet',
                     static function () use (&$adminExists): UserError {
                         $adminExists = true;
 

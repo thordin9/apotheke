@@ -290,8 +290,8 @@ final class Ci4AccountsCliTest extends TestCase
     /**
      * Hosted (APOTHEKE_HOSTED=1): APP_PASSWORD is optional. Without it `auth status` answers on for a new install, the
      * first migration creates no account, and `accounts:claim-create` makes the first-admin claim. With it, the account
-     * admin is seeded exactly as self-hosted, and a short one is refused the same way. APOTHEKE_INSTALLATION alone
-     * changes nothing: without APP_PASSWORD it is still off.
+     * admin is seeded exactly as self-hosted (so `accounts:claim-create` refuses), and a short one is refused the same
+     * way. APOTHEKE_INSTALLATION alone changes nothing: without APP_PASSWORD it is still off.
      */
     public function testHostedAppPasswordIsOptional(): void
     {
@@ -323,6 +323,9 @@ final class Ci4AccountsCliTest extends TestCase
         $this->assertSame(0, $r['exit'], $r['stderr']);
         $this->assertSame([['admin', 'admin', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM), 'hosted with APP_PASSWORD seeds admin');
         $this->assertTrue(password_verify('long-enough', (string)testdb($dir)->query('SELECT password_hash FROM users')->fetchColumn()));
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:claim-create', '--no-header'], array_merge($this->env($dir, false), $hosted), null);
+        $this->assertSame([1, '', "An active admin already exists, so no claim was made.\n"], [$r['exit'], $r['stdout'], $r['stderr']], 'hosted with APP_PASSWORD: no claim');
+        $this->assertFalse(testdb($dir)->query("SELECT value FROM settings WHERE name = 'hosted_first_admin_claim'")->fetchColumn(), 'no claim row');
         [, $dir] = $this->twins('acli-hosted-short');
         foreach ([true, false] as $ci4) {
             $r = $this->cli($dir, ['auth', 'status'], $ci4, null, $hosted + ['APP_PASSWORD' => 'shortpw']);

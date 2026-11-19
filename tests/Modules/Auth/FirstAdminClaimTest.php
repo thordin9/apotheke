@@ -149,9 +149,9 @@ final class FirstAdminClaimTest extends CIUnitTestCase
             fclose($pipes[2]);
             $this->assertSame(0, proc_close($proc), $label . ': migrated' . ($err === '' ? '' : ' (' . strtok($err, "\n") . ')'));
             $this->assertSame('true', $this->database->db->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->getRow()?->value, $label . ': sign-in is on');
-            $made = $this->claims()->create();
             $pw = self::secret();
             if ($appPassword === '') {
+                $made = $this->claims()->create();
                 $this->assertSame([], $this->accounts(), 'none: no account is seeded');
                 $user = $this->claims()->claim($made['token'], 'owner', $pw, $pw);
                 $this->assertSame(['owner', 'admin', 'active'], [$user['username'], $user['role'], $user['status']], 'none: the claim makes the first admin');
@@ -159,6 +159,9 @@ final class FirstAdminClaimTest extends CIUnitTestCase
                 $this->assertSame([['username' => 'admin', 'role' => 'admin', 'status' => 'active']], $this->accounts(), 'set: admin is seeded');
                 $hash = (string)$this->database->db->query('SELECT password_hash FROM users')->getRow()?->password_hash;
                 $this->assertTrue(password_verify($appPassword, $hash), 'set: with APP_PASSWORD');
+                $this->refused(fn () => $this->claims()->create(), 409, FirstAdminClaim::ADMIN_EXISTS);
+                $this->assertNull($this->claimRow(), 'set: no claim is made');
+                $made = $this->plantClaim();
                 $this->refused(fn () => $this->claims()->claim($made['token'], 'owner', $pw, $pw), 410, 'This claim link is no longer valid.');
                 $this->assertSame([['username' => 'admin', 'role' => 'admin', 'status' => 'active']], $this->accounts(), 'set: nobody is added');
             }
@@ -222,8 +225,8 @@ final class FirstAdminClaimTest extends CIUnitTestCase
     public function testAClaimIsRefusedAndRemovedOnceAnAdminExists(string $driver, bool $batch): void
     {
         $this->database = TestDatabase::create($driver);
-        (new UserRepository($this->database->db))->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
         $made = $this->claims($batch)->create();
+        (new UserRepository($this->database->db))->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
         $pw = self::secret();
         $this->refused(fn () => $this->claims($batch)->claim($made['token'], 'owner', $pw, $pw), 410, 'This claim link is no longer valid.');
         $this->assertNull($this->claimRow(), 'the claim is removed');
@@ -243,7 +246,7 @@ final class FirstAdminClaimTest extends CIUnitTestCase
         $pw = self::secret();
         $outcomes = [];
         foreach (['right', 'wrong', 'empty'] as $which) {
-            $made = $this->claims($batch)->create();
+            $made = $this->plantClaim();
             $this->assertNotNull($this->claimRow());
             $token = match ($which) {
                 'right' => $made['token'],
@@ -345,6 +348,66 @@ final class FirstAdminClaimTest extends CIUnitTestCase
         }
     }
 
+    /**
+     * While an active admin exists, a new claim is refused (409) and the claim row stays as it was (none, or an older
+     * one). A pending admin or an active non-admin does not stop it.
+     */
+    #[DataProvider('modes')]
+    public function testCreateIsRefusedWhileAnActiveAdminExists(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $users = new UserRepository($this->database->db);
+        $users->create('waiting', 'x', 'admin', 'pending', '2026-01-01 00:00:00');
+        $users->create('looker', 'x', 'viewer', 'active', '2026-01-01 00:00:00');
+        $made = $this->claims($batch)->create();
+        $row = $this->claimRow();
+        $this->assertSame(hash('sha256', $made['token']), json_decode((string)$row, true)['sha256'], 'without an active admin it works');
+
+        $users->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
+        $this->refused(fn () => $this->claims($batch)->create(), 409, FirstAdminClaim::ADMIN_EXISTS);
+        $this->assertSame($row, $this->claimRow(), 'the older claim row is unchanged');
+        $this->database->db->query('DELETE FROM settings WHERE name = ?', [FirstAdminClaim::SETTING]);
+        $this->refused(fn () => $this->claims($batch)->create(), 409, FirstAdminClaim::ADMIN_EXISTS);
+        $this->assertNull($this->claimRow(), 'no claim row is made');
+    }
+
+    /** PostgreSQL, two processes: an active admin is added under the active-admins key; create() waits and is refused. */
+    #[DataProvider('pgModes')]
+    public function testCreateWaitsForAnAdminBeingAddedOnPostgres(bool $batch): void
+    {
+        if (!in_array('pgsql', TestDatabase::drivers(), true)) {
+            $this->markTestSkipped('PostgreSQL only');
+        }
+        $this->database = TestDatabase::create('pgsql');
+        $wait = $this->database->holdInAnotherClient([
+            ['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('users', UserRepository::ACTIVE_ADMINS)],
+            ["INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES ('boss', 'boss', 'x', 'admin', 'active', '2026-01-01 00:00:00')", []],
+        ], 400);
+        try {
+            $this->refused(fn () => $this->claims($batch)->create(), 409, FirstAdminClaim::ADMIN_EXISTS);
+        } finally {
+            $this->assertStringContainsString('committed', $wait());
+        }
+        $this->assertNull($this->claimRow());
+    }
+
+    /**
+     * A claim row as create() stores it, written directly: for cases where the claim was made before an admin
+     * existed (create() itself is refused then).
+     *
+     * @return array{token:string}
+     */
+    private function plantClaim(): array
+    {
+        $this->assertNotNull($this->database);
+        $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $value = (string)json_encode(['sha256' => hash('sha256', $token), 'expires' => time() + 86400]);
+        $this->database->db->query('DELETE FROM settings WHERE name = ?', [FirstAdminClaim::SETTING]);
+        $this->database->db->query('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)', [FirstAdminClaim::SETTING, $value, '2026-01-01 00:00:00']);
+
+        return ['token' => $token];
+    }
+
     /** @return iterable<string,array{0:bool}> */
     public static function pgModes(): iterable
     {
@@ -413,9 +476,10 @@ final class FirstAdminClaimTest extends CIUnitTestCase
         $this->assertStringNotContainsString(FirstAdminClaim::SETTING, (string)json_encode($settings->export()));
     }
 
-    public function testTheCommandPrintsTheTokenOnlyWhenHosted(): void
+    #[DataProvider('drivers')]
+    public function testTheCommandPrintsTheTokenOnlyWhenHosted(string $driver): void
     {
-        $this->database = TestDatabase::create('sqlite');
+        $this->database = TestDatabase::create($driver);
         $run = function (FirstAdminClaim $claims): array {
             $out = fopen('php://memory', 'w+');
             $err = fopen('php://memory', 'w+');
@@ -439,5 +503,11 @@ final class FirstAdminClaimTest extends CIUnitTestCase
         $this->assertStringContainsString('Valid once, until', $err);
         $this->assertStringNotContainsString($token, $err);
         $this->assertArrayHasKey('accounts:claim-create', Services::commands(false)->getCommands());
+
+        // With an active admin: a clear message, exit 1, and the claim row stays as it was.
+        $row = $this->claimRow();
+        (new UserRepository($this->database->db))->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
+        $this->assertSame([1, '', FirstAdminClaim::ADMIN_EXISTS . "\n"], $run($this->claims()));
+        $this->assertSame($row, $this->claimRow());
     }
 }

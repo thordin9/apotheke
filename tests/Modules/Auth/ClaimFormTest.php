@@ -127,7 +127,9 @@ final class ClaimFormTest extends CIUnitTestCase
         $answers = [];
         foreach (['right', 'wrong'] as $which) {
             $this->wire(true);
-            $token = Services::firstAdminClaim()->create()['token'];
+            // A claim made before the admin existed (create() is refused now): its row, written as create() writes it.
+            $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+            $this->database->db->query('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)', [FirstAdminClaim::SETTING, (string)json_encode(['sha256' => hash('sha256', $token), 'expires' => time() + 86400]), '2026-01-01 00:00:00']);
             $this->assertCount(1, $this->database->db->query('SELECT name FROM settings WHERE name = ?', [FirstAdminClaim::SETTING])->getResultArray());
             $this->wire(true);
             $this->liveSession($csrf);

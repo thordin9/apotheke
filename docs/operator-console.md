@@ -224,6 +224,9 @@ Duplicate are not counted.
 **First-admin claim.** A new installation starts with no account. `php spark accounts:claim-create` (run through the
 bridge) prints a one-time token and stores only its SHA-256 and expiry (`HOSTED_CLAIM_HOURS`, default 72) as a
 settings row outside the Control Panel's keys, so it is never exported or backed up. A new claim replaces the old one.
+While an active `admin` exists, `accounts:claim-create` makes no claim and leaves any claim row as it is: it prints
+`An active admin already exists, so no claim was made.` and exits 1. It checks this in a unit with the `active-admins`
+key, like the claim itself.
 The link is `https://<host>/claim#<token>`: the page reads the token from the fragment, and the owner picks a user
 name and password and becomes an active `admin`. The claim row is deleted in the same unit as the account insert, so
 a link works once. The claim works only while the installation has no active `admin`: that is checked in the same
@@ -235,7 +238,7 @@ closed until the first account exists, and sign-in cannot be turned off.
 check `auth status` answers on once the database answers), the first migration turns sign-in on and creates no
 account, and the first-admin claim makes the first admin. With `APOTHEKE_HOSTED` and `APP_PASSWORD` set, the first
 start creates the account `admin` from it exactly as on a self-hosted install, so the claim is not the way to the first
-admin there. `APOTHEKE_INSTALLATION` alone changes nothing. Without `APOTHEKE_HOSTED`, a missing `APP_PASSWORD` on a new
+admin there, and `accounts:claim-create` refuses. `APOTHEKE_INSTALLATION` alone changes nothing. Without `APOTHEKE_HOSTED`, a missing `APP_PASSWORD` on a new
 install still stops the start as before ([Deployment and operations](deployment-and-operations.md)).
 
 ## Backup for a lifecycle job
