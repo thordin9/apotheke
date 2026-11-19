@@ -179,8 +179,11 @@ per installation first.
 `primary` gets the Worker's `APP_PASSWORD` and the same container env as before, with no new variables. Any other
 installation gets no `APP_PASSWORD`; it gets `APOTHEKE_HOSTED=1` and `APOTHEKE_INSTALLATION` set to its own `do_name`,
 so the app starts without a shared password and its first admin comes from the first-admin claim (C1). Both values are
-set only from the container object's own name, never from a request. With `APOTHEKE_HOSTED`, `APP_PASSWORD` is optional
-(see [Hosted installations](#hosted-installations)), so a hosted container can start without one.
+set only from the container object's own name, never from a request. `APOTHEKE_INSTALLATION` alone does not mark an
+installation as hosted. With `APOTHEKE_HOSTED`, `APP_PASSWORD` is optional
+(see [Hosted installations](#hosted-installations)), so a hosted container can start without one. On a hosted
+installation that already has an admin, `php spark accounts:hosted-reset-admins` removes existing admin accounts so
+the first-admin claim can be used; non-admin accounts are left as they are.
 
 ## Lifecycle jobs
 
@@ -223,7 +226,8 @@ gets 409 while the first call still runs (up to 900 seconds) keeps waiting. If t
 after the last of those retries, `export.stop` or `delete.export.stop` still runs, so a container started for a
 suspended or deleting installation is not left running. The job records the backup's error code even after the
 Workflow step has turned the error into a plain Error. The backup endpoint answers only with `APOTHEKE_HOSTED`,
-which the container object does not set yet; until it does, the step fails as `backup_404`. Routes are cached only
+which the container object sets for installations other than `primary` (see
+[Hosted installation env](#hosted-installation-env)). Routes are cached only
 inside each `apotheke-api` isolate for at most 30 seconds, so there is no shared cache to purge yet. The Workflow is
 deployed with the operator Worker (D1), not with `apotheke-api`, whose configuration is unchanged.
 
@@ -262,7 +266,8 @@ bridge) prints a one-time token and stores only its SHA-256 and expiry (`HOSTED_
 settings row outside the Control Panel's keys, so it is never exported or backed up. A new claim replaces the old one.
 While an active `admin` exists, `accounts:claim-create` makes no claim and leaves any claim row as it is: it prints
 `An active admin already exists, so no claim was made.` and exits 1. It checks this in a unit with the `active-admins`
-key, like the claim itself.
+key, like the claim itself. `php spark accounts:hosted-reset-admins` removes existing admin accounts (pending and
+active) in a unit with the same key, so the claim can be used; non-admin accounts are left as they are.
 The link is `https://<host>/claim#<token>`: the page reads the token from the fragment, and the owner picks a user
 name and password and becomes an active `admin`. The claim row is deleted in the same unit as the account insert, so
 a link works once. The claim works only while the installation has no active `admin`: that is checked in the same

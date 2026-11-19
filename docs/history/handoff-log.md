@@ -509,6 +509,13 @@ rules: [PLAN.md](../plans/feature12-ci4/PLAN.md), [ADR 001](../adr/001-codeignit
   `POST /internal/backup` on `ops.internal` makes one stored backup per lifecycle job id (signed with a key derived
   from `APP_KEY`; not routed from public hosts) and answers its id, size and relative key; `edge/src/ops-signature.ts`
   builds the request. Merged, released as v3.48.0.
+- [#326](https://github.com/thordin9/apotheke/pull/326) (operator console follow-up): with `APOTHEKE_HOSTED`,
+  `APP_PASSWORD` is optional; `accounts:claim-create` refuses while an active admin exists; out-of-range plan limits
+  are refused; a job backup is one snapshot and does not overlap a takeover. Merged, released as v3.49.2.
+- [#318](https://github.com/thordin9/apotheke/pull/318) (hosted installation env): the Worker sets `APOTHEKE_HOSTED=1`
+  and `APOTHEKE_INSTALLATION` to the installation's own name, and no `APP_PASSWORD`, for installations other than
+  `primary`; `primary` is unchanged. `php spark accounts:hosted-reset-admins` removes existing admin accounts on a
+  hosted installation so the first-admin claim can be used.
 
 ## Lanes
 
