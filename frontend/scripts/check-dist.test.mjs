@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { PAGE_SECURITY, PERMISSIONS_POLICY, connectSrcHas, expectedCache, headersFor, offSiteHosts, pageUrl, parseHeaders, resolves } from './check-dist.mjs';
+import { DIST_REQUIRED, PAGE_SECURITY, PERMISSIONS_POLICY, connectSrcHas, expectedCache, headersFor, missingDistMessage, offSiteHosts, pageUrl, parseHeaders, requireDist, resolves } from './check-dist.mjs';
 
 const rules = parseHeaders(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/_headers'), 'utf8'));
 const pages = ['/', '/privacy/', '/404.html', '/app/', '/app/index.html'];
@@ -121,7 +122,37 @@ test('encoded schemes in attributes and stylesheets are checked', () => {
     assert.deepEqual(offSiteHosts('a{background:url(https\\3a //cdn.example/a.png)}', true), ['cdn.example']);
 });
 
+test('a missing dist names npm ci and npm run build', () => {
+    const missing = missingDistMessage(join(dirname(fileURLToPath(import.meta.url)), 'no-such-dist'));
+    assert.equal(missing, DIST_REQUIRED);
+    assert.match(DIST_REQUIRED, /npm ci/);
+    assert.match(DIST_REQUIRED, /npm run build/);
+    assert.equal(missingDistMessage(dirname(fileURLToPath(import.meta.url))), null);
+});
+
+test('URL-resolution tests fail fast when DIST points at a missing directory', () => {
+    const missing = join(dirname(fileURLToPath(import.meta.url)), 'no-such-dist-override');
+    const script = fileURLToPath(import.meta.url);
+    for (const name of [
+        'resolves rejects http and allows https and mailto',
+        'a link to another host must name https',
+        'relative links resolve from the page that contains them',
+    ]) {
+        const env = { ...process.env, APOTHEKE_CHECK_DIST: missing };
+        delete env.NODE_TEST_CONTEXT;
+        delete env.NODE_TEST_WORKER_ID;
+        const child = spawnSync(process.execPath, ['--test', '--test-name-pattern', name, script], {
+            encoding: 'utf8',
+            env,
+        });
+        const out = `${child.stdout || ''}${child.stderr || ''}`;
+        assert.notEqual(child.status, 0, name);
+        assert.match(out, /run npm ci and npm run build in frontend\//, name + ' ' + out);
+    }
+});
+
 test('resolves rejects http and allows https and mailto', () => {
+    requireDist();
     assert.equal(resolves('http://cdn.example/a.png').ok, false);
     assert.equal(resolves('HTTP://cdn.example/a.png').ok, false);
     assert.equal(resolves('https://getapotheke.com/').ok, true);
@@ -135,6 +166,7 @@ test('pageUrl is the public address of a built file', () => {
 });
 
 test('a link to another host must name https', () => {
+    requireDist();
     const from = pageUrl('privacy/index.html');
     for (const url of [
         '//getapotheke.com/privacy/',
@@ -192,6 +224,7 @@ test('a stylesheet may use a data URL', () => {
 });
 
 test('relative links resolve from the page that contains them', () => {
+    requireDist();
     const from = 'https://getapotheke.com/privacy/';
     assert.equal(resolves('privacy/', from).ok, false);
     assert.equal(resolves('./x', from).ok, false);

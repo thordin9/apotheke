@@ -95,7 +95,9 @@ runs it on every frontend pull request and on pushes to `main`. It checks:
   An `<a href>` (GitHub and the other outbound links) may point off site, and so may JSON-LD.
   `https://getapotheke.com` is this site.
 
-`node --test frontend/scripts/check-dist.test.mjs` checks those header rules and the off-site scan without a build.
+`node --test frontend/scripts/check-dist.test.mjs` checks the header rules and the off-site scan without a build.
+The URL-resolution tests, and `check-dist.mjs` itself, need `frontend/dist`. Run `npm ci` and `npm run build`
+in `frontend/` first (CI already does this before those steps). If `dist` is missing they fail at once with that instruction.
 
 ## One product
 

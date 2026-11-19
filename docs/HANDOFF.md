@@ -96,6 +96,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
+- `check-dist` and its tests fail fast when `frontend/dist` is missing, with a note to run `npm ci` and `npm run build` in `frontend/`.
 - `RestoreFenceTest` checks a waiting fence claim by outcome, not wall-clock bounds.
 - E1 (#300, ready for review): the edge deploy applies `edge/migrations/control/` to D1 `apotheke-api` before `wrangler deploy`. Schema SQL is on main (#299). Awaiting *Account > D1 > Edit* on the existing deploy token before merge.
 - Backup restore on d1 is in v3.41.0; #308 fixes its confirm on the hosted database. FrankenPHP worker mode is on for the hosted container from #297 (`APOTHEKE_PHP_WORKER=1`; rollback in [Deployment and operations](deployment-and-operations.md#the-frankenphp-image)). For other open work, see the open pull requests on GitHub.
