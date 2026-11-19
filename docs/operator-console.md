@@ -220,6 +220,10 @@ container keeps its old env until it restarts, so restart it and then run `php s
 before a tenant gets access. That command removes existing admin accounts, their session records and any first-admin
 claim; non-admin accounts are left as they are.
 
+The production edge container app (`edge/wrangler.jsonc`) has `max_instances` 1, which only fits `primary`. Before
+onboarding a real hosted tenant, raise that value (a production change; it needs the owner's approval). This
+document does not change the setting.
+
 ## Lifecycle jobs
 
 Provision, suspend, resume, export, soft delete and purge are jobs in `lifecycle_jobs` (migration `0003`), run step by
