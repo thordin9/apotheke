@@ -143,7 +143,12 @@ final class RestoreFenceTest extends CIUnitTestCase
             ]);
             $claimer = $this->worker(['claim', json_encode($database->clientEnv(), JSON_THROW_ON_ERROR), 'holder-b'], $this->waitingEnv($waiting));
             $started = $this->readUntil($claimer[1], "started\n");
-            $this->assertSame((string)60_000, $this->readWaiting($waiting));
+            $during = $this->readWaiting($waiting);
+            if ($driver === 'sqlite') {
+                $this->assertSame((string)60_000, $during);
+            } else {
+                $this->assertSame('waiting', $during);
+            }
             $this->assertSame('started', trim($started));
             $this->assertSame('', stream_get_contents($claimer[1]));
             $release();
@@ -188,19 +193,21 @@ final class RestoreFenceTest extends CIUnitTestCase
             ]);
             $claimer = $this->worker(['claim', json_encode($database->clientEnv(), JSON_THROW_ON_ERROR), 'holder-b'], $this->waitingEnv($waiting));
             $this->readUntil($claimer[1], "started\n");
-            $this->assertSame((string)60_000, $this->readWaiting($waiting), 'claim() raises the SQLite busy timeout before it waits.');
+            $during = $this->readWaiting($waiting);
             $this->assertSame('', stream_get_contents($claimer[1]));
             $release();
-            $this->assertStringContainsString("claimed\n", $this->finish($claimer));
+            $claimed = $this->finish($claimer);
+            $this->assertStringContainsString("claimed\n", $claimed);
+            if ($driver === 'sqlite') {
+                $this->assertSame((string)60_000, $during, 'claim() raises the SQLite busy timeout before it waits.');
+                $this->assertStringContainsString("busy_timeout 5000\n", $claimed, 'claim() puts the usual busy timeout back on the same connection.');
+            } else {
+                $this->assertSame('waiting', $during);
+            }
             $this->assertStringContainsString('committed', $wait());
             $wait = $release = null;
-            $other = $database->connectAgain();
-            $row = $other->query('SELECT sha256 FROM restore_marker WHERE run = ?', [RestoreFence::RUN])->getRowArray();
+            $row = $database->connectAgain()->query('SELECT sha256 FROM restore_marker WHERE run = ?', [RestoreFence::RUN])->getRowArray();
             $this->assertSame('holder-b', $row['sha256'] ?? null);
-            if ($driver === 'sqlite') {
-                $timeout = $other->query('PRAGMA busy_timeout')->getRowArray();
-                $this->assertSame(5000, (int)array_values($timeout ?? [])[0]);
-            }
             try {
                 Writes::transaction($database->db, static function () use ($database): void {
                     $database->db->table('settings')->where('name', 'app_name')->delete();
