@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** with plan limits on, an installation other than primary reaches autofill at `http://autofill.internal` through the `AUTOFILL` service binding, with its installation and monthly autofill limit set by the Worker and no bearer token in the container ([#327](https://github.com/thordin9/apotheke/pull/327))
+
 ## [3.48.0] - 2026-11-19
 
 ### Added
