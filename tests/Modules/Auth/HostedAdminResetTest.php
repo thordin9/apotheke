@@ -85,6 +85,45 @@ final class HostedAdminResetTest extends CIUnitTestCase
             Writes::rows($this->database->db, 'SELECT username, role, status FROM users ORDER BY id'));
     }
 
+
+    /** @return list<string> */
+    private function sessionKeys(): array
+    {
+        $this->assertNotNull($this->database);
+
+        return array_map(static fn (array $r): string => (string)$r['id'], Writes::rows($this->database->db, 'SELECT id FROM sessions ORDER BY id'));
+    }
+
+    private function claimRow(): ?string
+    {
+        $this->assertNotNull($this->database);
+        $v = Writes::rows($this->database->db, 'SELECT value FROM settings WHERE name = ?', [FirstAdminClaim::SETTING])[0]['value'] ?? null;
+
+        return is_string($v) ? $v : null;
+    }
+
+    private function putClaim(): void
+    {
+        $this->assertNotNull($this->database);
+        $value = (string)json_encode(['sha256' => hash('sha256', 'claim-fixture'), 'expires' => 2000000000]);
+        $this->database->db->query('DELETE FROM settings WHERE name = ?', [FirstAdminClaim::SETTING]);
+        $this->database->db->query('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)', [FirstAdminClaim::SETTING, $value, '2026-01-01 00:00:00']);
+    }
+
+    /** @return string the sessions.id key (SHA-256 of $sid) */
+    private function putSession(string $sid, int $userId): string
+    {
+        $this->assertNotNull($this->database);
+        $key = hash('sha256', $sid);
+        $data = 'uid|i:' . $userId . ';auth_epoch|s:16:"0123456789abcdef";last_activity|i:1760000000;';
+        $this->database->db->query(
+            'INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?)',
+            [$key, $data, 2000000000, '', 0],
+        );
+
+        return $key;
+    }
+
     #[DataProvider('modes')]
     public function testItRemovesAdminsAndLeavesOtherAccounts(string $driver, bool $batch): void
     {
@@ -98,6 +137,33 @@ final class HostedAdminResetTest extends CIUnitTestCase
         $this->assertSame([['username' => 'looker', 'role' => 'viewer', 'status' => 'active']], $this->accounts());
         $this->reset($batch)->run();
         $this->assertSame([['username' => 'looker', 'role' => 'viewer', 'status' => 'active']], $this->accounts(), 'a second run is a no-op');
+    }
+
+
+    #[DataProvider('modes')]
+    public function testItRemovesTheClaimRowAndAdminSessions(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $users = new UserRepository($this->database->db);
+        $boss = $users->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
+        $waiting = $users->create('waiting', 'x', 'admin', 'pending', '2026-01-01 00:00:00');
+        $looker = $users->create('looker', 'x', 'viewer', 'active', '2026-01-01 00:00:00');
+        $this->putClaim();
+        $this->putSession('sess-boss-aaaaaaaaaaaa', $boss);
+        $this->putSession('sess-wait-aaaaaaaaaaaa', $waiting);
+        $look = $this->putSession('sess-look-aaaaaaaaaaaa', $looker);
+        // A payload whose uid only looks neighbouring must stay (uid|i:1; must not match uid|i:11;).
+        $other = $this->putSession('sess-other-aaaaaaaaaaaa', (int)((string)$boss . '1'));
+
+        $this->reset($batch)->run();
+        $this->assertNull($this->claimRow(), 'the first-admin claim row is gone');
+        $this->assertEqualsCanonicalizing([$look, $other], $this->sessionKeys(), 'only non-admin session records remain');
+        $this->assertSame([['username' => 'looker', 'role' => 'viewer', 'status' => 'active']], $this->accounts());
+
+        $this->putClaim();
+        $this->reset($batch)->run();
+        $this->assertNull($this->claimRow(), 'a leftover claim is still removed when no admin remains');
+        $this->assertEqualsCanonicalizing([$look, $other], $this->sessionKeys());
     }
 
     #[DataProvider('modes')]
@@ -133,7 +199,9 @@ final class HostedAdminResetTest extends CIUnitTestCase
     public function testOffWithoutHosted(): void
     {
         $this->database = TestDatabase::create('sqlite');
-        (new UserRepository($this->database->db))->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
+        $boss = (new UserRepository($this->database->db))->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
+        $this->putClaim();
+        $sess = $this->putSession('sess-boss-aaaaaaaaaaaa', $boss);
         $off = $this->reset(false, HostedLimits::off());
         $this->assertFalse($off->enabled());
         try {
@@ -143,6 +211,8 @@ final class HostedAdminResetTest extends CIUnitTestCase
             $this->assertSame([404, 'Page not found.'], [$e->getCode(), $e->getMessage()]);
         }
         $this->assertSame([['username' => 'boss', 'role' => 'admin', 'status' => 'active']], $this->accounts());
+        $this->assertNotNull($this->claimRow(), 'self-hosted: the claim row stays');
+        $this->assertSame([$sess], $this->sessionKeys(), 'self-hosted: session records stay');
     }
 
     /** PostgreSQL: reset waits on the active-admins key, then removes the admin added under that lock. */

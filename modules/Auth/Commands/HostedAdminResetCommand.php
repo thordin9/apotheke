@@ -13,8 +13,9 @@ use Psr\Log\LoggerInterface;
 use Throwable;
 
 /**
- * accounts:hosted-reset-admins: remove existing admin accounts on a hosted installation so the first-admin claim
- * can be used. Only with APOTHEKE_HOSTED. Non-admin accounts are left as they are.
+ * accounts:hosted-reset-admins: remove existing admin accounts, their session records and any first-admin claim
+ * on a hosted installation so the first-admin claim can be used. Only with APOTHEKE_HOSTED. Non-admin accounts
+ * are left as they are.
  * Config\Services::commands() builds it with its collaborator (constructor injection).
  */
 final class HostedAdminResetCommand extends BaseCommand
@@ -23,7 +24,7 @@ final class HostedAdminResetCommand extends BaseCommand
 
     protected $name = 'accounts:hosted-reset-admins';
 
-    protected $description = 'Hosted only: remove existing admin accounts so the first-admin claim can be used.';
+    protected $description = 'Hosted only: remove existing admin accounts, their sessions and any first-admin claim.';
 
     protected $usage = 'accounts:hosted-reset-admins';
 
