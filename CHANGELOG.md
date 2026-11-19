@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **core:** paths with an unparsable form, such as `/stats:1`, now return 404 instead of the home page; under `/api` they get the API's 404 ([#332](https://github.com/thordin9/apotheke/pull/332))
+
 ## [3.53.0] - 2026-11-19
 
 ### Added

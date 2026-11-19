@@ -8,9 +8,11 @@ declare(strict_types=1);
  */
 
 use Apotheke\Core\Http\OriginalsGuard;
+use Apotheke\Core\Http\RequestPath;
 use Apotheke\DevServer\StaticFile;
 
-$path = rawurldecode((string)(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/'));
+require_once dirname(__DIR__) . '/modules/Core/Http/RequestPath.php';
+$path = RequestPath::of(is_string($_SERVER['REQUEST_URI'] ?? null) ? $_SERVER['REQUEST_URI'] : '/');
 require_once dirname(__DIR__) . '/modules/Core/Http/OriginalsGuard.php';
 if ((new OriginalsGuard())->matches($path)) {
     http_response_code(404);

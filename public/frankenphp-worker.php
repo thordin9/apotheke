@@ -20,6 +20,7 @@ declare(strict_types=1);
  */
 
 use Apotheke\Core\Http\OriginalsGuard;
+use Apotheke\Core\Http\RequestPath;
 use Apotheke\Core\Http\WorkerRecycle;
 use CodeIgniter\Boot;
 use CodeIgniter\Config\Factories;
@@ -46,6 +47,7 @@ if (getcwd() . DIRECTORY_SEPARATOR !== FCPATH) {
 
 require_once FCPATH . '../app/Config/Paths.php';
 require_once dirname(__DIR__) . '/modules/Core/Http/OriginalsGuard.php';
+require_once dirname(__DIR__) . '/modules/Core/Http/RequestPath.php';
 $paths = new Paths();
 require_once $paths->systemDirectory . '/Boot.php';
 
@@ -63,7 +65,7 @@ if ($invalidMax !== null) {
 file_put_contents('php://stderr', 'apotheke: PHP worker started (recycles after ' . ($maxRequests === 0 ? 'no limit' : $maxRequests . ' requests') . ")\n");
 
 $handler = static function () use ($app, $guard, $workerConfig): void {
-    $path = rawurldecode((string)(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/'));
+    $path = RequestPath::of(is_string($_SERVER['REQUEST_URI'] ?? null) ? $_SERVER['REQUEST_URI'] : '/');
     if ($guard->matches($path)) {
         http_response_code(404);
         header('Content-Type: text/plain; charset=UTF-8');
