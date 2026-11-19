@@ -4,7 +4,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import type { ApothekeContainer } from "./index";
 import { installationStub, type Installation } from "./installation";
-import { LifecycleError, runJob, type LifecycleDeps } from "./lifecycle";
+import { LifecycleError, LifecycleRetry, runJob, type LifecycleDeps } from "./lifecycle";
 
 export type LifecycleEnv = {
 	DB: D1Database;
@@ -24,6 +24,21 @@ const pending = (code: string) => async (): Promise<never> => {
 	throw new LifecycleError(code);
 };
 
+/** The container's backup answer as a job outcome. 409 (another request for the job is still running), 5xx other than
+ *  503 and a call that did not finish are retried. Any other answer (400, 401, 404, 410, 503 not_configured) fails the
+ *  job with backup_<status>, and a 200 without a usable key with bad_export. */
+export async function backupKey(call: () => Promise<{ key: string } | { status: number }>): Promise<{ key: string }> {
+	let r: { key: string } | { status: number };
+	try {
+		r = await call();
+	} catch {
+		throw new LifecycleRetry("backup_unreachable");
+	}
+	if ("key" in r) return { key: r.key };
+	if (r.status === 409 || (r.status >= 500 && r.status !== 503)) throw new LifecycleRetry(`backup_${r.status}`);
+	throw new LifecycleError(r.status === 200 ? "bad_export" : `backup_${r.status}`);
+}
+
 export function lifecycleDeps(env: LifecycleEnv): LifecycleDeps {
 	// The container object of an installation: the same getByName(do_name) the Worker routes to.
 	const container = (doName: string) => env.APOTHEKE.getByName(doName);
@@ -34,9 +49,10 @@ export function lifecycleDeps(env: LifecycleEnv): LifecycleDeps {
 		container: {
 			stop: (doName) => container(doName).stopContainer(),
 			purge: (doName) => container(doName).purge(),
-			// BOOTSTRAP=1 start and the first-admin claim come with C1; the backup call with the bridge endpoint for it.
+			// BOOTSTRAP=1 start and the first-admin claim come with C1. The backup is signed inside the container object,
+			// which holds APP_KEY; this Worker has none.
 			bootstrap: pending("pending_c1"),
-			backup: pending("pending_backup_endpoint"),
+			backup: (doName, backupId) => backupKey(() => container(doName).opsBackup(backupId)),
 		},
 		claim: { create: pending("pending_c1") },
 		// Routes are cached only inside each apotheke-api isolate, for at most 30 seconds (route.ts): nothing to purge here.
