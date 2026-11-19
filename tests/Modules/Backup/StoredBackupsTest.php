@@ -107,6 +107,72 @@ final class StoredBackupsTest extends CIUnitTestCase
         }
     }
 
+    /**
+     * prune() never deletes a backup of kind export: not beyond keep, not when old, and not counted against keep.
+     */
+    #[DataProvider('stores')]
+    public function testPruneNeverDeletesAnExport(string $where): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->seed('Lamp');
+        [$store] = $this->store($where);
+        $stored = $this->stored($store, 1);
+        $exports = $restores = [];
+        foreach (['2026-01-10 10:00:00', '2026-03-11 10:00:00', '2026-11-12 10:00:00'] as $i => $at) {
+            putenv('APOTHEKE_CLOCK=' . $at);
+            $exports[] = $stored->store(StoredBackups::KIND_EXPORT, 'job:job-' . $i)['id'];
+            $restores[] = $stored->store(StoredBackups::KIND_PRE_RESTORE, null)['id'];
+        }
+        putenv('APOTHEKE_CLOCK=2026-12-31 10:00:00');
+        $stored->prune();
+        $stored->prune();
+        $left = array_column($stored->all(), 'kind', 'id');
+        ksort($left);
+        $want = [$exports[0] => 'export', $exports[1] => 'export', $exports[2] => 'export', $restores[2] => 'pre-restore'];
+        ksort($want);
+        $this->assertSame($want, $left, 'every export stays, and keep 1 counts only the other backups');
+        foreach ($exports as $id) {
+            $m = $stored->get($id);
+            $this->assertNotNull($m);
+            $this->assertSame($m['sha256'], hash('sha256', implode('', iterator_to_array($stored->bytes($m), false))), 'all its parts are still there');
+        }
+    }
+
+    /**
+     * Parts with no manifest, left by a backup that stopped, are deleted once they are ORPHAN_SECONDS old; younger
+     * ones (a backup still being written) and folders that have a manifest are left alone.
+     */
+    #[DataProvider('stores')]
+    public function testPartsWithoutAManifestAreDeletedOnceOld(string $where): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->seed('Lamp');
+        [$store, $r2] = $this->store($where);
+        $stored = $this->stored($store, 5);
+        putenv('APOTHEKE_CLOCK=2026-05-01 00:00:00');
+        $export = $stored->store(StoredBackups::KIND_EXPORT, 'job:old')['id'];
+        $this->assertSame(86400, StoredBackups::ORPHAN_SECONDS);
+        $ids = ['old' => '20260601-115959-aaaaaa', 'day' => '20260601-120000-cccccc', 'young' => '20260601-120001-bbbbbb', 'unread' => '20260501-000000-dddddd'];
+        foreach ($ids as $what => $id) {
+            $store->write('backups/' . $id . '/part-00001', 'one');
+            $store->write('backups/' . $id . '/part-00003', 'three');   // a gap: every object under the folder goes
+        }
+        $store->write('backups/' . $ids['unread'] . '/manifest.json', '{not a manifest');
+        putenv('APOTHEKE_CLOCK=2026-06-02 12:00:00');
+        $stored->prune();
+        foreach ($ids as $what => $id) {
+            $kept = in_array($what, ['young', 'unread'], true);
+            foreach (['part-00001', 'part-00003'] as $part) {
+                $this->assertSame($kept, $store->exists('backups/' . $id . '/' . $part), $what . ' ' . $part);
+            }
+            if ($r2 === null && !$kept) {
+                $this->assertDirectoryDoesNotExist($this->database->dataDir() . '/backups/' . $id, $what);
+            }
+        }
+        $this->assertTrue($store->exists('backups/' . $ids['unread'] . '/manifest.json'), 'a manifest that does not read is not an orphan');
+        $this->assertNotNull($stored->get($export), 'the old export is untouched');
+    }
+
     /** A manifest whose part list is not exactly the backup's own parts is not read; one from before the list still is. */
     public function testAManifestWithAWrongPartListIsNotRead(): void
     {

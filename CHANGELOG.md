@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **auth:** with `APOTHEKE_HOSTED`, `APP_PASSWORD` is optional: without it the app starts, creates no account and the first-admin claim makes the first admin; with it, the account `admin` is created as before; and plan limits from the bridge that are negative, not finite or beyond the largest whole number are refused like any other unreadable answer ([#326](https://github.com/thordin9/apotheke/pull/326))
+
 ## [3.49.1] - 2026-11-19
 
 ### Fixed

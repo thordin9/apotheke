@@ -19,7 +19,9 @@ use RuntimeException;
  * database connection. A missing SQLite file stays missing; connecting may
  * still create an empty DB_SCHEMA or switch an older SQLite file to WAL, as
  * legacy does. With db.driver d1 (storage mode) the same answer is read over
- * the D1 bridge (d1()).
+ * the D1 bridge (d1()). Hosted (APOTHEKE_HOSTED) without APP_PASSWORD it is
+ * on once the database answers (the first admin comes from the first-admin
+ * claim); hosted with APP_PASSWORD it answers as without APOTHEKE_HOSTED.
  */
 final class AuthStatus
 {
@@ -34,6 +36,7 @@ final class AuthStatus
         #[\SensitiveParameter] private readonly string $appPassword,
         private readonly mixed $stdout,
         private readonly mixed $stderr,
+        private readonly bool $hosted = false,
     ) {
     }
 
@@ -45,6 +48,12 @@ final class AuthStatus
             fwrite($this->stderr, (str_starts_with($e->getMessage(), 'Could not connect to the database') ? $e->getMessage() : 'Could not open the database.') . "\n");
 
             return 1;
+        }
+        if ($this->hosted && $this->appPassword === '') {
+            // Hosted without APP_PASSWORD: sign-in is always on, and the first admin comes from the first-admin claim.
+            fwrite($this->stdout, "on\n");
+
+            return 0;
         }
         $on = self::onAtStart($pdo, $this->appPassword);
         // APP_PASSWORD decides only on a new install; there it must meet PASSWORD_MIN (hardening, #75 QA L-2)

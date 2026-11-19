@@ -11,6 +11,9 @@ namespace Apotheke\Core\Hosted;
  */
 final class PlanLimits
 {
+    /** 2^63: the first whole float above PHP_INT_MAX, so a float below it casts to the same integer. */
+    private const INT_LIMIT = 9.2233720368547758E18;
+
     /**
      * @param array<string,int> $hard
      * @param array<string,int> $soft
@@ -42,8 +45,9 @@ final class PlanLimits
             foreach (['hard', 'soft'] as $kind) {
                 $n = $v[$kind] ?? null;
                 // The edge's default soft value is 80% of the hard one and may be fractional: counts reach it at
-                // the next whole number.
-                if ($kind === 'soft' && is_float($n) && is_finite($n) && $n >= 0) {
+                // the next whole number. Only a finite value from 0 up to the largest integer is read; anything
+                // else (1e20, INF, NAN, a negative) stays a float and is not a body.
+                if ($kind === 'soft' && is_float($n) && is_finite($n) && $n >= 0 && ceil($n) < self::INT_LIMIT) {
                     $n = (int)ceil($n);
                 }
                 if ($n !== null && (!is_int($n) || $n < 0)) {

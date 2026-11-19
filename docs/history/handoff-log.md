@@ -500,6 +500,15 @@ rules: [PLAN.md](../plans/feature12-ci4/PLAN.md), [ADR 001](../adr/001-codeignit
   confirm is resolved from the marker; the upload sweep drops leftover copies. ADR-002 updated to design B. Tests:
   `StagedRestoreTest`, `RestoreStageTest` (both modes, SQLite and PostgreSQL). Merged, released as v3.17.0. Part 2b: the 2.6.26
   backup through the staged path in the upgrade gate (stops before and after the swap, both modes).
+- [#317](https://github.com/thordin9/apotheke/pull/317) (operator console C1): the `Installation` object answers
+  read-only `GET /stats`, `/users` and `/limits` on `d1.internal` in storage mode. `APOTHEKE_HOSTED` turns on the
+  plan's limits (checked inside the adding unit of work, with a `plan-limit:<key>` key), the upload-size ceilings,
+  always-on sign-in and the one-time first-admin claim (`accounts:claim-create`, `/claim#<token>`, only while no
+  active admin exists); off, nothing changes. Limit values come only from `plan_limits`. Merged, released as v3.47.0.
+- [#320](https://github.com/thordin9/apotheke/pull/320) (operator console C2): with `APOTHEKE_HOSTED`,
+  `POST /internal/backup` on `ops.internal` makes one stored backup per lifecycle job id (signed with a key derived
+  from `APP_KEY`; not routed from public hosts) and answers its id, size and relative key; `edge/src/ops-signature.ts`
+  builds the request. Merged, released as v3.48.0.
 
 ## Lanes
 
