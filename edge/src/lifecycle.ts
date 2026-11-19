@@ -81,6 +81,14 @@ export class LifecycleRetry extends Error {
 	}
 }
 
+/** The job error code on a thrown step. Workflows rethrows a plain Error (the class and .code are gone); a
+ *  NonRetryableError's message is "NonRetryableError: lifecycle: <code>". */
+export function lifecycleCode(e: unknown): string | undefined {
+	if (e instanceof LifecycleError || e instanceof LifecycleRetry) return e.code;
+	const m = e instanceof Error ? e.message : String(e);
+	return /(?:^|:\s)lifecycle: (\S+)$/.exec(m)?.[1];
+}
+
 /** R2 deletes at most this many keys per call; each page is its own step. */
 export const PURGE_PAGE = 1000;
 const NOW = "strftime('%Y-%m-%dT%H:%M:%SZ', 'now')";
@@ -300,7 +308,8 @@ export const steps = {
 		const { t } = await begin(d.db, jobId, "delete.stop", ["deleting"]);
 		await d.container.stop(t.doName);
 	},
-	/** After an export: stops the container again unless the installation is active (the backup may have started it). */
+	/** After an export, or after a backup that failed the job: stops the container again unless the installation is active
+	 *  (the backup may have started it). */
 	async exportStop(d: LifecycleDeps, jobId: string): Promise<void> {
 		const { t } = await begin(d.db, jobId, "export.stop", ["active", "suspended", "deleting"]);
 		if (t.status !== "active") await d.container.stop(t.doName);
@@ -351,6 +360,20 @@ export async function runJob(d: LifecycleDeps, jobId: string, step: Runner): Pro
 		const kind = await step.do("start", () => startJob(d.db, jobId));
 		const one = (name: string, fn: (d: LifecycleDeps, jobId: string) => Promise<unknown>) => step.do(name, async () => void (await fn(d, jobId)));
 		const exporting = (name: string) => step.do(name, EXPORT_STEP, async () => void (await steps.exportBackup(d, jobId)));
+		const exportingThenStop = async (backupStep: string, stopStep: string) => {
+			try {
+				await exporting(backupStep);
+			} catch (e) {
+				// step.do only throws once retries are finished, so a 409/5xx stop is then safe.
+				try {
+					await one(stopStep, steps.exportStop);
+				} catch {
+					// The backup error is the one the job records.
+				}
+				throw e;
+			}
+			await one(stopStep, steps.exportStop);
+		};
 		switch (kind) {
 			case "provision":
 				await one("provision.check", steps.provisionCheck);
@@ -366,14 +389,12 @@ export async function runJob(d: LifecycleDeps, jobId: string, step: Runner): Pro
 				await one("resume.status", steps.resumeStatus);
 				break;
 			case "export":
-				await exporting("export.backup");
-				await one("export.stop", steps.exportStop);
+				await exportingThenStop("export.backup", "export.stop");
 				break;
 			case "delete":
 				await one("delete.status", steps.deleteStatus);
 				await one("delete.stop", steps.deleteStop);
-				await exporting("delete.export");
-				await one("delete.export.stop", steps.exportStop);
+				await exportingThenStop("delete.export", "delete.export.stop");
 				break;
 			case "purge":
 				for (let i = 0; (await step.do(`purge.uploads.${i}`, () => steps.purgeUploads(d, jobId, i))).count > 0; i++);
@@ -384,7 +405,7 @@ export async function runJob(d: LifecycleDeps, jobId: string, step: Runner): Pro
 		}
 		await step.do("done", () => finishJob(d.db, jobId));
 	} catch (e) {
-		const code = e instanceof LifecycleError || e instanceof LifecycleRetry ? e.code : "error";
+		const code = lifecycleCode(e) ?? "error";
 		await step.do("failed", () => failJob(d.db, jobId, code));
 		throw e;
 	}
