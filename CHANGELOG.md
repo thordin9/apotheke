@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **edge:** with plan limits on, every `OPTIONS` request counts toward the monthly request limit and only a real CORS preflight from an allowed origin is never refused, `/api` paths are read decoded as the app reads them, and a failed stored-bytes recount is saved ([#325](https://github.com/thordin9/apotheke/pull/325))
+
 ## [3.48.0] - 2026-11-19
 
 ### Added
