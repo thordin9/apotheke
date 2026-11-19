@@ -8,6 +8,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **autofill:** Control Panel Test uses `/v1/info` only, so it works when `/healthz` is not exposed ([#333](https://github.com/thordin9/apotheke/pull/333))
+- **autofill:** monthly limit and rate-limit HTTP 429s show distinct messages and honour `Retry-After` ([#333](https://github.com/thordin9/apotheke/pull/333))
+- **autofill:** a near-limit warning from the service is shown with the suggestions ([#333](https://github.com/thordin9/apotheke/pull/333))
+
 ## [3.53.1] - 2026-11-19
 
 ### Fixed

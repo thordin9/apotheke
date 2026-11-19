@@ -720,7 +720,6 @@ final class AutofillTest extends CIUnitTestCase
             $calls = [];
             $info = (string)json_encode($this->info(10485760, null));
             $af = $this->stack($this->script($calls, [
-                $this->http(200, 'ok', 'text/plain'),
                 $this->http(200, $info),
                 $this->http($status, 'boom ' . $typed . ' Bearer ' . $typed, 'text/plain'),
             ]));
@@ -844,6 +843,255 @@ final class AutofillTest extends CIUnitTestCase
         $this->assertStringNotContainsString('sekret', json_encode($photo) ?: '');
     }
 
+    public function testConnectionUsesOnlyV1Info(): void
+    {
+        $calls = [];
+        $info = (string)json_encode([
+            'name' => 'echo',
+            'version' => '1',
+            'capabilities' => ['name'],
+        ], JSON_THROW_ON_ERROR);
+        $af = $this->stack($this->script($calls, [$this->http(200, $info)]));
+        $c = $af->test('http://autofill.test', 5, 'tok');
+        $this->assertTrue($c['ok'], $c['message'] ?? '');
+        $this->assertSame('echo', $c['info']['name']);
+        $this->assertCount(1, $calls);
+        $this->assertSame('GET', $calls[0]['method']);
+        $this->assertSame('http://autofill.test/v1/info', $calls[0]['url']);
+        $this->assertSame('tok', $calls[0]['token']);
+    }
+
+    public function testMonthlyAutofillLimitIsAClearMessageAndIsNotRetried(): void
+    {
+        $calls = [];
+        $slept = [];
+        $body = '{"error":{"code":"autofill_limit","message":"Autofill limit reached for this month"}}';
+        $af = $this->stack(
+            $this->script($calls, [
+                $this->http(429, $body, 'application/json', 2_592_000),
+                $this->okSuggest(),
+            ]),
+            'sqlite',
+            static function (int $seconds) use (&$slept): void {
+                $slept[] = $seconds;
+            },
+        );
+        $this->settings->store([
+            'autofill_enabled' => true,
+            'autofill_url' => 'http://autofill.test',
+            'autofill_timeout' => 50,
+            'autofill_token' => self::TOKEN,
+            'autofill_max_image_bytes' => 1048576,
+        ]);
+        $af->rememberInfo($this->info(1_000_000, null));
+        $r = $af->suggest($this->jpeg(40, 30), ['gd']);
+        $this->assertFalse($r['ok']);
+        $this->assertSame('autofill_limit', $r['code']);
+        $this->assertStringContainsString('allowance for this month', $r['message']);
+        $this->assertStringContainsString('Try again next month', $r['message']);
+        $this->assertStringNotContainsString('2592000', $r['message']);
+        $this->assertSame(2_592_000, $r['retry_after']);
+        $this->assertCount(1, $calls);
+        $this->assertSame('POST', $calls[0]['method']);
+        $this->assertSame([], $slept);
+    }
+
+    public function testRateLimitedSuggestIsNotRetriedByTheService(): void
+    {
+        $calls = [];
+        $slept = [];
+        $body = '{"error":{"code":"rate_limited","message":"too many requests"}}';
+        $af = $this->stack(
+            $this->script($calls, [
+                $this->http(429, $body, 'application/json', 5),
+                $this->okSuggest(),
+            ]),
+            'sqlite',
+            static function (int $seconds) use (&$slept): void {
+                $slept[] = $seconds;
+            },
+        );
+        $this->settings->store([
+            'autofill_enabled' => true,
+            'autofill_url' => 'http://autofill.test',
+            'autofill_timeout' => 50,
+            'autofill_token' => self::TOKEN,
+            'autofill_max_image_bytes' => 1048576,
+        ]);
+        $af->rememberInfo($this->info(1_000_000, null));
+        $r = $af->suggest($this->jpeg(40, 30), ['gd']);
+        $this->assertFalse($r['ok']);
+        $this->assertSame('rate_limited', $r['code']);
+        $this->assertStringContainsString('too many autofill requests right now', $r['message']);
+        $this->assertStringContainsString('Try again in 5 s', $r['message']);
+        $this->assertSame(5, $r['retry_after']);
+        $this->assertCount(1, $calls);
+        $this->assertSame([], $slept);
+    }
+
+    public function testPhotoWaitsForAShortRateLimitThenRetriesOnce(): void
+    {
+        $calls = [];
+        $slept = [];
+        $info = (string)json_encode([
+            'name' => 'echo',
+            'version' => '1',
+            'capabilities' => ['name'],
+        ], JSON_THROW_ON_ERROR);
+        $limited = $this->http(
+            429,
+            '{"error":{"code":"rate_limited","message":"too many requests"}}',
+            'application/json',
+            2,
+        );
+        $af = $this->stack(
+            $this->script($calls, [
+                $this->http(200, $info),
+                $limited,
+                $this->okSuggest(),
+            ]),
+            'sqlite',
+            static function (int $seconds) use (&$slept): void {
+                $slept[] = $seconds;
+            },
+        );
+        $photo = $af->testPhoto('http://autofill.test', 30, 'tok');
+        $this->assertTrue($photo['ok'], $photo['message'] ?? '');
+        $this->assertSame([2], $slept);
+        $methods = array_map(static fn (array $c): string => $c['method'] . ' ' . $c['url'], $calls);
+        $this->assertSame('GET http://autofill.test/v1/info', $methods[0]);
+        $this->assertCount(3, $calls);
+        $this->assertSame('POST', $calls[1]['method']);
+        $this->assertSame('POST', $calls[2]['method']);
+        $this->assertStringContainsString('/v1/suggest', $calls[1]['url']);
+    }
+
+    public function testPhotoDoesNotRetryARateLimitWhenRetryAfterExceedsSixtySeconds(): void
+    {
+        // timeout 90 s would allow a wait of 61 s if the 60 s cap were missing
+        [$photo, $calls, $slept] = $this->photoRateLimited(61, 90);
+        $this->assertFalse($photo['ok']);
+        $this->assertSame('rate_limited', $photo['code']);
+        $this->assertSame(61, $photo['retry_after']);
+        $this->assertSame([], $slept);
+        $this->assertCount(2, $calls);
+        $this->assertSame('GET', $calls[0]['method']);
+        $this->assertSame('POST', $calls[1]['method']);
+    }
+
+    public function testPhotoDoesNotRetryARateLimitWhenRetryAfterExceedsTheTimeout(): void
+    {
+        // 30 s is within the 60 s cap, but longer than the 5 s timeout
+        [$photo, $calls, $slept] = $this->photoRateLimited(30, 5);
+        $this->assertFalse($photo['ok']);
+        $this->assertSame('rate_limited', $photo['code']);
+        $this->assertSame(30, $photo['retry_after']);
+        $this->assertSame([], $slept);
+        $this->assertCount(2, $calls);
+        $this->assertSame('GET', $calls[0]['method']);
+        $this->assertSame('POST', $calls[1]['method']);
+    }
+
+    public function testPhotoDoesNotRetryAMonthlyLimitEvenWhenRetryAfterIsShort(): void
+    {
+        $calls = [];
+        $slept = [];
+        $info = (string)json_encode([
+            'name' => 'echo',
+            'version' => '1',
+            'capabilities' => ['name'],
+        ], JSON_THROW_ON_ERROR);
+        $limited = $this->http(
+            429,
+            '{"error":{"code":"autofill_limit","message":"Autofill limit reached for this month"}}',
+            'application/json',
+            2,
+        );
+        $af = $this->stack(
+            $this->script($calls, [
+                $this->http(200, $info),
+                $limited,
+                $this->okSuggest(),
+            ]),
+            'sqlite',
+            static function (int $seconds) use (&$slept): void {
+                $slept[] = $seconds;
+            },
+        );
+        $photo = $af->testPhoto('http://autofill.test', 30, 'tok');
+        $this->assertFalse($photo['ok']);
+        $this->assertSame('autofill_limit', $photo['code']);
+        $this->assertStringContainsString('allowance for this month', $photo['message']);
+        $this->assertSame([], $slept);
+        $this->assertCount(2, $calls);
+    }
+
+    public function testUnknown429StillIncludesARetryHintAndIsNotRetried(): void
+    {
+        $calls = [];
+        $slept = [];
+        $af = $this->stack(
+            $this->script($calls, [
+                $this->http(429, '{"error":{"code":"other","message":"slow down"}}', 'application/json', 8),
+                $this->okSuggest(),
+            ]),
+            'sqlite',
+            static function (int $seconds) use (&$slept): void {
+                $slept[] = $seconds;
+            },
+        );
+        $this->settings->store([
+            'autofill_enabled' => true,
+            'autofill_url' => 'http://autofill.test',
+            'autofill_timeout' => 50,
+            'autofill_token' => self::TOKEN,
+            'autofill_max_image_bytes' => 1048576,
+        ]);
+        $af->rememberInfo($this->info(1_000_000, null));
+        $r = $af->suggest($this->jpeg(40, 30), ['gd']);
+        $this->assertFalse($r['ok']);
+        $this->assertSame('bad_response', $r['code']);
+        $this->assertStringContainsString('HTTP 429', $r['message']);
+        $this->assertStringContainsString('Try again in 8 s', $r['message']);
+        $this->assertSame(8, $r['retry_after']);
+        $this->assertCount(1, $calls);
+        $this->assertSame([], $slept);
+    }
+
+    public function testSuggestPassesThroughANearLimitWarning(): void
+    {
+        $posted = [];
+        $af = $this->ready($posted, function (int $n, string $jpeg): array {
+            return $this->okSuggest("Autofill is close to this month's limit");
+        });
+        $af->rememberInfo($this->info(1_000_000, null));
+        $r = $af->suggest($this->jpeg(40, 30), ['gd']);
+        $this->assertTrue($r['ok'], $r['message'] ?? '');
+        $this->assertSame("Autofill is close to this month's limit", $r['warning']);
+        $this->assertArrayNotHasKey('confidence', $r);
+        $this->assertCount(1, $posted);
+    }
+
+    public function testSuggestIgnoresANonStringWarning(): void
+    {
+        $posted = [];
+        $af = $this->ready($posted, function (int $n, string $jpeg): array {
+            $body = (string)json_encode([
+                'name' => ['value' => 'Hammer', 'confidence' => 0.5],
+                'category' => ['value' => 'Tools', 'confidence' => 0.5],
+                'tags' => [['value' => 'echo', 'confidence' => 0.5]],
+                'description' => ['value' => 'A hammer', 'confidence' => 0.5],
+                'warning' => ['text' => 'nope'],
+            ], JSON_THROW_ON_ERROR);
+
+            return $this->http(200, $body);
+        });
+        $af->rememberInfo($this->info(1_000_000, null));
+        $r = $af->suggest($this->jpeg(40, 30), ['gd']);
+        $this->assertTrue($r['ok'], $r['message'] ?? '');
+        $this->assertArrayNotHasKey('warning', $r);
+    }
+
     /** @param array<string,mixed> $info */
     private function info(?int $max, ?int $enforced): array
     {
@@ -855,20 +1103,61 @@ final class AutofillTest extends CIUnitTestCase
     }
 
     /** @return array{status:int,body:string,error:?string,retry_after:?int,content_type:string} */
-    private function http(int $status, string $body, string $type = 'application/json'): array
+    /**
+     * One /v1/info, then a rate_limited 429 (and an unused success for a retry).
+     *
+     * @return array{0:array<string,mixed>,1:list<array<string,mixed>>,2:list<int>}
+     */
+    private function photoRateLimited(int $retryAfter, int $timeout): array
     {
-        return ['status' => $status, 'body' => $body, 'error' => null, 'retry_after' => null, 'content_type' => $type];
+        $calls = [];
+        $slept = [];
+        $info = (string)json_encode([
+            'name' => 'echo',
+            'version' => '1',
+            'capabilities' => ['name'],
+        ], JSON_THROW_ON_ERROR);
+        $limited = $this->http(
+            429,
+            '{"error":{"code":"rate_limited","message":"too many requests"}}',
+            'application/json',
+            $retryAfter,
+        );
+        $af = $this->stack(
+            $this->script($calls, [
+                $this->http(200, $info),
+                $limited,
+                $this->okSuggest(),
+            ]),
+            'sqlite',
+            static function (int $seconds) use (&$slept): void {
+                $slept[] = $seconds;
+            },
+        );
+        $photo = $af->testPhoto('http://autofill.test', $timeout, 'tok');
+
+        return [$photo, $calls, $slept];
+    }
+
+    private function http(int $status, string $body, string $type = 'application/json', ?int $retryAfter = null): array
+    {
+        return ['status' => $status, 'body' => $body, 'error' => null, 'retry_after' => $retryAfter, 'content_type' => $type];
     }
 
     /** @return array{status:int,body:string,error:?string,retry_after:?int,content_type:string} */
-    private function okSuggest(): array
+    private function okSuggest(?string $warning = null): array
     {
-        return $this->http(200, (string)json_encode([
+        $body = [
             'name' => ['value' => 'Hammer', 'confidence' => 0.5],
             'category' => ['value' => 'Tools', 'confidence' => 0.5],
             'tags' => [['value' => 'echo', 'confidence' => 0.5]],
             'description' => ['value' => 'A hammer', 'confidence' => 0.5],
-        ]));
+        ];
+        if ($warning !== null) {
+            $body['warning'] = $warning;
+        }
+
+        return $this->http(200, (string)json_encode($body));
     }
 
     /**
@@ -919,7 +1208,7 @@ final class AutofillTest extends CIUnitTestCase
         return substr($body, $start, $end - $start);
     }
 
-    private function stack(?Closure $transport = null, string $driver = 'sqlite'): AutofillService
+    private function stack(?Closure $transport = null, string $driver = 'sqlite', ?Closure $sleep = null): AutofillService
     {
         $this->database = TestDatabase::create($driver);
         $this->storage = new LocalStorage($this->database->dataDir());
@@ -959,7 +1248,7 @@ final class AutofillTest extends CIUnitTestCase
             $this->database->db,
             $this->images,
             ApothekeConfig::repoRoot() . '/public/assets/autofill-sample.jpg',
-            static function (int $seconds): void {
+            $sleep ?? static function (int $seconds): void {
             },
             $now,
         );

@@ -163,4 +163,42 @@ test.describe('AI autofill settings', () => {
     await page.goto('/settings/autofill');
     await expect(page.locator('#s-autofill_url')).toHaveValue('');
   });
+
+  test('a near-limit warning with HTML is shown as plain text', async ({ app, page }) => {
+    const warning = '<img src=x onerror="window.__afXss=1"><b>x</b>';
+    await configure(page, stub.base);
+    const auto = page.locator('#s-autofill_auto');
+    if ((await auto.count()) && !(await auto.isChecked())) {
+      await page.locator('label[for="s-autofill_auto"]').click();
+    }
+    await page.locator('#set-save').click();
+    await expect(page.locator('.toast')).toHaveText('Settings saved');
+    await page.route('**/autofill/suggest', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          code: 'ok',
+          message: 'Suggestions from the photo',
+          suggestions: { name: 'Hammer', category: null, tags: [], description: null },
+          warning,
+        }),
+      });
+    });
+    await app.go('/new');
+    await expect(page.locator('#itemform')).toHaveAttribute('data-autofill', '1');
+    await page.locator('#itemform .photo-lib input[type=file]').setInputFiles(app.image('af-html-warning.jpg', [40, 180, 90]));
+    const analyze = page.locator('.af-analyze').first();
+    if (await analyze.isVisible().catch(() => false)) {
+      await analyze.click();
+    }
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready', { timeout: 8_000 });
+    const warn = page.locator('#af-warning');
+    await expect(warn).toHaveText(warning);
+    await expect(warn).toBeVisible();
+    expect(await warn.locator('*').count(), 'the note creates no child elements').toBe(0);
+    expect(await warn.evaluate(el => el.textContent)).toBe(warning);
+    expect(await page.evaluate(() => (window as Window & { __afXss?: number }).__afXss)).toBeUndefined();
+  });
 });

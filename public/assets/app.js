@@ -552,7 +552,7 @@
        then "Suggestions ready" / "No suggestions" / the reason. A 503 with Retry-After is retried once.
        Debug hook for QA: data-af-upload (what the browser uploaded) and data-af-sent (what the server sent to the
        service), JSON {type, bytes, width, height}; data-af-model-used when the service reports it. */
-    const afBox = $('#af-feedback'), afStatus = $('#af-status'), afProg = $('#af-progress');
+    const afBox = $('#af-feedback'), afStatus = $('#af-status'), afWarn = $('#af-warning'), afProg = $('#af-progress');
     const afBar = $('#af-bar'), afPct = $('#af-pct');
     let afSeq = 0, afTick = 0;
     const afFields = () => ({ name: form.elements.name, tags: form.elements.tags, description: form.elements.notes,
@@ -563,10 +563,17 @@
     })));
     const afSay = (msg, fail) => {
       if (!afStatus) return;
-      if (afBox) afBox.hidden = !msg;
+      if (afBox) afBox.hidden = !msg && !(afWarn && !afWarn.hidden);
       afStatus.classList.toggle('af-fail', !!fail);
       afStatus.innerHTML = msg ? '<svg class="i" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg> ' : '';
       if (msg) afStatus.append(document.createTextNode(msg));
+    };
+    const afNote = (msg) => {
+      if (!afWarn) return;
+      const text = (msg && String(msg).trim()) || '';
+      afWarn.hidden = !text;
+      afWarn.textContent = text;
+      if (afBox && text) afBox.hidden = false;
     };
     // the bar: pct null = indeterminate (spinner), a number = determinate; extra = "about 6 s left" etc.
     const afShow = (pct, extra) => {
@@ -633,7 +640,7 @@
     // "Model is warming up… / Service is busy… retrying in N s" (retry_reason from the service's message, busy by
     // default): resolves true when the wait ran out, false if another photo was picked
     const afWait = (secs, seq, why) => new Promise(resolve => {
-      const what = why === 'warming' ? 'Model is warming up…' : 'Service is busy…';
+      const what = why === 'warming' ? 'Model is warming up…' : why === 'rate_limited' ? 'Too many requests…' : 'Service is busy…';
       clearInterval(afTick);
       let left = secs;
       const step = () => {
@@ -723,6 +730,7 @@
       const seq = ++afSeq;
       afBegin(btn, src.photoId ? 'stored' : 'picked');
       clearInterval(afTick);
+      afNote('');
       afSay('Uploading…');
       afShow(0, '');
       let img = null;
@@ -738,10 +746,10 @@
       let j = await afSend(src, img, seq);
       if (seq !== afSeq) return;           // a newer photo was picked meanwhile
       const cap = parseInt(form.dataset.afTimeout || '50', 10) || 30;
-      // One retry, and only for a short Retry-After. A daily cap (until 00:00 UTC) is longer than a minute:
-      // show the busy message and leave Save usable. The wait never disables the form.
-      if (j && !j.ok && j.code === 'busy' && j.retry_after > 0 && j.retry_after <= RETRY_AFTER_MAX && j.retry_after <= cap) {
-        if (!(await afWait(j.retry_after, seq, j.retry_reason))) return;
+      // One retry, and only for a short Retry-After (busy or a brief rate limit). A monthly cap until
+      // next month is longer than a minute: show the message and leave Save usable. The wait never disables the form.
+      if (j && !j.ok && (j.code === 'busy' || j.code === 'rate_limited') && j.retry_after > 0 && j.retry_after <= RETRY_AFTER_MAX && j.retry_after <= cap) {
+        if (!(await afWait(j.retry_after, seq, j.code === 'rate_limited' ? 'rate_limited' : j.retry_reason))) return;
         afSay('Uploading…'); afShow(0, '');
         j = await afSend(src, img, seq);
         if (seq !== afSeq) return;
@@ -750,8 +758,9 @@
       if (j && j.image) form.dataset.afSent = JSON.stringify(j.image);
       if (j && j.model_used) form.dataset.afModelUsed = j.model_used;
       afEnd();
-      if (!j || !j.ok) { afHide(); afSay((j && j.message) || 'No suggestions (autofill is not available right now).', true); return; }
+      if (!j || !j.ok) { afHide(); afNote(''); afSay((j && j.message) || 'No suggestions (autofill is not available right now).', true); return; }
       afDone();
+      afNote(j.warning || '');
       const s = j.suggestions || {}, f = afFields(), done = [];
       if (s.name && afFree(f.name)) { afPut(f.name, s.name); done.push('name'); }
       if (s.category && f.category && afFree(f.category) && (!f.newcat || afFree(f.newcat))) {

@@ -238,7 +238,7 @@ final class ItemView
       <span class="photo-status" id="pstatus" hidden></span>
     </div>
     <?php if ($autofill !== null) echo self::analyze($autofill['photos']); ?>
-    <?php if ($afOn): ?><div class="af-feedback" id="af-feedback" hidden><p class="af-status" id="af-status" role="status" aria-live="polite"></p><div class="af-progress" id="af-progress" role="progressbar" aria-label="Photo suggestions" aria-valuemin="0" aria-valuemax="100" hidden><span class="af-track"><span class="af-bar" id="af-bar"></span></span><span class="af-pct" id="af-pct" aria-hidden="true"></span></div></div><?php endif; ?>
+    <?php if ($afOn): ?><div class="af-feedback" id="af-feedback" hidden><p class="af-status" id="af-status" role="status" aria-live="polite"></p><p class="af-warning" id="af-warning" role="status" aria-live="polite" hidden></p><div class="af-progress" id="af-progress" role="progressbar" aria-label="Photo suggestions" aria-valuemin="0" aria-valuemax="100" hidden><span class="af-track"><span class="af-bar" id="af-bar"></span></span><span class="af-pct" id="af-pct" aria-hidden="true"></span></div></div><?php endif; ?>
     <?php if ($hasImg): ?>
     <label class="check"><input type="checkbox" name="remove_image" value="1" id="rmimg"> <?= self::icon('trash') ?> Remove photo</label>
     <?php endif; ?>
