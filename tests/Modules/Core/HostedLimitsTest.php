@@ -101,6 +101,32 @@ final class HostedLimitsTest extends CIUnitTestCase
         $this->assertSame([3, 3, 40], [$l->soft('users'), $l->hard('users'), $l->soft('items')]);
         $this->assertNull(PlanLimits::fromBridge(['ok' => true, 'plan' => 'p', 'limits' => ['users' => ['soft' => 2, 'hard' => 2.5]]]));
         $this->assertNull(PlanLimits::fromBridge(['ok' => true, 'plan' => 'p', 'limits' => ['users' => ['soft' => -0.5, 'hard' => 3]]]));
+        $big = PlanLimits::fromBridge(['ok' => true, 'plan' => 'p', 'limits' => ['items' => ['soft' => 1.0E18 + 0.5, 'hard' => 2000000000000000000]]]);
+        $this->assertSame([1000000000000000000, 2000000000000000000], [$big?->soft('items'), $big?->hard('items')], 'a large but whole-number float is read');
+    }
+
+    /** A float limit out of range or not finite is not cast (1e20 would become 7766279631452241920): the body is refused. */
+    public function testAnOutOfRangeOrNonFiniteLimitIsRefused(): void
+    {
+        foreach ([1.0E20, 9.2233720368547758E18, INF, -INF, NAN, -1.0, -0.0001, 1.0E300] as $bad) {
+            foreach (['soft', 'hard'] as $kind) {
+                $limit = $kind === 'soft' ? ['soft' => $bad, 'hard' => 10] : ['soft' => 5, 'hard' => $bad];
+                $label = $kind . ' ' . var_export($bad, true);
+                $this->assertNull(PlanLimits::fromBridge(['ok' => true, 'plan' => 'p', 'limits' => ['items' => $limit]]), $label);
+            }
+        }
+        // As the bridge sends them (JSON numbers): refused like any other unreadable answer, with 503.
+        foreach (['{"ok":true,"limits":{"items":{"soft":1e20,"hard":10}}}', '{"ok":true,"limits":{"items":{"soft":100000000000000000000,"hard":10}}}',
+            '{"ok":true,"limits":{"items":{"soft":5,"hard":1e20}}}', '{"ok":true,"limits":{"items":{"soft":-1.5,"hard":10}}}',
+            '{"ok":true,"limits":{"items":{"soft":1e400,"hard":10}}}'] as $raw) {
+            try {
+                self::bridge($raw)->lockKeys('items');
+                $this->fail('accepted ' . $raw);
+            } catch (UserError $e) {
+                $this->assertSame(503, $e->getCode(), $raw);
+            }
+        }
+        $this->assertSame(['plan-limit:items'], self::bridge('{"ok":true,"limits":{"items":{"soft":8.000000000000001,"hard":10}}}')->lockKeys('items'), 'a valid fractional soft value still reads');
     }
 
     public function testHostedReadsTheBridgeOncePerRequest(): void

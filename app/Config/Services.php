@@ -933,11 +933,12 @@ class Services extends BaseService
         $db = $config->database();
         $db['connect_timeout'] = 5;
         $password = $config->values()['app_password'] ?? '';
+        $hosted = ($config->values()['hosted'] ?? false) === true;
         if (($db['driver'] ?? '') === 'd1') {
             // Storage mode: the Installation's database over the D1 bridge, with the same 5 s per try.
             $d1 = new \Apotheke\Core\Database\D1HttpExecutor(\Apotheke\Core\Database\D1HttpExecutor::DEFAULT_BASE, null, 5);
 
-            return new \Apotheke\Auth\Commands\AuthStatus(\Apotheke\Auth\Commands\AuthStatus::d1($d1, \Apotheke\Migrations\PdoMigrationRunner::connectFailure($db)), is_string($password) ? $password : '', $out, $err);
+            return new \Apotheke\Auth\Commands\AuthStatus(\Apotheke\Auth\Commands\AuthStatus::d1($d1, \Apotheke\Migrations\PdoMigrationRunner::connectFailure($db)), is_string($password) ? $password : '', $out, $err, $hosted);
         }
 
         return new \Apotheke\Auth\Commands\AuthStatus(static function () use ($db): ?\PDO {
@@ -949,7 +950,7 @@ class Services extends BaseService
             } catch (\PDOException) {
                 throw new \Apotheke\Migrations\MigrateConnectException(\Apotheke\Migrations\PdoMigrationRunner::connectFailure($db));
             }
-        }, is_string($password) ? $password : '', $out, $err);
+        }, is_string($password) ? $password : '', $out, $err, $hosted);
     }
 
     /**

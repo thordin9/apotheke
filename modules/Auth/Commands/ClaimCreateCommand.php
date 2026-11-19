@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Auth\Commands;
 
 use Apotheke\Auth\FirstAdminClaim;
+use Apotheke\Core\Exceptions\UserError;
 use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\Commands;
 use Closure;
@@ -13,7 +14,8 @@ use Throwable;
 
 /**
  * accounts:claim-create: a new first-admin claim on a hosted installation (operator console C1). Prints the token
- * once on stdout (the link is https://<host>/claim#<token>) and its expiry on stderr. Only with APOTHEKE_HOSTED.
+ * once on stdout (the link is https://<host>/claim#<token>) and its expiry on stderr. Only with APOTHEKE_HOSTED, and
+ * only while no active admin exists (otherwise it says so and exits 1, with no claim made or changed).
  * Config\Services::commands() builds it with its collaborator (constructor injection).
  */
 final class ClaimCreateCommand extends BaseCommand
@@ -60,6 +62,10 @@ final class ClaimCreateCommand extends BaseCommand
                 return 1;
             }
             $made = $claim->create();
+        } catch (UserError $e) {
+            fwrite($err, ($e->getCode() === 409 ? $e->getMessage() : 'The claim could not be created.') . "\n");
+
+            return 1;
         } catch (Throwable) {
             fwrite($err, "The claim could not be created.\n");
 

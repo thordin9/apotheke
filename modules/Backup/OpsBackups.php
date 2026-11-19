@@ -20,7 +20,9 @@ use Throwable;
  * `{"state":"done","id":…}`. The row is claimed in a unit of work keyed by its name, which checks that no row
  * exists: on PostgreSQL two requests for one job wait for each other on that key, on SQLite on the write lock, and on
  * D1 the check and insert are one batch. The backup itself runs outside the unit. A claim older than STALE_SECONDS
- * (a request that died) may be taken over.
+ * (a request that died) may be taken over. So that a takeover never overlaps a backup still running, the running
+ * one checks before each part and before its manifest that it is within GUARD_SECONDS of that age and still holds
+ * the claim; otherwise it stops and keeps nothing. A backup stored after its claim was lost is deleted again.
  *
  * @phpstan-import-type Manifest from StoredBackups
  */
@@ -29,6 +31,9 @@ final class OpsBackups
     public const SETTING_PREFIX = 'ops_backup_job:';
 
     public const STALE_SECONDS = 7200;
+
+    /** A backup stops when its claim is this close to STALE_SECONDS old. */
+    public const GUARD_SECONDS = 600;
 
     private const JOB_ID = '/^[A-Za-z0-9_-]{1,64}$/D';
 
@@ -75,16 +80,33 @@ final class OpsBackups
             && is_int($state['since'] ?? null) && $this->clock->unix() - $state['since'] < self::STALE_SECONDS) {
             throw new OpsBackupError('backup_in_progress', 409);
         }
-        $claim = (string)json_encode(['state' => 'running', 'since' => $this->clock->unix(), 'token' => bin2hex(random_bytes(8))]);
+        $since = $this->clock->unix();
+        $claim = (string)json_encode(['state' => 'running', 'since' => $since, 'token' => bin2hex(random_bytes(8))]);
         $this->claim($name, $row, $claim);
+        $deadline = $since + self::STALE_SECONDS - self::GUARD_SECONDS;
+        $proceed = function () use ($name, $claim, $deadline): void {
+            if ($this->clock->unix() >= $deadline) {
+                throw new OpsBackupError('backup_failed', 500);
+            }
+            if ($this->row($name) !== $claim) {
+                throw new OpsBackupError('backup_in_progress', 409);
+            }
+        };
         try {
-            $m = $this->stored->store(StoredBackups::KIND_EXPORT, 'job:' . $jobId);
+            $m = $this->stored->store(StoredBackups::KIND_EXPORT, 'job:' . $jobId, $proceed);
         } catch (Throwable $e) {
             $this->settle($name, $claim, null);
+            $lost = $e->getPrevious();
 
-            throw new OpsBackupError('backup_failed', 500, $e);
+            throw $lost instanceof OpsBackupError && $lost->status === 409 ? $lost : new OpsBackupError('backup_failed', 500, $e);
         }
-        $this->settle($name, $claim, (string)json_encode(['state' => 'done', 'id' => $m['id']]));
+        try {
+            $this->settle($name, $claim, (string)json_encode(['state' => 'done', 'id' => $m['id']]));
+        } catch (OpsBackupError $e) {
+            $this->stored->discard($m['id']);   // the claim went to another request meanwhile: its backup counts
+
+            throw $e;
+        }
 
         return ['backup' => $m, 'created' => true];
     }

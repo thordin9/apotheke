@@ -133,7 +133,8 @@ test('E3a: the container object wires storage from its own name only, and will n
 test('E3a: a restarted object with its container still running rebinds storage from its own name, or fails closed', async () => {
   const restarted = async (id) => {
     const { env, bucket, names } = world();
-    Object.assign(env, { APP_PASSWORD: 'placeholder', APP_KEY: 'placeholder' });
+    Object.assign(env, { APP_PASSWORD: 'placeholder', APP_KEY: 'placeholder',
+      DB: { prepare: () => ({ bind: () => ({ first: async () => ({ ok: 1 }) }) }) } });
     const handlers = new Map(), started = [], forwarded = [];
     let pending;
     const container = {

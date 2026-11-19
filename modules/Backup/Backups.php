@@ -30,8 +30,9 @@ use ZipArchive;
  *   files/                 every attachment the data names
  *
  * backup.json has legacy's bytes, but it is written row by row to a file in
- * DATA_DIR/tmp (SQLite steps through one statement, PostgreSQL fetches from
- * a cursor in a read-only snapshot), and the zip adds every file by its path,
+ * DATA_DIR/tmp inside one read transaction (SQLite steps through one
+ * statement per table, PostgreSQL fetches from a cursor in one read-only
+ * snapshot), and the zip adds every file by its path,
  * so memory stays the same for any size of catalog. The zip itself is a file
  * that the caller streams or keeps.
  */
@@ -74,6 +75,7 @@ final class Backups
         ?Storage $storage = null,
         ?Storage $originals = null,
         private readonly ?\Closure $freeSpace = null,   // test seam: (dir) → free bytes
+        private readonly ?\Closure $tableDone = null,   // test seam: (table) after each table of the dump
     ) {
         $this->storage = $storage ?? new LocalStorage($dataDir);
         $this->originals = $originals ?? new LocalStorage($originalsDir, 0640);
@@ -302,6 +304,7 @@ final class Backups
         if ($out === false) {
             throw new RuntimeException('Cannot write the backup.');
         }
+        $snapshot = $this->beginSnapshot();
         try {
             $put = static function (string $s) use ($out): void {
                 if (@fwrite($out, $s) !== strlen($s)) {   // a full disk is this message (N-452)
@@ -346,6 +349,9 @@ final class Backups
                 }
                 $put(']}');
                 $counts[$t] = $n;
+                if ($this->tableDone !== null) {
+                    ($this->tableDone)($t);
+                }
             }
             $put($first ? '[]' : '}');   // legacy json_encode() of no tables at all: []
             $put(',"settings":' . self::enc($this->settings->export()['settings']) . '}');
@@ -354,6 +360,9 @@ final class Backups
             }
         } finally {
             $closed = @fclose($out);
+            if ($snapshot) {
+                $this->db->transRollback();   // read only: nothing to keep
+            }
         }
         if (!$closed) {   // a write the close reports late (N-452); create() removes the file
             throw new RuntimeException('Cannot write the backup.');
@@ -398,13 +407,9 @@ final class Backups
                 $ints[] = $i;
             }
         }
-        // A read-only snapshot for the cursor; nothing is written.
-        if (!$this->db->transBegin()) {
-            throw new WriteFailed('Database read failed');
-        }
+        // A cursor inside the dump's read-only snapshot (beginSnapshot()); nothing is written.
+        Writes::check($this->db->query('DECLARE ' . self::CURSOR . ' NO SCROLL CURSOR FOR ' . $sql), 'backup cursor');
         try {
-            Writes::check($this->db->query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'), 'backup snapshot');
-            Writes::check($this->db->query('DECLARE ' . self::CURSOR . ' NO SCROLL CURSOR FOR ' . $sql), 'backup cursor');
             while (($rows = Writes::rows($this->db, 'FETCH FORWARD ' . self::BATCH . ' FROM ' . self::CURSOR)) !== []) {
                 foreach ($rows as $r) {
                     $r = array_values($r);
@@ -417,8 +422,40 @@ final class Backups
                 }
             }
         } finally {
-            $this->db->transRollback();
+            try {
+                $this->db->query('CLOSE ' . self::CURSOR);
+            } catch (\Throwable) {
+                // A failed read already ended the transaction; the rollback in writeDump() follows.
+            }
         }
+    }
+
+    /**
+     * One read transaction for the whole dump, so every table comes from the same moment: on PostgreSQL a
+     * REPEATABLE READ, READ ONLY snapshot (taken at the first read), on SQLite a deferred transaction, whose
+     * first read fixes what the dump sees. The hosted database reads in pages without one. Returns whether a
+     * transaction was begun (writeDump() rolls it back at the end).
+     */
+    private function beginSnapshot(): bool
+    {
+        if ($this->db instanceof D1Connection) {
+            return false;
+        }
+        $outer = $this->db->transDepth === 0;
+        if (!$this->db->transBegin()) {
+            throw new WriteFailed('Database read failed');
+        }
+        if ($outer && $this->driver() === 'pgsql') {
+            try {
+                Writes::check($this->db->query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'), 'backup snapshot');
+            } catch (\Throwable $e) {
+                $this->db->transRollback();
+
+                throw $e;
+            }
+        }
+
+        return true;
     }
 
     /**

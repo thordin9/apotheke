@@ -192,7 +192,9 @@ When a container starts, its object sets two values for its own installation:
   does not start unless its status, read when the container starts, is `provisioning` or `active` (`primary` is
   never gated). The one exception is a lifecycle job's backup (see [Lifecycle jobs](#lifecycle-jobs)), which may also
   start a `suspended` or `deleting` installation. A public request to a container started that way is forwarded only
-  after the status is read again and is `provisioning` or `active`; otherwise it gets 503.
+  after the status is read again and is `provisioning` or `active`; otherwise it gets 503. If the container object
+  restarts while the container is still running, a public request for any installation other than `primary` goes
+  through that check again.
 
 No new Worker variables or secrets. `edge/tests/installation-secrets.test.mjs` pins `primary`'s values and checks the
 derivation against an independent HKDF with fake keys.
@@ -202,8 +204,8 @@ running installation at its next start.
 
 Rotating the Worker's `APP_KEY` secret changes `primary`'s key and every derived per-installation key at once. Nothing
 re-encrypts the secrets other installations have already stored under their old key, so a rotation has to be planned
-per installation first. Until the first-admin claim (C1) replaces it, all installations get the same Worker
-`APP_PASSWORD`.
+per installation first. With `APOTHEKE_HOSTED`, `APP_PASSWORD` is optional (see
+[Hosted installations](#hosted-installations)), so a hosted container can start without one.
 
 ## Lifecycle jobs
 
@@ -226,8 +228,8 @@ step by `LifecycleWorkflow` (`edge/src/lifecycle-workflow.ts`) over the step fun
 | provision | The installation row and at least one route exist (status `provisioning`); refuse if anything is stored under its R2 prefix; start the container with `BOOTSTRAP=1` and no `APP_PASSWORD`; create the first-admin claim; status `active` |
 | suspend | Status `suspended`, drop cached routes, stop and destroy the container. No data is touched. Routing can serve the cached `active` route for up to 30 seconds, but the container no longer starts (see [Per-installation APP_KEY and ALLOWED_HOSTS](#per-installation-app_key-and-allowed_hosts)) |
 | resume | Status `active`, drop cached routes. The next request starts the container |
-| export | The app's own backup, once per job, written by the app under the installation's prefix (`installations/<do_name>/`, in its backups folder); its key is kept on the job. The container object asks its container for it (`ApothekeContainer.opsBackup`, see [Backup for a lifecycle job](#backup-for-a-lifecycle-job)), starting it if needed, also while `suspended`. Then, unless the installation is `active`, the container is stopped again |
-| delete | Soft delete: status `deleting` (routing answers 410 once the cached route expires, within 30 seconds; the container no longer starts), stop and destroy the container, export (which starts the container for the backup only), stop the container again. The job needs a retention period in days (30 is planned; the final value is the owner's decision) and has no default. The export stays under the prefix until a purge, which cannot run before the retention is over |
+| export | The app's own backup, once per job, written by the app under the installation's prefix (`installations/<do_name>/`, in its backups folder); its key is kept on the job. The container object asks its container for it (`ApothekeContainer.opsBackup`, see [Backup for a lifecycle job](#backup-for-a-lifecycle-job)), starting it if needed, also while `suspended`. Then, unless the installation is `active`, the container is stopped again, including when the backup fails the job |
+| delete | Soft delete: status `deleting` (routing answers 410 once the cached route expires, within 30 seconds; the container no longer starts), stop and destroy the container, export (which starts the container for the backup only), stop the container again, including when the backup fails the job. The job needs a retention period in days (30 is planned; the final value is the owner's decision) and has no default. The export stays under the prefix until a purge, which cannot run before the retention is over |
 | purge | Only after a soft delete that finished (its export made) and whose retention is over: now is at least the time that delete job finished plus its retention days. Before then, or after a delete that failed, creating, confirming and every step of a purge are refused and change nothing. There is no immediate purge. Then: abort unfinished multipart uploads that have a marker and delete their markers, then delete everything under `installations/<do_name>/` in pages of at most 1,000 keys (one page per step, so a retry carries on), then delete the `Installation` and container objects' storage, then status `deleted`. The row stays as a tombstone, so the DO names are never reused |
 
 Not wired yet, and failing closed until they are: the `BOOTSTRAP=1` start and the claim (C1), and the download link
@@ -236,14 +238,19 @@ for an export (the console API, E6).
 **Backup step.** The Workflow calls `opsBackup(jobId)` on the installation's container object, which signs the request
 with the installation's `APP_KEY` (`opsBackupRequest`) and sends it to the container's port, as the readiness probe
 does, never through the public forward. `APP_KEY` stays in `apotheke-api`; the Workflow's environment has none. The
-recorded key is `installations/<do_name>/` plus the answer's relative `backups/…` key, refused (`bad_export`) unless it
-is under `backups/` with no empty, `.` or `..` part and is for the same job. 409, 5xx other than 503, and a call that
-did not finish are retried; 400, 401, 404, 410 and 503 fail the job as `backup_<status>`. The two export steps
-(`export.backup`, `delete.export`) have a 20-minute timeout and up to 10 retries 3 minutes apart, so a retry that gets
-409 while the first call still runs (up to 900 seconds) keeps waiting. The backup endpoint answers only with
-`APOTHEKE_HOSTED`, which the container object does not set yet; until it does, the step fails as `backup_404`. Routes are cached only inside each
-`apotheke-api` isolate for at most 30 seconds, so there is no shared cache to purge yet. The Workflow is deployed with
-the operator Worker (D1), not with `apotheke-api`, whose configuration is unchanged.
+recorded key is `installations/<do_name>/` plus the answer's relative key, refused (`bad_export`) unless that key is
+exactly `backups/<id>/manifest.json` (the id is the stored backup's, `YYYYMMDD-HHMMSS` and six hex digits) and is for
+the same job. A future download link must use that key as stored and must not decode it. A refused installation, one
+that cannot start (including `deleted`), or a missing `APP_KEY` fails the job at once. 409, 5xx other than 503, and a
+call that did not finish are retried; 400, 401, 404, 410 and 503 fail the job as `backup_<status>`. The two export
+steps (`export.backup`, `delete.export`) have a 20-minute timeout and up to 10 retries 3 minutes apart, so a retry that
+gets 409 while the first call still runs (up to 900 seconds) keeps waiting. If the backup fails the job, including
+after the last of those retries, `export.stop` or `delete.export.stop` still runs, so a container started for a
+suspended or deleting installation is not left running. The job records the backup's error code even after the
+Workflow step has turned the error into a plain Error. The backup endpoint answers only with `APOTHEKE_HOSTED`,
+which the container object does not set yet; until it does, the step fails as `backup_404`. Routes are cached only
+inside each `apotheke-api` isolate for at most 30 seconds, so there is no shared cache to purge yet. The Workflow is
+deployed with the operator Worker (D1), not with `apotheke-api`, whose configuration is unchanged.
 
 A purge takes one Workflow step per page of up to 1,000 keys (plus one per 100 unfinished uploads). The Workflow's
 step limit per instance therefore caps one purge at about 10 million objects (about 1 million on the Free plan's
@@ -263,7 +270,8 @@ and only in storage mode (`STORAGE`, `DB` and `INSTALLATION` bound). They follow
 - `GET /limits`: the plan and its limits (`{key: {soft, hard}}`) for the object's own installation, looked up by its
   `do_name` through its subscription and read as the Worker reads them (`edge/src/limits.ts`, see [Limits](#limits)):
   only keys with a hard value, soft 80% of hard when it has none. The app reads a fractional soft value as the next
-  whole number. 404 when the installation has no subscription, 503 when the control plane is not bound.
+  whole number. A value that is negative, not finite or beyond the largest whole number makes the answer unreadable,
+  like any other bad value. 404 when the installation has no subscription, 503 when the control plane is not bound.
 
 **Plan limits.** With `APOTHEKE_HOSTED`, the app reads `/limits` once per request when it needs them. The hard
 values of `items`, `photos` and `users` cap adding items, photos and accounts: the count is checked inside the unit
@@ -277,13 +285,22 @@ Duplicate are not counted.
 **First-admin claim.** A new installation starts with no account. `php spark accounts:claim-create` (run through the
 bridge) prints a one-time token and stores only its SHA-256 and expiry (`HOSTED_CLAIM_HOURS`, default 72) as a
 settings row outside the Control Panel's keys, so it is never exported or backed up. A new claim replaces the old one.
+While an active `admin` exists, `accounts:claim-create` makes no claim and leaves any claim row as it is: it prints
+`An active admin already exists, so no claim was made.` and exits 1. It checks this in a unit with the `active-admins`
+key, like the claim itself.
 The link is `https://<host>/claim#<token>`: the page reads the token from the fragment, and the owner picks a user
 name and password and becomes an active `admin`. The claim row is deleted in the same unit as the account insert, so
 a link works once. The claim works only while the installation has no active `admin`: that is checked in the same
-unit, which takes the `active-admins` key like every unit that adds an active admin. Otherwise the link is refused
-(410) and the claim row is removed. With `APP_PASSWORD` set, the app still creates the account `admin` from it when
-there is no account, as when self-hosted, so a claim on that installation is refused. Registration stays closed until
-the first account exists, and sign-in cannot be turned off.
+unit, which takes the `active-admins` key like every unit that adds an active admin. Once an active `admin` exists,
+every claim request gets the same 410 answer, whatever its token, and the claim row is removed. Registration stays
+closed until the first account exists, and sign-in cannot be turned off.
+
+**`APP_PASSWORD` is optional.** With `APOTHEKE_HOSTED` and no `APP_PASSWORD`, the container starts (the start-up
+check `auth status` answers on once the database answers), the first migration turns sign-in on and creates no
+account, and the first-admin claim makes the first admin. With `APOTHEKE_HOSTED` and `APP_PASSWORD` set, the first
+start creates the account `admin` from it exactly as on a self-hosted install, so the claim is not the way to the first
+admin there, and `accounts:claim-create` refuses. `APOTHEKE_INSTALLATION` alone changes nothing. Without `APOTHEKE_HOSTED`, a missing `APP_PASSWORD` on a new
+install still stops the start as before ([Deployment and operations](deployment-and-operations.md)).
 
 ## Backup for a lifecycle job
 
@@ -301,7 +318,8 @@ not this endpoint and gets the usual 404. Self-hosted, it doesn't exist.
 - **Answer:** 200
   `{"ok":true,"created":…,"backup":{"job_id","id","key","prefix","size","sha256","parts","files","created_at"}}`.
   `key` is the backup's manifest, `backups/<id>/manifest.json`, relative to the installation's storage; the Worker
-  adds `installations/<do_name>/`. Every object of the backup is under `prefix`. `files` lists the parts in order
+  adds `installations/<do_name>/`. A future download link must use that key as stored and must not decode it. Every
+  object of the backup is under `prefix`. `files` lists the parts in order
   (`{"key":"part-00001","size":…,"sha256":…}`, keys relative to `prefix`), as the manifest does; the parts joined in
   order are the zip with `size` and `sha256`. Errors are `{"ok":false,"code":…}`: 400 `bad_request`,
   401 `unauthorized`, 405, 409 `backup_in_progress` (retry later), 410 `backup_gone`, 500 `backup_failed`,
@@ -309,4 +327,12 @@ not this endpoint and gets the usual 404. Self-hosted, it doesn't exist.
 - **Once per job:** the same job id returns the same backup with `created: false`. The job is recorded in the
   settings row `ops_backup_job:<id>` (outside the Control Panel's keys), claimed in a unit of work keyed by that row,
   so two requests for one job never make two backups. A claim left by a request that stopped is taken over after
-  two hours. The backup is a stored backup of kind `export`; `backup.keep` doesn't prune exports.
+  two hours. A backup still running stops before its next part or its manifest once its claim is 1 h 50 min old, or
+  as soon as another request has taken the claim, and keeps nothing; a backup stored after its claim was taken is
+  deleted again. So a takeover never overlaps a backup that is still writing. The backup is a stored backup of kind
+  `export`; `backup.keep` doesn't prune exports.
+- **One snapshot:** the catalog is dumped inside one read transaction (one `REPEATABLE READ, READ ONLY` snapshot on
+  PostgreSQL, one read transaction on SQLite), so every table comes from the same moment. The hosted database reads
+  in pages without one.
+- **Left-over parts:** parts under `backups/<id>/` with no manifest a day after the backup's id time (a backup that
+  stopped) are deleted when the next backup is stored. A folder with a manifest is never touched by this.
