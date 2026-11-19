@@ -81,6 +81,14 @@ export class LifecycleRetry extends Error {
 	}
 }
 
+/** The job error code on a thrown step. Workflows rethrows a plain Error (the class and .code are gone); a
+ *  NonRetryableError's message is "NonRetryableError: lifecycle: <code>". */
+export function lifecycleCode(e: unknown): string | undefined {
+	if (e instanceof LifecycleError || e instanceof LifecycleRetry) return e.code;
+	const m = e instanceof Error ? e.message : String(e);
+	return /(?:^|:\s)lifecycle: (\S+)$/.exec(m)?.[1];
+}
+
 /** R2 deletes at most this many keys per call; each page is its own step. */
 export const PURGE_PAGE = 1000;
 const NOW = "strftime('%Y-%m-%dT%H:%M:%SZ', 'now')";
@@ -356,12 +364,11 @@ export async function runJob(d: LifecycleDeps, jobId: string, step: Runner): Pro
 			try {
 				await exporting(backupStep);
 			} catch (e) {
-				if (e instanceof LifecycleError) {
-					try {
-						await one(stopStep, steps.exportStop);
-					} catch {
-						// The backup error is the one the job records.
-					}
+				// step.do only throws once retries are finished, so a 409/5xx stop is then safe.
+				try {
+					await one(stopStep, steps.exportStop);
+				} catch {
+					// The backup error is the one the job records.
 				}
 				throw e;
 			}
@@ -398,7 +405,7 @@ export async function runJob(d: LifecycleDeps, jobId: string, step: Runner): Pro
 		}
 		await step.do("done", () => finishJob(d.db, jobId));
 	} catch (e) {
-		const code = e instanceof LifecycleError || e instanceof LifecycleRetry ? e.code : "error";
+		const code = lifecycleCode(e) ?? "error";
 		await step.do("failed", () => failJob(d.db, jobId, code));
 		throw e;
 	}

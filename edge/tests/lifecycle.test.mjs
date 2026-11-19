@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-const { createJob, confirmJob, runJob, steps, PURGE_PAGE, LifecycleError, LifecycleRetry, EXPORT_STEP } = await import('../src/lifecycle.ts');
+const { createJob, confirmJob, runJob, steps, PURGE_PAGE, LifecycleError, LifecycleRetry, EXPORT_STEP, lifecycleCode } = await import('../src/lifecycle.ts');
 const { NonRetryableError } = await import('cloudflare:workflows');
 const { lifecycleDeps, LifecycleWorkflow } = await import('../src/lifecycle-workflow.ts');
 const { lifecycleName, Installation } = await import('../src/installation.ts');
@@ -114,6 +114,19 @@ function twice(w, names = []) {
   } };
 }
 const once = { do: async (_name, config, fn) => (fn ?? config)() };
+
+/** Like once, but rethrows a plain Error the way Workflows does after step.do (wrangler 4.160.0). */
+function workflowOnce(seen) {
+  return { async do(name, config, fn) {
+    seen?.push(name);
+    try {
+      return await (fn ?? config)();
+    } catch (e) {
+      if (e instanceof NonRetryableError) throw new Error(`NonRetryableError: ${e.message}`);
+      throw new Error(e instanceof Error ? e.message : String(e));
+    }
+  } };
+}
 
 let n = 0;
 async function confirmed(w, kind, id = 't-a', extra = {}) {
@@ -608,12 +621,61 @@ test('L-2230: a failed backup still stops a non-active container for export and 
   assert.deepEqual(seenDel, ['start', 'delete.status', 'delete.stop', 'delete.export', 'delete.export.stop', 'failed']);
   assert.ok(!d.container.running.has('tenant-a'), 'delete export stops after a failed backup');
   assert.equal(jobRow(d, del.id).state, 'failed');
-  // A retryable backup error does not stop the container: a 409 means the first call may still be running.
+  // After step.do throws, retries are finished: a 409/5xx/unreachable also stops (N-2261).
   const r = world();
   const sus2 = await confirmed(r, 'suspend');
   await runJob(r.deps, sus2.id, once);
   r.deps.container.backup = async (n) => { r.container.running.add(n); throw new LifecycleRetry('backup_409'); };
   const exp2 = await confirmed(r, 'export');
   await assert.rejects(runJob(r.deps, exp2.id, once), (e) => e instanceof LifecycleRetry && e.code === 'backup_409');
-  assert.ok(r.container.running.has('tenant-a'), 'a retried backup leaves the container running');
+  assert.ok(!r.container.running.has('tenant-a'), 'after the last retry the container is stopped');
+  assert.equal(jobRow(r, exp2.id).error_code, 'backup_409');
+});
+
+test('L-2260: after step.do the error is a plain Error; the job still records the real code and stops', async () => {
+  assert.equal(lifecycleCode(new LifecycleError('backup_404')), 'backup_404');
+  assert.equal(lifecycleCode(new LifecycleRetry('backup_409')), 'backup_409');
+  assert.equal(lifecycleCode(new Error('NonRetryableError: lifecycle: backup_404')), 'backup_404');
+  assert.equal(lifecycleCode(new Error('lifecycle: backup_409')), 'backup_409');
+  assert.equal(lifecycleCode(new Error('network connection lost')), undefined);
+
+  const fail = (w, err) => async (n) => { w.container.running.add(n); throw err; };
+  const w = world();
+  const sus = await confirmed(w, 'suspend');
+  await runJob(w.deps, sus.id, once);
+  w.deps.container.backup = fail(w, new LifecycleError('backup_404'));
+  const exp = await confirmed(w, 'export');
+  const seen = [];
+  await assert.rejects(runJob(w.deps, exp.id, workflowOnce(seen)), (e) => e instanceof Error && e.code === undefined && e.message === 'NonRetryableError: lifecycle: backup_404');
+  assert.deepEqual(seen, ['start', 'export.backup', 'export.stop', 'failed']);
+  assert.ok(!w.container.running.has('tenant-a'));
+  assert.equal(jobRow(w, exp.id).state, 'failed');
+  assert.equal(jobRow(w, exp.id).error_code, 'backup_404');
+
+  const r = world();
+  const sus2 = await confirmed(r, 'suspend');
+  await runJob(r.deps, sus2.id, once);
+  r.deps.container.backup = fail(r, new LifecycleRetry('backup_unreachable'));
+  const exp2 = await confirmed(r, 'export');
+  await assert.rejects(runJob(r.deps, exp2.id, workflowOnce()), (e) => e instanceof Error && e.code === undefined && e.message === 'lifecycle: backup_unreachable');
+  assert.ok(!r.container.running.has('tenant-a'), 'retries exhausted: the container is stopped');
+  assert.equal(jobRow(r, exp2.id).error_code, 'backup_unreachable');
+
+  // A non-export job also records the real code once the class is gone (predates #328).
+  const s = world();
+  s.raw.exec(`UPDATE installations SET status = 'deleting' WHERE id = 't-a'`);
+  const sus3 = await confirmed(s, 'suspend');
+  await assert.rejects(runJob(s.deps, sus3.id, workflowOnce()), (e) => e.message === 'NonRetryableError: lifecycle: status_conflict');
+  assert.equal(jobRow(s, sus3.id).error_code, 'status_conflict');
+});
+
+test('N-2263/M04: a stop that throws does not hide the backup error', async () => {
+  const w = world();
+  const sus = await confirmed(w, 'suspend');
+  await runJob(w.deps, sus.id, once);
+  w.deps.container.backup = async (n) => { w.container.running.add(n); throw new LifecycleError('backup_404'); };
+  w.deps.container.stop = async () => { throw new Error('stop failed'); };
+  const exp = await confirmed(w, 'export');
+  await assert.rejects(runJob(w.deps, exp.id, workflowOnce()), (e) => e.message === 'NonRetryableError: lifecycle: backup_404');
+  assert.equal(jobRow(w, exp.id).error_code, 'backup_404');
 });

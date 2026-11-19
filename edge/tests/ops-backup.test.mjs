@@ -79,6 +79,10 @@ test('C2 wiring: the key is the installation prefix plus backups/<id>/manifest.j
     'backups/bk1/manifest.json', 'backups/x', 'backups/x/', 'backups/20261119-010000-abcdef',
     'backups/20261119-010000-ABCDEF/manifest.json', 'backups/20261119-010000-abcdef0/manifest.json',
     'backups/20261119-010000-abcde/manifest.json', 'backups/2026-1119-010000-abcdef/manifest.json',
+    'backups/2026111-010000-abcdef/manifest.json', 'backups/202611199-010000-abcdef/manifest.json',
+    'backups/20261119-01000-abcdef/manifest.json', 'backups/20261119-0100000-abcdef/manifest.json',
+    'backups/20261119-010000-abcdeg/manifest.json', 'backups/20261119-010000-ghijkl/manifest.json',
+    'backups/20261119-010000-abcdef/manifestXjson', 'backups/20261119-010000-abcdef/manifest/json',
     '/backups/20261119-010000-abcdef/manifest.json', 'backups/../photo.jpg', 'backups/', 'backups//x',
     'backups/./x', 'photos/x', '../tenant-a/backups/x', 'installations/tenant-b/backups/x',
     'backups/%2e%2e/manifest.json', 'backups/%2e%2e%2fphoto.jpg', 'backups/．．/manifest.json',
@@ -180,8 +184,11 @@ test('L-2231: a restarted object over a running non-primary container re-checks 
 
 test('N-2232: a running but not ready non-primary container also sets the public start gate', async () => {
   await quiet(async () => {
-    const { b, container } = box('tenant-b', { status: 'suspended', running: true });
+    // Start not running so the constructor's restart flag is off; then mark running-but-not-ready.
+    const { b, container } = box('tenant-b', { status: 'suspended', running: false });
+    container.running = true;
     b.ready = false;
+    assert.equal(b.opsOnly, false, 'the restart path did not set the gate');
     assert.deepEqual(await b.opsBackup('job-1'), { key: KEY });
     assert.equal((await b.fetch(publicReq())).status, 503);
     assert.equal(container.starts, 0);
@@ -196,4 +203,42 @@ test('N-2234: a missing APP_KEY and an unstartable installation fail without a t
   const none = box('tenant-b');
   none.b.ctx.container = undefined;
   assert.deepEqual(await none.b.opsBackup('job-1'), { code: 'not_startable' });
+});
+
+test('N-2262: a backup start does not join a public start that is still waiting on D1', async () => {
+  await quiet(async () => {
+    for (const status of ['suspended', 'deleting']) {
+      const { b, db, container } = box('tenant-b', { status });
+      const orig = db.prepare.bind(db);
+      let first = true, release, started;
+      const ready = new Promise((r) => { started = r; });
+      db.prepare = (sql) => {
+        const stmt = orig(sql);
+        return { bind: (...v) => {
+          const bound = stmt.bind(...v);
+          return { first: bound.first, all: async () => {
+            if (first) {
+              first = false;
+              const held = new Promise((r) => { release = r; });
+              started();
+              await held;
+            }
+            return bound.all();
+          } };
+        } };
+      };
+      const publicP = b.fetch(publicReq());
+      await ready;
+      const backupP = b.opsBackup('job-1');
+      release();
+      assert.deepEqual(await backupP, { key: KEY }, status);
+      assert.equal((await publicP).status, 503, status);
+      assert.equal(container.starts, 1, status);
+    }
+  });
+});
+
+test('N-2263/M27: a thrown fetch inside opsBackup stays retryable', async () => {
+  const { b } = box('tenant-b', { running: true, answer: () => { throw new Error('network connection lost'); } });
+  await assert.rejects(backupKey(() => b.opsBackup('job-1')), (e) => e instanceof LifecycleRetry && e.code === 'backup_unreachable');
 });

@@ -213,6 +213,9 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 			if (!c) throw new Error("no container configured");
 			this.opsOnly = true;
 			if (!c.running || !this.ready) {
+				// A public start already in flight bound the status check without opsStart: wait for it, then start
+				// for the backup. Joining it would fail a suspended or deleting installation as not_startable.
+				if (this.readying && !this.opsStart) await this.readying.catch(() => {});
 				this.opsStart = true;
 				try {
 					await this.ensureReady();

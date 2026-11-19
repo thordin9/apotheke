@@ -202,12 +202,13 @@ the same job. A future download link must use that key as stored and must not de
 that cannot start (including `deleted`), or a missing `APP_KEY` fails the job at once. 409, 5xx other than 503, and a
 call that did not finish are retried; 400, 401, 404, 410 and 503 fail the job as `backup_<status>`. The two export
 steps (`export.backup`, `delete.export`) have a 20-minute timeout and up to 10 retries 3 minutes apart, so a retry that
-gets 409 while the first call still runs (up to 900 seconds) keeps waiting. If the backup fails the job,
-`export.stop` or `delete.export.stop` still runs, so a container started for a suspended or deleting installation is
-not left running. The backup endpoint answers only with `APOTHEKE_HOSTED`, which the container object does not set
-yet; until it does, the step fails as `backup_404`. Routes are cached only inside each `apotheke-api` isolate for at
-most 30 seconds, so there is no shared cache to purge yet. The Workflow is deployed with the operator Worker (D1),
-not with `apotheke-api`, whose configuration is unchanged.
+gets 409 while the first call still runs (up to 900 seconds) keeps waiting. If the backup fails the job, including
+after the last of those retries, `export.stop` or `delete.export.stop` still runs, so a container started for a
+suspended or deleting installation is not left running. The job records the backup's error code even after the
+Workflow step has turned the error into a plain Error. The backup endpoint answers only with `APOTHEKE_HOSTED`,
+which the container object does not set yet; until it does, the step fails as `backup_404`. Routes are cached only
+inside each `apotheke-api` isolate for at most 30 seconds, so there is no shared cache to purge yet. The Workflow is
+deployed with the operator Worker (D1), not with `apotheke-api`, whose configuration is unchanged.
 
 A purge takes one Workflow step per page of up to 1,000 keys (plus one per 100 unfinished uploads). The Workflow's
 step limit per instance therefore caps one purge at about 10 million objects (about 1 million on the Free plan's
