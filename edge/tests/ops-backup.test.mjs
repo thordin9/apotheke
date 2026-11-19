@@ -242,3 +242,47 @@ test('N-2263/M27: a thrown fetch inside opsBackup stays retryable', async () => 
   const { b } = box('tenant-b', { running: true, answer: () => { throw new Error('network connection lost'); } });
   await assert.rejects(backupKey(() => b.opsBackup('job-1')), (e) => e instanceof LifecycleRetry && e.code === 'backup_unreachable');
 });
+
+test('N-2264: a hex letter in the date or time part of the backup id is not a key', async () => {
+  const ok = (key) => () => Response.json({ ok: true, created: false, backup: { job_id: 'job-1', key } });
+  for (const key of ['backups/2026111a-010000-abcdef/manifest.json', 'backups/a0261119-010000-abcdef/manifest.json', 'backups/20261119-01000f-abcdef/manifest.json']) {
+    assert.deepEqual(await box('tenant-b', { running: true, answer: ok(key) }).b.opsBackup('job-1'), { status: 200 }, key);
+  }
+});
+
+test('N-2264: a second backup start while the first waits on a public start also waits', async () => {
+  await quiet(async () => {
+    for (const status of ['suspended', 'deleting']) {
+      const { b, db, container } = box('tenant-b', { status });
+      const orig = db.prepare.bind(db);
+      let first = true, release, started;
+      const ready = new Promise((r) => { started = r; });
+      db.prepare = (sql) => {
+        const stmt = orig(sql);
+        return { bind: (...v) => {
+          const bound = stmt.bind(...v);
+          return { first: bound.first, all: async () => {
+            if (first) {
+              first = false;
+              const held = new Promise((r) => { release = r; });
+              started();
+              await held;
+            }
+            return bound.all();
+          } };
+        } };
+      };
+      const publicP = b.fetch(publicReq());
+      await ready;
+      const one = b.opsBackup('job-1');
+      await new Promise((r) => setImmediate(r));
+      const two = b.opsBackup('job-1');
+      await new Promise((r) => setImmediate(r));
+      release();
+      assert.deepEqual(await one, { key: KEY }, `${status}: first`);
+      assert.deepEqual(await two, { key: KEY }, `${status}: second`);
+      assert.equal((await publicP).status, 503, status);
+      assert.equal(container.starts, 1, status);
+    }
+  });
+});
