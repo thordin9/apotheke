@@ -966,6 +966,32 @@ final class AutofillTest extends CIUnitTestCase
         $this->assertStringContainsString('/v1/suggest', $calls[1]['url']);
     }
 
+    public function testPhotoDoesNotRetryARateLimitWhenRetryAfterExceedsSixtySeconds(): void
+    {
+        // timeout 90 s would allow a wait of 61 s if the 60 s cap were missing
+        [$photo, $calls, $slept] = $this->photoRateLimited(61, 90);
+        $this->assertFalse($photo['ok']);
+        $this->assertSame('rate_limited', $photo['code']);
+        $this->assertSame(61, $photo['retry_after']);
+        $this->assertSame([], $slept);
+        $this->assertCount(2, $calls);
+        $this->assertSame('GET', $calls[0]['method']);
+        $this->assertSame('POST', $calls[1]['method']);
+    }
+
+    public function testPhotoDoesNotRetryARateLimitWhenRetryAfterExceedsTheTimeout(): void
+    {
+        // 30 s is within the 60 s cap, but longer than the 5 s timeout
+        [$photo, $calls, $slept] = $this->photoRateLimited(30, 5);
+        $this->assertFalse($photo['ok']);
+        $this->assertSame('rate_limited', $photo['code']);
+        $this->assertSame(30, $photo['retry_after']);
+        $this->assertSame([], $slept);
+        $this->assertCount(2, $calls);
+        $this->assertSame('GET', $calls[0]['method']);
+        $this->assertSame('POST', $calls[1]['method']);
+    }
+
     public function testPhotoDoesNotRetryAMonthlyLimitEvenWhenRetryAfterIsShort(): void
     {
         $calls = [];
@@ -1077,6 +1103,42 @@ final class AutofillTest extends CIUnitTestCase
     }
 
     /** @return array{status:int,body:string,error:?string,retry_after:?int,content_type:string} */
+    /**
+     * One /v1/info, then a rate_limited 429 (and an unused success for a retry).
+     *
+     * @return array{0:array<string,mixed>,1:list<array<string,mixed>>,2:list<int>}
+     */
+    private function photoRateLimited(int $retryAfter, int $timeout): array
+    {
+        $calls = [];
+        $slept = [];
+        $info = (string)json_encode([
+            'name' => 'echo',
+            'version' => '1',
+            'capabilities' => ['name'],
+        ], JSON_THROW_ON_ERROR);
+        $limited = $this->http(
+            429,
+            '{"error":{"code":"rate_limited","message":"too many requests"}}',
+            'application/json',
+            $retryAfter,
+        );
+        $af = $this->stack(
+            $this->script($calls, [
+                $this->http(200, $info),
+                $limited,
+                $this->okSuggest(),
+            ]),
+            'sqlite',
+            static function (int $seconds) use (&$slept): void {
+                $slept[] = $seconds;
+            },
+        );
+        $photo = $af->testPhoto('http://autofill.test', $timeout, 'tok');
+
+        return [$photo, $calls, $slept];
+    }
+
     private function http(int $status, string $body, string $type = 'application/json', ?int $retryAfter = null): array
     {
         return ['status' => $status, 'body' => $body, 'error' => null, 'retry_after' => $retryAfter, 'content_type' => $type];
