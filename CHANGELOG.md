@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** the lifecycle jobs' backup step calls the container's backup endpoint through `ApothekeContainer.opsBackup`, and the backup can start a suspended or deleting installation while public requests stay refused (L-2167) ([#324](https://github.com/thordin9/apotheke/pull/324))
+
 ## [3.48.1] - 2026-11-19
 
 ### Fixed
