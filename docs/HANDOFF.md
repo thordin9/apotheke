@@ -79,8 +79,10 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   a day; out-of-range or non-finite plan limits are refused.
 - Hosted installation env (#318): the Worker sets `APOTHEKE_HOSTED=1` and `APOTHEKE_INSTALLATION` to the installation's
   own name, and no `APP_PASSWORD`, for installations other than `primary`; `primary` is unchanged.
-  `APOTHEKE_INSTALLATION` alone does not mark an install as hosted. `php spark accounts:hosted-reset-admins` removes
-  existing admin accounts on a hosted installation so the first-admin claim can be used.
+  `APOTHEKE_INSTALLATION` alone does not mark an install as hosted. Non-primary installations started before this
+  change hold an admin seeded from the shared `APP_PASSWORD`; restart the container and run
+  `php spark accounts:hosted-reset-admins` before a tenant gets access (that also drops their sessions and any
+  first-admin claim).
 
 ## Open pull requests
 

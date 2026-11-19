@@ -181,9 +181,11 @@ installation gets no `APP_PASSWORD`; it gets `APOTHEKE_HOSTED=1` and `APOTHEKE_I
 so the app starts without a shared password and its first admin comes from the first-admin claim (C1). Both values are
 set only from the container object's own name, never from a request. `APOTHEKE_INSTALLATION` alone does not mark an
 installation as hosted. With `APOTHEKE_HOSTED`, `APP_PASSWORD` is optional
-(see [Hosted installations](#hosted-installations)), so a hosted container can start without one. On a hosted
-installation that already has an admin, `php spark accounts:hosted-reset-admins` removes existing admin accounts so
-the first-admin claim can be used; non-admin accounts are left as they are.
+(see [Hosted installations](#hosted-installations)), so a hosted container can start without one. Non-primary
+installations started before this change hold an admin seeded from the shared `APP_PASSWORD`, and a running
+container keeps its old env until it restarts, so restart it and then run `php spark accounts:hosted-reset-admins`
+before a tenant gets access. That command removes existing admin accounts, their session records and any first-admin
+claim; non-admin accounts are left as they are.
 
 ## Lifecycle jobs
 
@@ -267,7 +269,8 @@ settings row outside the Control Panel's keys, so it is never exported or backed
 While an active `admin` exists, `accounts:claim-create` makes no claim and leaves any claim row as it is: it prints
 `An active admin already exists, so no claim was made.` and exits 1. It checks this in a unit with the `active-admins`
 key, like the claim itself. `php spark accounts:hosted-reset-admins` removes existing admin accounts (pending and
-active) in a unit with the same key, so the claim can be used; non-admin accounts are left as they are.
+active), their session records and any first-admin claim, in a unit with the same key, so the claim can be used;
+non-admin accounts are left as they are.
 The link is `https://<host>/claim#<token>`: the page reads the token from the fragment, and the owner picks a user
 name and password and becomes an active `admin`. The claim row is deleted in the same unit as the account insert, so
 a link works once. The claim works only while the installation has no active `admin`: that is checked in the same

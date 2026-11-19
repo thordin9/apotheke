@@ -514,8 +514,9 @@ rules: [PLAN.md](../plans/feature12-ci4/PLAN.md), [ADR 001](../adr/001-codeignit
   are refused; a job backup is one snapshot and does not overlap a takeover. Merged, released as v3.49.2.
 - [#318](https://github.com/thordin9/apotheke/pull/318) (hosted installation env): the Worker sets `APOTHEKE_HOSTED=1`
   and `APOTHEKE_INSTALLATION` to the installation's own name, and no `APP_PASSWORD`, for installations other than
-  `primary`; `primary` is unchanged. `php spark accounts:hosted-reset-admins` removes existing admin accounts on a
-  hosted installation so the first-admin claim can be used.
+  `primary`; `primary` is unchanged. Non-primary installations started before this change hold an admin seeded from
+  the shared `APP_PASSWORD`; restart the container and run `php spark accounts:hosted-reset-admins` before a tenant
+  gets access (admin accounts, their sessions and any first-admin claim).
 
 ## Lanes
 
