@@ -90,7 +90,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   ([#331](https://github.com/thordin9/apotheke/pull/331)).
 - Autofill Test talks to `/v1/info` only (hosted `autofill.internal` has no `/healthz`). HTTP 429s for a monthly
   limit and a short rate limit are distinct messages; a short `Retry-After` is waited out once. A near-limit
-  warning from the service is shown on the item form ([#000](https://github.com/thordin9/apotheke/pull/000)).
+  warning from the service is shown on the item form ([#333](https://github.com/thordin9/apotheke/pull/333)).
 
 ## Open pull requests
 
