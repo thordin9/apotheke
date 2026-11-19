@@ -83,26 +83,26 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Stocktake & labels | 47.6 % | 95.6 % | 96.0 % |
 | Users, roles & sign-in | 65.9 % | 68.1 % | 84.4 % |
 | CSV import & export | 54.6 % | 79.9 % | 91.0 % |
-| Photos & autofill | 69.2 % | 17.9 % | 70.6 % |
+| Photos & autofill | 70.9 % | 17.6 % | 72.3 % |
 | Notes & layout | 87.5 % | 75.4 % | 94.8 % |
 | Settings & Control Panel | 54.4 % | 48.5 % | 69.7 % |
 | Backup & restore | 70.6 % | 60.1 % | 82.5 % |
 | Database & migrations | 81.3 % | 57.5 % | 83.2 % |
 | Core & dev server | 78.7 % | 58.9 % | 91.4 % |
-| **All PHP** (20986 lines) | **67.6 %** | **67.0 %** | **84.7 %** |
+| **All PHP** (21011 lines) | **67.7 %** | **66.9 %** | **84.8 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
-| `chromium-pixel` | 142 | 22 |
+| `chromium-pixel` | 148 | 22 |
 | `chromium-pixel-dark` | 2 | 22 |
-| `desktop-chromium` | 142 | 22 |
+| `desktop-chromium` | 148 | 22 |
 | `desktop-chromium-dark` | 2 | 22 |
 | `pgsql-smoke` | 34 | 0 |
-| `webkit-iphone-se` | 142 | 22 |
+| `webkit-iphone-se` | 148 | 22 |
 | `webkit-iphone-se-dark` | 2 | 22 |
-| `webkit-iphone13` | 142 | 22 |
+| `webkit-iphone13` | 148 | 22 |
 | `webkit-iphone13-dark` | 2 | 22 |
-| **Total** | **610** | **176** |
+| **Total** | **634** | **176** |
 
 <sub>Line coverage from pcov: the module suite (`tests/Modules`), the root suite (`tests/Unit`, with every `php -S` request its servers answer, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; the release workflow refreshes it from the CI artifact in every release commit.</sub>
 <!-- coverage:end -->

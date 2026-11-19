@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.53.2] - 2026-11-19
+
 ### Fixed
 
 - **autofill:** Control Panel Test uses `/v1/info` only, so it works when `/healthz` is not exposed ([#333](https://github.com/thordin9/apotheke/pull/333))
@@ -1886,7 +1888,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.53.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.53.2...HEAD
+[3.53.2]: https://github.com/thordin9/apotheke/compare/v3.53.1...v3.53.2
 [3.53.1]: https://github.com/thordin9/apotheke/compare/v3.53.0...v3.53.1
 [3.53.0]: https://github.com/thordin9/apotheke/compare/v3.52.0...v3.53.0
 [3.52.0]: https://github.com/thordin9/apotheke/compare/v3.51.0...v3.52.0
