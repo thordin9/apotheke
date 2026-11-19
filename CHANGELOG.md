@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **hosted:** when `APOTHEKE_HOSTED` is set and `autofill_url` is not, it defaults to `http://autofill.internal` ([#000](https://github.com/thordin9/apotheke/pull/000))
+
 ## [3.51.0] - 2026-11-19
 
 ### Added

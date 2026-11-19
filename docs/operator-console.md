@@ -151,8 +151,8 @@ console API.
 ### Autofill
 
 With `LIMITS_ENABLED` "1", the container object of an installation other than primary binds `http://autofill.internal`
-to `AutofillOutbound` (`edge/src/autofill.ts`). The installation's `autofill_url` has to be set to
-`http://autofill.internal`. The Worker forwards `GET /v1/info` and `POST /v1/suggest` (anything else is 404) to the
+to `AutofillOutbound` (`edge/src/autofill.ts`). When `APOTHEKE_HOSTED` is set and `autofill_url` is not, the installation uses
+`http://autofill.internal`. An explicit `autofill_url` is kept. The Worker forwards `GET /v1/info` and `POST /v1/suggest` (anything else is 404) to the
 autofill service's `HostedAutofill` entrypoint through the `AUTOFILL` service binding, so no bearer token is used and
 none is given to the container, stored in D1 or set as a var. Only the Worker sets the request headers the service
 reads:
@@ -177,7 +177,7 @@ Turning it on, in this order:
 1. Deploy the autofill service with `HostedAutofill` (apotheke-autofill-service#42).
 2. Deploy this Worker with `AutofillOutbound` ([#327](https://github.com/thordin9/apotheke/pull/327)).
 3. Deploy this Worker with the `AUTOFILL` service binding above ([#329](https://github.com/thordin9/apotheke/pull/329)).
-4. Set each hosted installation's `autofill_url` to `http://autofill.internal`.
+4. A hosted installation with no `autofill_url` uses `http://autofill.internal`; an explicit value is kept.
 5. Set `LIMITS_ENABLED` to "1".
 
 ## Per-installation APP_KEY and ALLOWED_HOSTS

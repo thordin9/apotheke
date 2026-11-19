@@ -6,6 +6,7 @@ namespace Tests\Settings;
 
 use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Database\Writes;
+use Apotheke\Core\Hosted\HostedLimits;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\ActorGate;
@@ -66,6 +67,30 @@ final class SettingsServiceTest extends CIUnitTestCase
         foreach (TestDatabase::drivers() as $driver) {
             yield $driver => [$driver];
         }
+    }
+
+    /** Hosted and unset uses http://autofill.internal; an explicit value is kept; non-hosted is unchanged. */
+    #[DataProvider('drivers')]
+    public function testHostedAutofillUrlDefault(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+
+        $this->assertSame('', $this->fresh()->get('autofill_url'));
+
+        $installation = $this->fresh([], null, null, $this->limitsFromEnv(['APOTHEKE_INSTALLATION' => 'tenant-a']));
+        $this->assertFalse($installation->isHosted());
+        $this->assertSame('', $installation->get('autofill_url'));
+
+        foreach (['1', 'true', 'on', 'yes'] as $raw) {
+            $hosted = $this->fresh([], null, null, $this->limitsFromEnv(['APOTHEKE_HOSTED' => $raw]));
+            $this->assertTrue($hosted->isHosted(), 'APOTHEKE_HOSTED=' . $raw);
+            $this->assertSame(SettingsService::HOSTED_AUTOFILL_URL, $hosted->get('autofill_url'), 'APOTHEKE_HOSTED=' . $raw);
+        }
+
+        $explicit = 'http://192.0.2.10:8080';
+        $hosted = $this->fresh([], null, null, $this->limitsFromEnv(['APOTHEKE_HOSTED' => '1']));
+        $hosted->store(['autofill_url' => $explicit]);
+        $this->assertSame($explicit, $this->fresh([], null, null, $this->limitsFromEnv(['APOTHEKE_HOSTED' => '1']))->get('autofill_url'));
     }
 
     #[DataProvider('drivers')]
@@ -559,7 +584,7 @@ final class SettingsServiceTest extends CIUnitTestCase
     }
 
     /** @param array<string,mixed> $config */
-    private function fresh(array $config = [], ?ActorGate $actor = null, ?SecretBox $secrets = null): SettingsService
+    private function fresh(array $config = [], ?ActorGate $actor = null, ?SecretBox $secrets = null, ?HostedLimits $hosted = null): SettingsService
     {
         return new SettingsService(
             new SettingsRepository($this->database->db),
@@ -572,6 +597,13 @@ final class SettingsServiceTest extends CIUnitTestCase
             },
             $actor,
             $secrets,
+            $hosted,
         );
+    }
+
+    /** @param array<string,string> $env */
+    private function limitsFromEnv(array $env): HostedLimits
+    {
+        return HostedLimits::fromConfig(ApothekeConfig::load('/repo', null, $env)->values());
     }
 }

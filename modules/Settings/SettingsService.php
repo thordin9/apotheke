@@ -19,6 +19,7 @@ use Throwable;
 /**
  * Control Panel settings: read, save, reset, export and import, with the
  * rules of legacy settings.php. Shared by the web side and the CLI.
+ * On a hosted installation, an unset autofill_url is http://autofill.internal.
  *
  * Values are validated on write and on read; a missing or invalid row falls
  * back to the default. They are cached in this instance, which
@@ -37,6 +38,9 @@ final class SettingsService
 {
     /** Largest settings file import() accepts by default (legacy /settings/import). */
     public const IMPORT_MAX_BYTES = 256 * 1024;
+
+    /** Hosted default when autofill_url is not set; the edge intercepts this host. */
+    public const HOSTED_AUTOFILL_URL = 'http://autofill.internal';
 
     public const TOKEN_CLEARED_NOTICE = 'The AI autofill token was cleared because the service address changed: enter it again under AI autofill.';
 
@@ -103,7 +107,13 @@ final class SettingsService
             return null;
         }
         if ($this->hosted->fixed($key)) {
-            return $value === ($this->values()[$key] ?? null) ? null : 'Set by your hosting plan.';
+            $current = $this->values()[$key] ?? null;
+            // Unset and the hosted default are the same autofill_url.
+            if ($key === 'autofill_url' && $value === '') {
+                $value = self::HOSTED_AUTOFILL_URL;
+            }
+
+            return $value === $current ? null : 'Set by your hosting plan.';
         }
         $ceiling = $this->hosted->ceiling($key);
 
@@ -510,6 +520,9 @@ final class SettingsService
                 }
             }
             $out[$key] = $this->schema->default($key, $this->config);
+        }
+        if ($this->hosted->isHosted() && (string)($out['autofill_url'] ?? '') === '') {
+            $out['autofill_url'] = self::HOSTED_AUTOFILL_URL;
         }
         $this->values = $out;
         if ($upgrade !== []) {
