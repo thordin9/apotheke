@@ -26,6 +26,30 @@ abstract class QueuedUnitOfWork implements UnitOfWork
         $this->failed ??= $e;
     }
 
+    /** @var list<Closure():void> */
+    private array $afterWrites = [];
+
+    /**
+     * Run $fn after this unit's writes, still in the unit (its transaction, when it has one).
+     *
+     * @param Closure():void $fn
+     */
+    public function afterWrites(Closure $fn): void
+    {
+        $this->refuseIfClosed();
+        $this->afterWrites[] = $fn;
+    }
+
+    /** Run the after-writes hooks once, after flush has applied the queue. */
+    protected function runAfterWrites(): void
+    {
+        $hooks = $this->afterWrites;
+        $this->afterWrites = [];
+        foreach ($hooks as $fn) {
+            $fn();
+        }
+    }
+
     /** Null while the unit is open, else CLOSED (it ran, or its run() threw) or DISCARDED. */
     private ?string $closed = null;
 

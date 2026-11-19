@@ -42,6 +42,7 @@ final class ConnectionUnitOfWork extends QueuedUnitOfWork
                 default => throw new WriteFailed('Database write failed: ' . $s->step),
             };
         }
+        $this->runAfterWrites();
     }
 
     private function runInsert(Statement $s): void

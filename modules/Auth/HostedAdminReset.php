@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Auth;
 
+use Apotheke\Core\Database\QueuedUnitOfWork;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Exceptions\UserError;
@@ -24,7 +25,8 @@ final class HostedAdminReset
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
      * @param (Closure(string):void)|null $observe test hook: 'before' immediately before the unit, 'in-unit' at the
-     *     start of the unit, and 'after' immediately after
+     *     start of the unit (after its lock, same connection), 'in-unit-end' after the unit's writes (still in the
+     *     unit), and 'after' immediately after
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -65,6 +67,12 @@ final class HostedAdminReset
             );
             $uow->write('DELETE FROM settings WHERE name = ?', [FirstAdminClaim::SETTING], 'reset hosted claim');
             $uow->write("DELETE FROM users WHERE role = 'admin'", [], 'reset hosted admins');
+            if ($this->observe !== null && $uow instanceof QueuedUnitOfWork) {
+                $observe = $this->observe;
+                $uow->afterWrites(static function () use ($observe): void {
+                    $observe('in-unit-end');
+                });
+            }
         }, UserRepository::ACTIVE_ADMINS);
         if ($this->observe !== null) {
             ($this->observe)('after');

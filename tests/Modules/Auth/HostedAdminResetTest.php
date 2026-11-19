@@ -323,12 +323,22 @@ final class HostedAdminResetTest extends CIUnitTestCase
         $other = $this->database->connectAgain();
         $seen = [];
         $this->reset($batch, null, function (string $when) use ($other, &$seen): void {
-            if ($when === 'in-unit') {
+            if ($when === 'in-unit' || $when === 'in-unit-end') {
+                // Same connection, inside the unit: after the lock at start, after the writes at end.
+                $seen[$when] = $this->resetState();
+                if ($when === 'in-unit') {
+                    $this->assertSame(['admins' => 1, 'claim' => true], $seen[$when], $when . ': ' . json_encode($seen[$when]));
+                } else {
+                    $this->assertSame(['admins' => 0, 'claim' => false], $seen[$when], $when . ': ' . json_encode($seen[$when]));
+                }
+
                 return;
             }
             $seen[$when] = $this->resetState($other);
             $this->assertClaimTracksAdmins($seen[$when], $when);
         })->run();
+        $this->assertSame(['admins' => 1, 'claim' => true], $seen['in-unit'] ?? null);
+        $this->assertSame(['admins' => 0, 'claim' => false], $seen['in-unit-end'] ?? null);
         $this->assertSame(['admins' => 1, 'claim' => true], $seen['before'] ?? null);
         $this->assertSame(['admins' => 0, 'claim' => false], $seen['after'] ?? null);
         $this->assertSame(['admins' => 0, 'claim' => false], $this->resetState($other));
@@ -345,15 +355,26 @@ final class HostedAdminResetTest extends CIUnitTestCase
         $this->putClaim();
         $keys = UnitsOfWork::lockKeys('users', UserRepository::ACTIVE_ADMINS);
         $wait = $this->startLockSnapshot();
+        $seen = [];
         try {
-            $this->reset(false, null, function (string $when) use ($keys): void {
+            $this->reset(false, null, function (string $when) use ($keys, &$seen): void {
                 if ($when === 'in-unit') {
+                    $seen[$when] = $this->resetState();
+                    $this->assertSame(['admins' => 1, 'claim' => true], $seen[$when], $when . ': ' . json_encode($seen[$when]));
                     $this->anotherClientIsWaitingFor($keys);
+
+                    return;
+                }
+                if ($when === 'in-unit-end') {
+                    $seen[$when] = $this->resetState();
+                    $this->assertSame(['admins' => 0, 'claim' => false], $seen[$when], $when . ': ' . json_encode($seen[$when]));
                 }
             })->run();
         } finally {
             $out = $wait();
         }
+        $this->assertSame(['admins' => 1, 'claim' => true], $seen['in-unit'] ?? null);
+        $this->assertSame(['admins' => 0, 'claim' => false], $seen['in-unit-end'] ?? null);
         $this->assertMatchesRegularExpression('/^snapshot 0 0$/m', $out);
         $this->assertStringContainsString('committed', $out);
         $this->assertSame(['admins' => 0, 'claim' => false], $this->resetState());
