@@ -40,7 +40,9 @@ A job that the worker stops cleanly (SIGTERM, with pcntl) is released and resume
 out, and only then does the next `jobs:work` pick it up and resume from its last checkpoint.
 
 Any other path under `/api` answers `404` problem+json, with or without cookie consent or a session; so does a path
-with a doubled slash (`//api/v1/…`, `/api//v1/…`). A path above asked with a
+with a doubled slash (`//api/v1/…`, `/api//v1/…`), or one PHP's URL parser cannot read, such as a segment with a
+colon and digits (`/api/v1/items:1`; `%3A` is decoded first, so `/api/v1/items%3A1` is the same). A colon in the query
+string (`/api/v1/session?q=a:1`) does not change the path. A path above asked with a
 method it does not take answers `405 method_not_allowed` with an `Allow` header.
 
 An import is shown only to the user who uploaded it, or an admin; anyone else gets the same `404` as for an id that

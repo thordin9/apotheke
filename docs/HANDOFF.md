@@ -7,7 +7,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.53.0). The 2.6.x line has security support from `old`
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.53.1). The 2.6.x line has security support from `old`
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
@@ -67,6 +67,8 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   and an import row error. A small web POST gets the sign-in or CSRF answer, not 413. In the FrankenPHP image a
   signed-out `/api` body gets problem+json 413 or 401. A missing asset's 404 is `no-store`. Empty answers carry no
   `Content-Type`; the OpenAPI version is `1.0.0-p3` with a `servers` entry.
+- Unparsable paths (#332, `fix/unparsable-paths`): a path PHP's `parse_url()` rejects, such as `/stats:1`, keeps its
+  path up to `?` (`Core\Http\RequestPath`, also in the front controllers) and is a 404; under `/api` the API's 404.
 
 - Operator console C1 (#317) and C2 (#320) are released in v3.47.0 and v3.48.0: read-only `GET /stats`, `/users` and
   `/limits` on `d1.internal`; with `APOTHEKE_HOSTED` the plan's limits, always-on sign-in, the first-admin claim and
