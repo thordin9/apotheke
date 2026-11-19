@@ -25,16 +25,19 @@ const pending = (code: string) => async (): Promise<never> => {
 };
 
 /** The container's backup answer as a job outcome. 409 (another request for the job is still running), 5xx other than
- *  503 and a call that did not finish are retried. Any other answer (400, 401, 404, 410, 503 not_configured) fails the
- *  job with backup_<status>, and a 200 without a usable key with bad_export. */
-export async function backupKey(call: () => Promise<{ key: string } | { status: number }>): Promise<{ key: string }> {
-	let r: { key: string } | { status: number };
+ *  503 and a call that did not finish are retried. A returned code (refused, not_startable, bad_app_key), any other
+ *  status (400, 401, 404, 410, 503 not_configured) and a 200 without a usable key fail the job; the last as bad_export. */
+export type OpsBackupResult = { key: string } | { status: number } | { code: string };
+
+export async function backupKey(call: () => Promise<OpsBackupResult>): Promise<{ key: string }> {
+	let r: OpsBackupResult;
 	try {
 		r = await call();
 	} catch {
 		throw new LifecycleRetry("backup_unreachable");
 	}
 	if ("key" in r) return { key: r.key };
+	if ("code" in r) throw new LifecycleError(r.code);
 	if (r.status === 409 || (r.status >= 500 && r.status !== 503)) throw new LifecycleRetry(`backup_${r.status}`);
 	throw new LifecycleError(r.status === 200 ? "bad_export" : `backup_${r.status}`);
 }
