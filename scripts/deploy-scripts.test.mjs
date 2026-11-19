@@ -667,6 +667,7 @@ test("deploy-edge.yml: the check job dry-runs the merged storage config with a d
 	assert.match(step, /node scripts\/cf-worker-guard\.mjs apotheke-api edge\/wrangler\.jsonc -- --dry-run\n/);
 	assert.match(step, /wrangler deploy --dry-run --config wrangler\.jsonc/);
 	assert.match(step, /env\.CORS_ALLOWED_ORIGINS \("https:\/\/getapotheke\.com"\)/);
+	assert.match(step, /env\.AUTOFILL \(apotheke-autofill#HostedAutofill\)/);
 	assert.match(step, /env\.COOKIE_DOMAIN/);
 	assert.equal(/- name: /.test(step.slice(1)), false, "it is the last step of the check job");
 	// the dummy id is a UUID the merge accepts

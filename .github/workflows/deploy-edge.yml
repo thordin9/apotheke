@@ -94,7 +94,8 @@ jobs:
           (cd edge && npx --no-install wrangler deploy --dry-run --config wrangler.jsonc --outdir "$RUNNER_TEMP/api-bundle-merged") 2>&1 | tee "$log"
           sed -i 's/\x1b\[[0-9;]*m//g' "$log"
           for want in 'env.APOTHEKE (ApothekeContainer)' 'env.INSTALLATION (Installation)' 'env.DB (apotheke-api)' \
-            'env.STORAGE (apotheke-api-storage (eu))' 'env.CORS_ALLOWED_ORIGINS ("https://getapotheke.com")' \
+            'env.STORAGE (apotheke-api-storage (eu))' 'env.AUTOFILL (apotheke-autofill#HostedAutofill)' \
+            'env.CORS_ALLOWED_ORIGINS ("https://getapotheke.com")' \
             'env.ALLOWED_HOSTS ("api.services.getapotheke.com")'; do
             if ! grep -qF "$want" "$log"; then
               echo "::error title=Merged storage config::the merged dry run does not list $want"

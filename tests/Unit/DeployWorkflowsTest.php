@@ -145,6 +145,7 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertStringContainsString('APOTHEKE_D1_DATABASE_ID: 00000000-0000-4000-8000-000000000000', $dry);
         $this->assertStringContainsString("node scripts/edge-storage-config.mjs edge/wrangler.jsonc edge/storage.jsonc\n", $dry);
         $this->assertStringContainsString('wrangler deploy --dry-run --config wrangler.jsonc', $dry);
+        $this->assertStringContainsString("env.AUTOFILL (apotheke-autofill#HostedAutofill)", $dry);
         $this->assertDoesNotMatchRegularExpression('/secrets\.|vars\.|CLOUDFLARE_/', $this->job($yml, 'check'));
         $this->assertStringNotContainsString('storage.jsonc', $this->workflow('edge-local.yml'));
         $this->assertStringContainsString("      - 'scripts/edge-storage-config.mjs'\n", $yml);
