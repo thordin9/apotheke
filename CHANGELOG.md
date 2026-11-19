@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.51.0] - 2026-11-19
+
 ### Added
 
 - **edge:** the `AUTOFILL` service binding to the autofill Worker's `HostedAutofill` entrypoint (`apotheke-autofill`), used only with plan limits on ([#329](https://github.com/thordin9/apotheke/pull/329))
@@ -1855,7 +1857,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.50.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.51.0...HEAD
+[3.51.0]: https://github.com/thordin9/apotheke/compare/v3.50.0...v3.51.0
 [3.50.0]: https://github.com/thordin9/apotheke/compare/v3.49.2...v3.50.0
 [3.49.2]: https://github.com/thordin9/apotheke/compare/v3.49.1...v3.49.2
 [3.49.1]: https://github.com/thordin9/apotheke/compare/v3.49.0...v3.49.1
