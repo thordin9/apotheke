@@ -13,7 +13,9 @@ use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Hosted\HostedLimits;
 use Apotheke\Core\Hosted\PlanLimits;
+use Closure;
 use CodeIgniter\CLI\Commands;
+use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Test\CIUnitTestCase;
 use Config\Services;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -67,13 +69,90 @@ final class HostedAdminResetTest extends CIUnitTestCase
         return HostedLimits::hosted(static fn (): PlanLimits => PlanLimits::fromBridge(['ok' => true, 'plan' => 't', 'limits' => []]) ?? throw new \LogicException('fixture'));
     }
 
-    private function reset(bool $batch = false, ?HostedLimits $hosted = null): HostedAdminReset
+    /** @param (Closure(string):void)|null $observe */
+    private function reset(bool $batch = false, ?HostedLimits $hosted = null, ?Closure $observe = null): HostedAdminReset
     {
         $this->assertNotNull($this->database);
         $hosted ??= self::hosted();
         $units = $batch ? UnitsOfWork::on(new \Apotheke\Core\Database\LocalBatchExecutor($this->database->db)) : null;
 
-        return new HostedAdminReset($this->database->db, $hosted, $units);
+        return new HostedAdminReset($this->database->db, $hosted, $units, $observe);
+    }
+
+    /**
+     * @return array{admins:int, claim:bool}
+     */
+    private function resetState(?BaseConnection $db = null): array
+    {
+        $this->assertNotNull($this->database);
+        $db ??= $this->database->db;
+        $admins = (int)(Writes::rows($db, "SELECT COUNT(*) AS n FROM users WHERE role = 'admin'")[0]['n'] ?? 0);
+        $claim = Writes::rows($db, 'SELECT 1 AS one FROM settings WHERE name = ?', [FirstAdminClaim::SETTING]) !== [];
+
+        return ['admins' => $admins, 'claim' => $claim];
+    }
+
+    /** @param array{admins:int, claim:bool} $state */
+    private function assertClaimTracksAdmins(array $state, string $when): void
+    {
+        $this->assertSame($state['admins'] > 0, $state['claim'], $when . ': ' . json_encode($state));
+    }
+
+    /**
+     * Another PostgreSQL client that waits for the active-admins lock, then snapshots admin and claim counts.
+     *
+     * @return Closure():string
+     */
+    private function startLockSnapshot(int $timeoutMs = 5000): Closure
+    {
+        $this->assertNotNull($this->database);
+        $keys = UnitsOfWork::lockKeys('users', UserRepository::ACTIVE_ADMINS);
+        $env = $this->database->clientEnv() + ['PATH' => (string)getenv('PATH')];
+        $proc = proc_open(
+            [PHP_BINARY, dirname(__DIR__) . '/_support/lock-snapshot.php', (string)json_encode($keys), FirstAdminClaim::SETTING, (string)$timeoutMs],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            null,
+            $env,
+        );
+        if (!is_resource($proc)) {
+            throw new \RuntimeException('cannot start the lock snapshot client');
+        }
+        $out = (string)fgets($pipes[1]);
+        if ($out !== "waiting\n") {
+            $err = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($proc);
+            throw new \RuntimeException('the lock snapshot client failed: ' . $out . $err);
+        }
+
+        return static function () use ($proc, $pipes): string {
+            $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($proc);
+
+            return $out;
+        };
+    }
+
+    /** @param array{0:int|string,1:int|string} $keys */
+    private function anotherClientIsWaitingFor(array $keys, int $timeoutMs = 5000): void
+    {
+        $this->assertNotNull($this->database);
+        $deadline = hrtime(true) + $timeoutMs * 1_000_000;
+        $sql = 'SELECT 1 AS one FROM pg_locks WHERE locktype = \'advisory\' AND NOT granted'
+            . ' AND classid = ((?::bigint + 4294967296) % 4294967296) AND objid = ((?::bigint + 4294967296) % 4294967296) AND objsubid = 2';
+        while (true) {
+            if (Writes::rows($this->database->db, $sql, [$keys[0], $keys[1]]) !== []) {
+                return;
+            }
+            if (hrtime(true) >= $deadline) {
+                $this->fail('the other client did not wait for the active-admins lock');
+            }
+            usleep(5_000);
+        }
     }
 
     /** @return list<array{username:string,role:string,status:string}> */
@@ -233,6 +312,51 @@ final class HostedAdminResetTest extends CIUnitTestCase
             $this->assertStringContainsString('committed', $wait());
         }
         $this->assertSame([], $this->accounts());
+    }
+
+    #[DataProvider('modes')]
+    public function testTheClaimRowAndTheAdminsLeaveInTheSameUnit(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        (new UserRepository($this->database->db))->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
+        $this->putClaim();
+        $other = $this->database->connectAgain();
+        $seen = [];
+        $this->reset($batch, null, function (string $when) use ($other, &$seen): void {
+            if ($when === 'in-unit') {
+                return;
+            }
+            $seen[$when] = $this->resetState($other);
+            $this->assertClaimTracksAdmins($seen[$when], $when);
+        })->run();
+        $this->assertSame(['admins' => 1, 'claim' => true], $seen['before'] ?? null);
+        $this->assertSame(['admins' => 0, 'claim' => false], $seen['after'] ?? null);
+        $this->assertSame(['admins' => 0, 'claim' => false], $this->resetState($other));
+    }
+
+    /** PostgreSQL: a second client waiting on the active-admins lock sees the claim leave with the admins. */
+    public function testAWaitingClientSeesTheClaimGoWithTheAdminsOnPostgres(): void
+    {
+        if (!in_array('pgsql', TestDatabase::drivers(), true)) {
+            $this->markTestSkipped('PostgreSQL only');
+        }
+        $this->database = TestDatabase::create('pgsql');
+        (new UserRepository($this->database->db))->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
+        $this->putClaim();
+        $keys = UnitsOfWork::lockKeys('users', UserRepository::ACTIVE_ADMINS);
+        $wait = $this->startLockSnapshot();
+        try {
+            $this->reset(false, null, function (string $when) use ($keys): void {
+                if ($when === 'in-unit') {
+                    $this->anotherClientIsWaitingFor($keys);
+                }
+            })->run();
+        } finally {
+            $out = $wait();
+        }
+        $this->assertMatchesRegularExpression('/^snapshot 0 0$/m', $out);
+        $this->assertStringContainsString('committed', $out);
+        $this->assertSame(['admins' => 0, 'claim' => false], $this->resetState());
     }
 
     #[DataProvider('drivers')]

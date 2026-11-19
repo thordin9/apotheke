@@ -8,6 +8,7 @@ use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Hosted\HostedLimits;
+use Closure;
 use CodeIgniter\Database\BaseConnection;
 
 /**
@@ -22,11 +23,14 @@ final class HostedAdminReset
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     * @param (Closure(string):void)|null $observe test hook: 'before' immediately before the unit, 'in-unit' at the
+     *     start of the unit, and 'after' immediately after
      */
     public function __construct(
         private readonly BaseConnection $db,
         private readonly HostedLimits $hosted,
         ?UnitsOfWork $units = null,
+        private readonly ?Closure $observe = null,
     ) {
         $this->units = UnitsOfWork::forSite($db, $units);
     }
@@ -43,7 +47,13 @@ final class HostedAdminReset
             throw new UserError('Page not found.', 404);
         }
 
-        $this->units->run('users', static function (UnitOfWork $uow): void {
+        if ($this->observe !== null) {
+            ($this->observe)('before');
+        }
+        $this->units->run('users', function (UnitOfWork $uow): void {
+            if ($this->observe !== null) {
+                ($this->observe)('in-unit');
+            }
             // Session rows store the account as uid|i:<id>; in the payload. Match that exact field so a neighbouring
             // id (1 vs 11) is not treated as the same account. Sessions are deleted first, while the admin rows remain.
             $uow->write(
@@ -56,5 +66,8 @@ final class HostedAdminReset
             $uow->write('DELETE FROM settings WHERE name = ?', [FirstAdminClaim::SETTING], 'reset hosted claim');
             $uow->write("DELETE FROM users WHERE role = 'admin'", [], 'reset hosted admins');
         }, UserRepository::ACTIVE_ADMINS);
+        if ($this->observe !== null) {
+            ($this->observe)('after');
+        }
     }
 }
