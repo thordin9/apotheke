@@ -8,8 +8,11 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.48.0] - 2026-11-19
+
 ### Added
 
+- operator console C2 (backup per lifecycle job) ([#320](https://github.com/thordin9/apotheke/pull/320))
 - **backup:** with `APOTHEKE_HOSTED`, `POST /internal/backup` on `ops.internal` makes one stored backup per lifecycle job id and answers its id, size and key; the edge has the signed request helper ([#320](https://github.com/thordin9/apotheke/pull/320))
 
 ## [3.47.0] - 2026-11-18
@@ -1810,7 +1813,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.47.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.48.0...HEAD
+[3.48.0]: https://github.com/thordin9/apotheke/compare/v3.47.0...v3.48.0
 [3.47.0]: https://github.com/thordin9/apotheke/compare/v3.46.2...v3.47.0
 [3.46.2]: https://github.com/thordin9/apotheke/compare/v3.46.1...v3.46.2
 [3.46.1]: https://github.com/thordin9/apotheke/compare/v3.46.0...v3.46.1
