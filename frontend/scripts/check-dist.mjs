@@ -14,6 +14,20 @@ const dist = join(frontend, 'dist');
 const failures = [];
 const fail = (msg) => failures.push(msg);
 
+/** Message when frontend/dist is absent. CI already runs npm ci and npm run build first. */
+export const DIST_REQUIRED = 'frontend/dist is missing (run npm ci and npm run build in frontend/)';
+
+export function missingDistMessage(dir = dist) {
+    return existsSync(dir) ? null : DIST_REQUIRED;
+}
+
+export function requireDist() {
+    const missing = missingDistMessage();
+    if (missing) {
+        throw new Error(missing);
+    }
+}
+
 const LANDING_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.services.getapotheke.com https://analytics.services.webapp.gr; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
 const API_ORIGIN = 'https://api.services.getapotheke.com';
 const SPA_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data: https://api.services.getapotheke.com; connect-src 'self' https://api.services.getapotheke.com https://analytics.services.webapp.gr; font-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
@@ -746,7 +760,11 @@ function checkChrome() {
 }
 
 function run() {
-    if (!existsSync(dist)) fail('frontend/dist is missing (run npm run build)');
+    const missing = missingDistMessage();
+    if (missing) {
+        console.error('FAIL  ' + missing);
+        process.exit(1);
+    }
     for (const rel of ['index.html', 'privacy/index.html', '404.html', 'app/index.html', 'favicon.ico']) {
         if (!existsSync(join(dist, rel))) fail('missing ' + rel);
     }
