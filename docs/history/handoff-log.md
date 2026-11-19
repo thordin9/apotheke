@@ -509,6 +509,20 @@ rules: [PLAN.md](../plans/feature12-ci4/PLAN.md), [ADR 001](../adr/001-codeignit
   `POST /internal/backup` on `ops.internal` makes one stored backup per lifecycle job id (signed with a key derived
   from `APP_KEY`; not routed from public hosts) and answers its id, size and relative key; `edge/src/ops-signature.ts`
   builds the request. Merged, released as v3.48.0.
+- [#326](https://github.com/thordin9/apotheke/pull/326) (operator console follow-up): with `APOTHEKE_HOSTED`,
+  `APP_PASSWORD` is optional; `accounts:claim-create` refuses while an active admin exists; out-of-range plan limits
+  are refused; a job backup is one snapshot and does not overlap a takeover. Merged, released as v3.49.2.
+- [#327](https://github.com/thordin9/apotheke/pull/327) (hosted autofill): with plan limits on, an installation other
+  than primary reaches autofill at `http://autofill.internal` through the `AUTOFILL` service binding, with the
+  installation and monthly limit set by the Worker and no bearer token in the container. Merged, released as v3.50.0.
+- [#329](https://github.com/thordin9/apotheke/pull/329) (AUTOFILL binding): the Worker declares the `AUTOFILL` service
+  binding to the autofill Worker's `HostedAutofill` entrypoint (`apotheke-autofill`), used only with plan limits on.
+  Merged, released as v3.51.0.
+- [#318](https://github.com/thordin9/apotheke/pull/318) (hosted installation env): the Worker sets `APOTHEKE_HOSTED=1`
+  and `APOTHEKE_INSTALLATION` to the installation's own name, and no `APP_PASSWORD`, for installations other than
+  `primary`; `primary` is unchanged. Non-primary installations started before this change hold an admin seeded from
+  the shared `APP_PASSWORD`; restart the container and run `php spark accounts:hosted-reset-admins` before a tenant
+  gets access (admin accounts, their sessions and any first-admin claim).
 
 ## Lanes
 

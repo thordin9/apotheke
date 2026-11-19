@@ -30,7 +30,7 @@ function controlDb() {
   return { raw: db, prepare: (sql) => ({ bind: (...v) => ({ all: async () => ({ results: db.prepare(sql).all(...v).map((r) => ({ ...r })) }) }) }) };
 }
 
-async function start(name, env) {
+async function start(name, env, init) {
   let started;
   const probes = [];
   const container = {
@@ -38,7 +38,7 @@ async function start(name, env) {
     getTcpPort: () => ({ fetch: async (req) => { probes.push(new URL(req.url).host); return new Response('ok'); } }), interceptOutboundHttp: async () => {},
   };
   const ctx = { id: { name }, container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
-  const res = await new ApothekeContainer(ctx, { APP_PASSWORD: 'placeholder', STORAGE: {}, INSTALLATION: {}, ...env }).fetch(new Request('https://x.example.test/'));
+  const res = await new ApothekeContainer(ctx, { APP_PASSWORD: 'placeholder', STORAGE: {}, INSTALLATION: {}, ...env }).fetch(new Request('https://x.example.test/', init));
   return { status: res.status, env: started?.env, probes };
 }
 
@@ -83,6 +83,46 @@ test('E3b: another installation gets its own hosts from installation_routes and 
   assert.equal(env.ALLOWED_HOSTS, 'b.example.test,b2.example.test');
   assert.equal(env.APP_KEY, await installationAppKey('tenant-b', FAKE_KEY));
   assert.equal(probes[0], 'b.example.test');
+});
+
+test('hosted env: primary keeps APP_PASSWORD and exactly today\'s env, with nothing new', async () => {
+  const { status, env } = await start('primary', { APP_KEY: FAKE_KEY, ALLOWED_HOSTS: 'api.example.test', DB: untouchable });
+  assert.equal(status, 200);
+  assert.deepEqual(env, {
+    APP_PASSWORD: 'placeholder', APP_KEY: FAKE_KEY, ALLOWED_HOSTS: 'api.example.test', COOKIE_DOMAIN: '', CORS_ALLOWED_ORIGINS: '',
+    APOTHEKE_JOBS_WORKER: '0', APOTHEKE_PHP_WORKER: '0', PORT: '9091', TZ: 'Europe/Athens', TRUST_PROXY: '1', APOTHEKE_EDGE_CLIENT_IP: '1',
+    STORAGE_BACKEND: 'r2', DB_DRIVER: 'd1',
+  });
+});
+
+test('hosted env: another installation gets no APP_PASSWORD, and APOTHEKE_HOSTED=1 with its own do_name', async () => {
+  const db = controlDb();
+  db.raw.exec(`INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('b', 'tenant-b', 'installations/tenant-b/', 'active');
+    INSERT INTO installation_routes (host, installation_id) VALUES ('b.example.test', 'b');`);
+  const { status, env } = await start('tenant-b', { APP_KEY: FAKE_KEY, DB: db });
+  assert.equal(status, 200);
+  assert.equal('APP_PASSWORD' in env, false);
+  assert.equal(env.APOTHEKE_HOSTED, '1');
+  assert.equal(env.APOTHEKE_INSTALLATION, 'tenant-b');
+  const { APOTHEKE_HOSTED, APOTHEKE_INSTALLATION, ...rest } = env;
+  const primary = (await start('primary', { APP_KEY: FAKE_KEY, ALLOWED_HOSTS: 'api.example.test', DB: untouchable })).env;
+  assert.deepEqual(Object.keys(rest).sort(), Object.keys(primary).filter((k) => k !== 'APP_PASSWORD').sort(), 'no other difference in keys');
+});
+
+test('hosted env: nothing in the request sets APP_PASSWORD, APOTHEKE_HOSTED or APOTHEKE_INSTALLATION', async () => {
+  const headers = { 'X-Apotheke-Installation': 'primary', 'Apotheke-Installation': 'primary', 'X-Apotheke-Hosted': '0', 'X-App-Password': 'x', 'X-Forwarded-Host': 'api.example.test' };
+  const init = { method: 'POST', headers, body: JSON.stringify({ APOTHEKE_HOSTED: '0', APOTHEKE_INSTALLATION: 'primary', APP_PASSWORD: 'x' }) };
+  const db = controlDb();
+  db.raw.exec(`INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('b', 'tenant-b', 'installations/tenant-b/', 'active');
+    INSERT INTO installation_routes (host, installation_id) VALUES ('b.example.test', 'b');`);
+  const b = (await start('tenant-b', { APP_KEY: FAKE_KEY, DB: db }, init)).env;
+  assert.equal('APP_PASSWORD' in b, false);
+  assert.equal(b.APOTHEKE_HOSTED, '1');
+  assert.equal(b.APOTHEKE_INSTALLATION, 'tenant-b');
+  const p = (await start('primary', { APP_KEY: FAKE_KEY, ALLOWED_HOSTS: 'api.example.test', DB: untouchable }, init)).env;
+  assert.equal(p.APP_PASSWORD, 'placeholder');
+  assert.equal('APOTHEKE_HOSTED' in p, false);
+  assert.equal('APOTHEKE_INSTALLATION' in p, false);
 });
 
 test('E3b: another installation without hosts, control plane or a usable master key does not start', async () => {

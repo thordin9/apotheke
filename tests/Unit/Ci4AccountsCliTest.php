@@ -352,6 +352,40 @@ final class Ci4AccountsCliTest extends TestCase
     }
 
     /**
+     * Hosted: accounts:hosted-reset-admins removes existing admin accounts so accounts:claim-create can run.
+     * APOTHEKE_INSTALLATION alone does not make the install hosted, and non-admin accounts are left as they are.
+     */
+    public function testHostedResetAdminsOpensTheClaimPath(): void
+    {
+        $hosted = ['APOTHEKE_HOSTED' => '1', 'APOTHEKE_INSTALLATION' => 'tenant-a'];
+        [, $dir] = $this->twins('acli-hosted-reset');
+        $r = $this->cli($dir, ['users'], true, null, $hosted + ['APP_PASSWORD' => 'long-enough']);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $this->assertSame([['admin', 'admin', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM));
+        testdb($dir)->exec("INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES ('looker', 'looker', 'x', 'viewer', 'active', '2026-01-01 00:00:00')");
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:claim-create', '--no-header'], array_merge($this->env($dir, false), $hosted), null);
+        $this->assertSame([1, '', "An active admin already exists, so no claim was made.\n"], [$r['exit'], $r['stdout'], $r['stderr']]);
+
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:hosted-reset-admins', '--no-header'], array_merge($this->env($dir, false), $hosted), null);
+        $this->assertSame([0, "Admin accounts were reset. The first-admin claim can be created.\n", ''], [$r['exit'], $r['stdout'], $r['stderr']]);
+        $this->assertSame([['looker', 'viewer', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM), 'non-admin accounts stay');
+
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:claim-create', '--no-header'], array_merge($this->env($dir, false), $hosted), null);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]{43}$/', trim($r['stdout']));
+
+        // Not hosted: APOTHEKE_INSTALLATION alone changes nothing, and existing admins stay.
+        [, $dir] = $this->twins('acli-reset-not-hosted');
+        $r = $this->cli($dir, ['users'], true, null, ['APOTHEKE_INSTALLATION' => 'tenant-a', 'APP_PASSWORD' => 'long-enough']);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        foreach ([[], ['APOTHEKE_INSTALLATION' => 'tenant-a'], ['APOTHEKE_HOSTED' => '0']] as $i => $env) {
+            $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:hosted-reset-admins', '--no-header'], array_merge($this->env($dir, false), $env), null);
+            $this->assertSame([1, '', "accounts:hosted-reset-admins is only for a hosted installation (APOTHEKE_HOSTED).\n"], [$r['exit'], $r['stdout'], $r['stderr']], (string)json_encode($env));
+        }
+        $this->assertSame([['admin', 'admin', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM));
+    }
+
+    /**
      * Storage mode (DB_DRIVER=d1, set by the Worker): `auth status` asks the D1 bridge, not PDO, so the
      * entrypoint's check still means something there. With no bridge to reach (no Worker here) it is
      * the sanitized "no database" line and exit 1, never a PDO-only refusal; nothing is written locally.
