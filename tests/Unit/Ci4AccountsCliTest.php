@@ -288,6 +288,104 @@ final class Ci4AccountsCliTest extends TestCase
     }
 
     /**
+     * Hosted (APOTHEKE_HOSTED=1): APP_PASSWORD is optional. Without it `auth status` answers on for a new install, the
+     * first migration creates no account, and `accounts:claim-create` makes the first-admin claim. With it, the account
+     * admin is seeded exactly as self-hosted (so `accounts:claim-create` refuses), and a short one is refused the same
+     * way. APOTHEKE_INSTALLATION alone changes nothing: without APP_PASSWORD it is still off.
+     */
+    public function testHostedAppPasswordIsOptional(): void
+    {
+        $hosted = ['APOTHEKE_HOSTED' => '1', 'APOTHEKE_INSTALLATION' => 'tenant-a'];
+        [, $dir] = $this->twins('acli-hosted-none');
+        foreach ([true, false] as $ci4) {
+            $r = $this->cli($dir, ['auth', 'status'], $ci4, null, $hosted);
+            $this->assertSame([0, "on\n", ''], [$r['exit'], $r['stdout'], $r['stderr']], 'hosted, no APP_PASSWORD' . ($ci4 ? '' : ' (spark)'));
+        }
+        $this->assertSame([], $this->tables($dir), 'auth status migrates nothing');
+        $r = $this->cli($dir, ['users'], true, null, $hosted);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $this->assertSame(0, (int)testdb($dir)->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'hosted, no APP_PASSWORD: no account is seeded');
+        $this->assertSame('true', testdb($dir)->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->fetchColumn(), 'sign-in is on');
+        $r = $this->cli($dir, ['auth', 'status'], true, null, $hosted);
+        $this->assertSame([0, "on\n"], [$r['exit'], $r['stdout']], 'migrated, still no account: on');
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:claim-create', '--no-header'], array_merge($this->env($dir, false), $hosted), null);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $token = trim($r['stdout']);
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]{43}$/', $token, 'the claim token');
+        $stored = json_decode((string)testdb($dir)->query("SELECT value FROM settings WHERE name = 'hosted_first_admin_claim'")->fetchColumn(), true);
+        $this->assertSame(hash('sha256', $token), is_array($stored) ? ($stored['sha256'] ?? null) : null, 'the claim is stored by its hash');
+
+        // Hosted with APP_PASSWORD: seeded as self-hosted; a short one is refused as self-hosted.
+        [, $dir] = $this->twins('acli-hosted-set');
+        $r = $this->cli($dir, ['auth', 'status'], true, null, $hosted + ['APP_PASSWORD' => 'long-enough']);
+        $this->assertSame([0, "on\n", ''], [$r['exit'], $r['stdout'], $r['stderr']]);
+        $r = $this->cli($dir, ['users'], true, null, $hosted + ['APP_PASSWORD' => 'long-enough']);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $this->assertSame([['admin', 'admin', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM), 'hosted with APP_PASSWORD seeds admin');
+        $this->assertTrue(password_verify('long-enough', (string)testdb($dir)->query('SELECT password_hash FROM users')->fetchColumn()));
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:claim-create', '--no-header'], array_merge($this->env($dir, false), $hosted), null);
+        $this->assertSame([1, '', "An active admin already exists, so no claim was made.\n"], [$r['exit'], $r['stdout'], $r['stderr']], 'hosted with APP_PASSWORD: no claim');
+        $this->assertFalse(testdb($dir)->query("SELECT value FROM settings WHERE name = 'hosted_first_admin_claim'")->fetchColumn(), 'no claim row');
+        [, $dir] = $this->twins('acli-hosted-short');
+        foreach ([true, false] as $ci4) {
+            $r = $this->cli($dir, ['auth', 'status'], $ci4, null, $hosted + ['APP_PASSWORD' => 'shortpw']);
+            $this->assertSame(4, $r['exit'], 'hosted, a short APP_PASSWORD is still refused' . ($ci4 ? '' : ' (spark)'));
+            foreach (self::PASSWORDS as $p) {
+                $this->assertStringNotContainsString($p, $r['stdout'] . $r['stderr']);
+            }
+        }
+
+        // Not hosted: unchanged. No APP_PASSWORD is off (the entrypoint refuses), APOTHEKE_INSTALLATION or not.
+        foreach ([[], ['APOTHEKE_INSTALLATION' => 'tenant-a'], ['APOTHEKE_HOSTED' => '0']] as $i => $env) {
+            [, $dir] = $this->twins('acli-selfhosted-' . $i);
+            $r = $this->cli($dir, ['auth', 'status'], true, null, $env);
+            $this->assertSame([3, "off\n", ''], [$r['exit'], $r['stdout'], $r['stderr']], (string)json_encode($env));
+            $r = $this->cli($dir, ['auth', 'status'], true, null, $env + ['APP_PASSWORD' => 'shortpw']);
+            $this->assertSame(4, $r['exit'], 'a short APP_PASSWORD is still refused');
+        }
+        // Not hosted with APP_PASSWORD: the account admin is seeded as before.
+        [, $dir] = $this->twins('acli-selfhosted-seed');
+        $r = $this->cli($dir, ['users'], true, null, ['APOTHEKE_INSTALLATION' => 'tenant-a', 'APP_PASSWORD' => 'long-enough']);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $this->assertSame([['admin', 'admin', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM));
+        $this->assertTrue(password_verify('long-enough', (string)testdb($dir)->query('SELECT password_hash FROM users')->fetchColumn()));
+    }
+
+    /**
+     * Hosted: accounts:hosted-reset-admins removes existing admin accounts so accounts:claim-create can run.
+     * APOTHEKE_INSTALLATION alone does not make the install hosted, and non-admin accounts are left as they are.
+     */
+    public function testHostedResetAdminsOpensTheClaimPath(): void
+    {
+        $hosted = ['APOTHEKE_HOSTED' => '1', 'APOTHEKE_INSTALLATION' => 'tenant-a'];
+        [, $dir] = $this->twins('acli-hosted-reset');
+        $r = $this->cli($dir, ['users'], true, null, $hosted + ['APP_PASSWORD' => 'long-enough']);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $this->assertSame([['admin', 'admin', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM));
+        testdb($dir)->exec("INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES ('looker', 'looker', 'x', 'viewer', 'active', '2026-01-01 00:00:00')");
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:claim-create', '--no-header'], array_merge($this->env($dir, false), $hosted), null);
+        $this->assertSame([1, '', "An active admin already exists, so no claim was made.\n"], [$r['exit'], $r['stdout'], $r['stderr']]);
+
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:hosted-reset-admins', '--no-header'], array_merge($this->env($dir, false), $hosted), null);
+        $this->assertSame([0, "Admin accounts were reset. The first-admin claim can be created.\n", ''], [$r['exit'], $r['stdout'], $r['stderr']]);
+        $this->assertSame([['looker', 'viewer', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM), 'non-admin accounts stay');
+
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:claim-create', '--no-header'], array_merge($this->env($dir, false), $hosted), null);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]{43}$/', trim($r['stdout']));
+
+        // Not hosted: APOTHEKE_INSTALLATION alone changes nothing, and existing admins stay.
+        [, $dir] = $this->twins('acli-reset-not-hosted');
+        $r = $this->cli($dir, ['users'], true, null, ['APOTHEKE_INSTALLATION' => 'tenant-a', 'APP_PASSWORD' => 'long-enough']);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+        foreach ([[], ['APOTHEKE_INSTALLATION' => 'tenant-a'], ['APOTHEKE_HOSTED' => '0']] as $i => $env) {
+            $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'accounts:hosted-reset-admins', '--no-header'], array_merge($this->env($dir, false), $env), null);
+            $this->assertSame([1, '', "accounts:hosted-reset-admins is only for a hosted installation (APOTHEKE_HOSTED).\n"], [$r['exit'], $r['stdout'], $r['stderr']], (string)json_encode($env));
+        }
+        $this->assertSame([['admin', 'admin', 'active']], testdb($dir)->query('SELECT username, role, status FROM users')->fetchAll(PDO::FETCH_NUM));
+    }
+
+    /**
      * Storage mode (DB_DRIVER=d1, set by the Worker): `auth status` asks the D1 bridge, not PDO, so the
      * entrypoint's check still means something there. With no bridge to reach (no Worker here) it is
      * the sanitized "no database" line and exit 1, never a PDO-only refusal; nothing is written locally.

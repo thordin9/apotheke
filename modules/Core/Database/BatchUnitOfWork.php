@@ -93,7 +93,12 @@ final class BatchUnitOfWork extends QueuedUnitOfWork
             return;
         }
         try {
-            $run = fn (): array => $this->executor->run($batch);
+            $run = function () use ($batch): array {
+                $out = $this->executor->run($batch);
+                $this->runAfterWrites();
+
+                return $out;
+            };
             $out = $this->around !== null ? ($this->around)($run) : $run();
         } catch (WriteFailed $e) {
             throw $this->failedStep($queue, $steps, $e);

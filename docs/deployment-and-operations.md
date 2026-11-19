@@ -258,6 +258,11 @@ Two defaults keep a new Docker install private:
   to about 3 minutes) and then exits with code 78 too.
   * An install that already has sign-in on in its database starts without `APP_PASSWORD`; the variable is only used
     on a new database.
+  * With `APOTHEKE_HOSTED=1` (the hosted service only) `APP_PASSWORD` is optional. Without it the check answers on once
+    the database answers, so the container starts, no account is created, and the first admin comes from the
+    first-admin claim ([operator console](operator-console.md#hosted-installations)). With it, the first start creates
+    the account `admin` as above, and `accounts:claim-create` refuses (exit 1) while an active admin exists.
+    `APOTHEKE_INSTALLATION` alone changes nothing.
   * To run without sign-in on purpose, on a trusted network only, set `ALLOW_NO_LOGIN=1`. Any value other than
     `1`, `true`, `yes`, `0`, `false`, `no` or empty exits with code 64.
   * Turning sign-in off in Settings → Users & sign-in (or with `bin/settings.php auth off`) means the next start needs

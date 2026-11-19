@@ -12,6 +12,57 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **core:** paths with an unparsable form, such as `/stats:1`, now return 404 instead of the home page; under `/api` they get the API's 404 ([#323](https://github.com/thordin9/apotheke/pull/323))
 
+## [3.52.0] - 2026-11-19
+
+### Added
+
+- **edge:** installations other than `primary` start with `APOTHEKE_HOSTED=1` and `APOTHEKE_INSTALLATION` set to their own name, and without `APP_PASSWORD`; `primary`'s container env is unchanged ([#318](https://github.com/thordin9/apotheke/pull/318))
+- **auth:** `php spark accounts:hosted-reset-admins` removes existing admin accounts, their session records and any first-admin claim on a hosted installation so the first-admin claim can be used ([#318](https://github.com/thordin9/apotheke/pull/318))
+
+## [3.51.0] - 2026-11-19
+
+### Added
+
+- **edge:** the `AUTOFILL` service binding to the autofill Worker's `HostedAutofill` entrypoint (`apotheke-autofill`), used only with plan limits on ([#329](https://github.com/thordin9/apotheke/pull/329))
+
+## [3.50.0] - 2026-11-19
+
+### Added
+
+- **edge:** with plan limits on, an installation other than primary reaches autofill at `http://autofill.internal` through the `AUTOFILL` service binding, with its installation and monthly autofill limit set by the Worker and no bearer token in the container ([#327](https://github.com/thordin9/apotheke/pull/327))
+
+## [3.49.2] - 2026-11-19
+
+### Fixed
+
+- operator console follow-up (hosted start, limits, backup) ([#326](https://github.com/thordin9/apotheke/pull/326))
+
+### Maintenance
+
+- **edge:** test: cover encoded /api paths with a bad percent escape ([#330](https://github.com/thordin9/apotheke/pull/330))
+
+### Changed
+
+- **auth:** with `APOTHEKE_HOSTED`, `APP_PASSWORD` is optional: without it the app starts, creates no account and the first-admin claim makes the first admin; with it, the account `admin` is created as before; and plan limits from the bridge that are negative, not finite or beyond the largest whole number are refused like any other unreadable answer ([#326](https://github.com/thordin9/apotheke/pull/326))
+
+## [3.49.1] - 2026-11-19
+
+### Fixed
+
+- **edge:** a failed lifecycle backup still stops a non-active container (including after the last retry, and after a Workflow step has turned the error into a plain Error), a public request after a container-object restart re-checks status, a backup key has to be `backups/<id>/manifest.json`, a refused or unstartable backup fails the job without a retry, and a backup start does not join a public start already in flight ([#328](https://github.com/thordin9/apotheke/pull/328))
+
+## [3.49.0] - 2026-11-19
+
+### Added
+
+- **edge:** the lifecycle jobs' backup step calls the container's backup endpoint through `ApothekeContainer.opsBackup`, and the backup can start a suspended or deleting installation while public requests stay refused (L-2167) ([#324](https://github.com/thordin9/apotheke/pull/324))
+
+## [3.48.1] - 2026-11-19
+
+### Fixed
+
+- **edge:** with plan limits on, every `OPTIONS` request counts toward the monthly request limit and only a real CORS preflight from an allowed origin is never refused, `/api` paths are read decoded as the app reads them, and a failed stored-bytes recount is saved ([#325](https://github.com/thordin9/apotheke/pull/325))
+
 ## [3.48.0] - 2026-11-19
 
 ### Added
@@ -1817,7 +1868,14 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.48.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.52.0...HEAD
+[3.52.0]: https://github.com/thordin9/apotheke/compare/v3.51.0...v3.52.0
+[3.51.0]: https://github.com/thordin9/apotheke/compare/v3.50.0...v3.51.0
+[3.50.0]: https://github.com/thordin9/apotheke/compare/v3.49.2...v3.50.0
+[3.49.2]: https://github.com/thordin9/apotheke/compare/v3.49.1...v3.49.2
+[3.49.1]: https://github.com/thordin9/apotheke/compare/v3.49.0...v3.49.1
+[3.49.0]: https://github.com/thordin9/apotheke/compare/v3.48.1...v3.49.0
+[3.48.1]: https://github.com/thordin9/apotheke/compare/v3.48.0...v3.48.1
 [3.48.0]: https://github.com/thordin9/apotheke/compare/v3.47.0...v3.48.0
 [3.47.0]: https://github.com/thordin9/apotheke/compare/v3.46.2...v3.47.0
 [3.46.2]: https://github.com/thordin9/apotheke/compare/v3.46.1...v3.46.2

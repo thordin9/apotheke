@@ -8,7 +8,9 @@ import { d1UnboundResponse, type D1Env } from "./d1";
 import { INSTALLATION_NAME, installationAppKey, installationPrefix, installationStub, lifecycleName, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
 import { routeFor, routeResponse } from "./route";
 import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env, type StorageMeter } from "./r2";
+import { AUTOFILL_HOST, handleAutofill, type AutofillEnv, type AutofillProps } from "./autofill";
 import { forwardWithLimits, isPreflight, LIMITS_HEADER, limitsEnabled, takeLimits, UsageMeter, WARNING_HEADER, withCors, type Limits } from "./limits";
+import { opsBackupRequest } from "./ops-signature";
 
 export { Installation } from "./installation";
 
@@ -46,6 +48,14 @@ export class R2Outbound extends WorkerEntrypoint<Env & R2Env & InstallationEnv, 
 	}
 }
 
+/** Outbound Worker for the container's http://autofill.internal (autofill.ts). Wired only with limits on, for an
+ *  installation other than primary; the props come from the container object, never from PHP. */
+export class AutofillOutbound extends WorkerEntrypoint<Env & AutofillEnv, AutofillProps> {
+	async fetch(request: Request): Promise<Response> {
+		return handleAutofill(request, this.env, this.ctx?.props);
+	}
+}
+
 export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	/** /healthz answered 200 for the running container. False after a timed-out start or a failed forward. */
 	private ready = false;
@@ -55,6 +65,11 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	private timedOutWaits = 0;
 	/** Limits (E5): this installation's requests and active time this month. Unused for primary or with limits off. */
 	private meter?: UsageMeter;
+	/** True only while opsBackup starts the container: the start gate then also accepts suspended and deleting. */
+	private opsStart = false;
+	/** A public request must pass the public start gate before it is forwarded: after opsBackup, or when this
+	 *  object restarts over a running non-primary container. */
+	private opsOnly = false;
 
 	private sleepAfter(): number {
 		return Number(this.env.SLEEP_AFTER_MS) || 15 * 60 * 1000;
@@ -67,6 +82,9 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		// Re-bind d1.internal so a warm container keeps the outbound handler after a DO eviction.
 		if (c?.running) {
 			this.ready = true;
+			const doName = ctx.id?.name;
+			// Re-check status on the next public request: opsOnly is in memory and would otherwise stay false.
+			if (validDoName(doName) && doName !== INSTALLATION_NAME) this.opsOnly = true;
 			void ctx.blockConcurrencyWhile(async () => {
 				await c.setInactivityTimeout(this.sleepAfter());
 				await this.wireStorage(c);
@@ -82,6 +100,11 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		const props = !validDoName(doName) ? {} : limits ? { doName, prefix: installationPrefix(doName), storageHard: limits.storage_bytes?.hard ?? null } : { doName, prefix: installationPrefix(doName) };
 		await c.interceptOutboundHttp("d1.internal", this.ctx.exports.D1Outbound({ props }));
 		await c.interceptOutboundHttp("r2.internal", this.ctx.exports.R2Outbound({ props }));
+		// Limits (L-2190): autofill for this installation, with its monthly limit (null for none).
+		if (limits && validDoName(doName)) {
+			const autofill: AutofillProps = { doName, autofill: limits.autofill_calls_month ?? null };
+			await c.interceptOutboundHttp(AUTOFILL_HOST, this.ctx.exports.AutofillOutbound({ props: autofill }));
+		}
 	}
 
 	/** Starts the container if needed and waits for /healthz. Returns the cold-start time in ms (0 when warm). */
@@ -101,20 +124,22 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	}
 
 	/** APP_KEY and ALLOWED_HOSTS for this object's installation. primary (or an unnamed object) gets the Worker's own
-	 *  values unchanged. Another installation gets its derived key and its own hosts from installation_routes, or
-	 *  does not start (also when its status is not provisioning or active). */
-	private async installationEnv(): Promise<{ appKey: string; allowedHosts: string }> {
+	 *  values unchanged and the Worker's APP_PASSWORD. Another installation gets its derived key and its own hosts from
+	 *  installation_routes, or does not start (also when its status is not provisioning or active); it gets no
+	 *  APP_PASSWORD, and APOTHEKE_HOSTED=1 with APOTHEKE_INSTALLATION set to this object's own name. */
+	private async installationEnv(): Promise<{ appKey: string; allowedHosts: string; account: Record<string, string> }> {
 		const doName = this.ctx.id?.name ?? INSTALLATION_NAME;
 		const appKey = await installationAppKey(doName, this.env.APP_KEY);
-		if (doName === INSTALLATION_NAME) return { appKey, allowedHosts: this.env.ALLOWED_HOSTS ?? "" };
+		// The entrypoint refuses to start without a valid APP_PASSWORD (exit 78): the Worker answers 503.
+		if (doName === INSTALLATION_NAME) return { appKey, allowedHosts: this.env.ALLOWED_HOSTS ?? "", account: { APP_PASSWORD: this.env.APP_PASSWORD ?? "" } };
 		if (!validDoName(doName) || !this.env.DB) throw new Error("no installation hosts");
 		const { results } = await this.env.DB
 			// Read fresh at every start: a suspended or deleted installation does not start, even through a cached route.
-			.prepare("SELECT r.host FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE i.do_name = ? AND i.status IN ('provisioning', 'active') ORDER BY r.host")
-			.bind(doName)
+			.prepare("SELECT r.host FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE i.do_name = ? AND (i.status IN ('provisioning', 'active') OR (? = 1 AND i.status IN ('suspended', 'deleting'))) ORDER BY r.host")
+			.bind(doName, this.opsStart ? 1 : 0)
 			.all<{ host: string }>();
 		if (results.length === 0) throw new Error("no installation hosts");
-		return { appKey, allowedHosts: results.map((r) => r.host).join(",") };
+		return { appKey, allowedHosts: results.map((r) => r.host).join(","), account: { APOTHEKE_HOSTED: "1", APOTHEKE_INSTALLATION: doName } };
 	}
 
 	/** Starts the container unless it is running, sets the inactivity timeout and waits for /healthz. */
@@ -126,8 +151,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		if (!c.running) c.start({
 			enableInternet: false,
 			env: {
-				// The entrypoint refuses to start without a valid APP_PASSWORD (exit 78): the Worker answers 503.
-				APP_PASSWORD: this.env.APP_PASSWORD ?? "",
+				...site.account,
 				APP_KEY: site.appKey,
 				ALLOWED_HOSTS: site.allowedHosts,
 				COOKIE_DOMAIN: this.env.COOKIE_DOMAIN ?? "",
@@ -181,6 +205,7 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	async stopContainer(): Promise<void> {
 		lifecycleName(this.ctx.id?.name);
 		this.ready = false;
+		this.opsOnly = false;
 		const c = this.ctx.container;
 		if (c?.running) await c.destroy();
 	}
@@ -191,6 +216,42 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		await this.ctx.storage.deleteAll();
 	}
 
+	/** Lifecycle export (C2): the app's backup for jobId, through the container's port like the readiness probe, never the
+	 *  public forward (POST http://ops.internal/internal/backup, signed with this installation's APP_KEY). May start the
+	 *  container while the installation is suspended or deleting. Refused like stopContainer. Returns the full key, the
+	 *  status when there is none (200: an answer without a usable key), or a code for a permanent refusal (primary, not
+	 *  startable, missing APP_KEY). */
+	async opsBackup(jobId: string): Promise<{ key: string } | { status: number } | { code: string }> {
+		try {
+			const doName = lifecycleName(this.ctx.id?.name);
+			const c = this.ctx.container;
+			if (!c) throw new Error("no container configured");
+			this.opsOnly = true;
+			if (!c.running || !this.ready) {
+				// A public start already in flight bound the status check without opsStart: wait for it, then start
+				// for the backup. Joining it would fail a suspended or deleting installation as not_startable.
+				if (this.readying && !this.opsStart) await this.readying.catch(() => {});
+				this.opsStart = true;
+				try {
+					await this.ensureReady();
+				} finally {
+					this.opsStart = false;
+				}
+			}
+			const res = await c.getTcpPort(PORT).fetch(await opsBackupRequest(await installationAppKey(doName, this.env.APP_KEY), jobId), { redirect: "manual" });
+			if (res.status !== 200) return { status: res.status };
+			const body = (await res.json().catch(() => null)) as { ok?: unknown; backup?: { job_id?: unknown; key?: unknown } } | null;
+			if (body === null) return { status: 502 };
+			const rel = body.backup?.key;
+			const valid = body.ok === true && body.backup?.job_id === jobId && typeof rel === "string" && BACKUP_MANIFEST_KEY.test(rel);
+			return valid ? { key: installationPrefix(doName) + rel } : { status: 200 };
+		} catch (e) {
+			const code = permanentBackupCode(e);
+			if (code) return { code };
+			throw e;
+		}
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		let cold: number;
 		const taken = takeLimits(request, this.env, this.ctx.id?.name, INSTALLATION_NAME);
@@ -198,11 +259,12 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		request = taken.request;
 		const meter = limits ? (this.meter ??= new UsageMeter(this.ctx.storage, () => this.sleepAfter())) : null;
 		if (limits && meter) {
-			const refused = await meter.admit(limits, Date.now(), isPreflight(request));
+			const refused = await meter.admit(limits, Date.now(), isPreflight(request, this.env.CORS_ALLOWED_ORIGINS));
 			if (refused) return withCors(refused, request, this.env.CORS_ALLOWED_ORIGINS);
 		}
 		try {
 			cold = await this.ensureReady(limits);
+			if (this.opsOnly) await this.publicStart();
 		} catch (e) {
 			console.error("start failed", String(e));
 			return unavailable();
@@ -224,6 +286,13 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		return out;
 	}
 
+	/** The public start gate for a container opsBackup started: throws unless the installation is provisioning or active. */
+	private async publicStart(): Promise<void> {
+		const row = await this.env.DB?.prepare("SELECT 1 AS ok FROM installations WHERE do_name = ? AND status IN ('provisioning', 'active')").bind(this.ctx.id?.name ?? "").first();
+		if (!row) throw new Error("installation not startable");
+		this.opsOnly = false;
+	}
+
 	/** Writes the limit counters (set at most FLUSH_MS after a change). */
 	async alarm(): Promise<void> {
 		await this.meter?.counter.flush();
@@ -234,6 +303,18 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	async usage(): Promise<{ period: string; requests: number; container_seconds: number }> {
 		return (this.meter ??= new UsageMeter(this.ctx.storage, () => this.sleepAfter())).usage();
 	}
+}
+
+/** PHP StoredBackups: the relative key is exactly backups/<id>/manifest.json, id YYYYMMDD-HHMMSS- plus six hex digits. */
+const BACKUP_MANIFEST_KEY = /^backups\/\d{8}-\d{6}-[a-f0-9]{6}\/manifest\.json$/;
+
+/** Permanent opsBackup failures: returned as a code so the Workflow fails the job instead of retrying. */
+function permanentBackupCode(e: unknown): string | undefined {
+	const m = e instanceof Error ? e.message : "";
+	if (m === "lifecycle refused for this installation") return "refused";
+	if (m === "APP_KEY is not a 32-byte key") return "bad_app_key";
+	if (m === "no installation hosts" || m === "no installation name" || m === "no container configured") return "not_startable";
+	return undefined;
 }
 
 /** Never show the reason to the client (plan 1A.6). */

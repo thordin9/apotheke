@@ -284,6 +284,8 @@ class Services extends BaseService
                 => new \Apotheke\Auth\Commands\AccountsCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Auth\Commands\AccountsCli => static::accountsCli($in, $out, $err), static fn (mixed $out, mixed $err): \Apotheke\Auth\Commands\AuthStatus => static::authStatus($out, $err)),
             \Apotheke\Auth\Commands\ClaimCreateCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
                 => new \Apotheke\Auth\Commands\ClaimCreateCommand($logger, $commands, static fn (): \Apotheke\Auth\FirstAdminClaim => static::firstAdminClaim(false)),
+            \Apotheke\Auth\Commands\HostedAdminResetCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
+                => new \Apotheke\Auth\Commands\HostedAdminResetCommand($logger, $commands, static fn (): \Apotheke\Auth\HostedAdminReset => static::hostedAdminReset(false)),
             \Apotheke\Catalog\Commands\SeedCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
                 => new \Apotheke\Catalog\Commands\SeedCommand($logger, $commands, static fn (): int => static::starterData(), static fn (): \Apotheke\Catalog\DemoItems => new \Apotheke\Catalog\DemoItems(
                     static::apothekeDb(), static::itemRepository(), static::taxonomy(), static::imageStore())),
@@ -571,6 +573,17 @@ class Services extends BaseService
             new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache(), static::hostedLimits()),
             static::accounts(), new \Apotheke\Core\Libraries\Clock(), static::hostedLimits(),
             (int)static::apothekeConfig()->values()['hosted_claim_hours'], static::unitsOfWork());
+    }
+
+    public static function hostedAdminReset(bool $getShared = true): \Apotheke\Auth\HostedAdminReset
+    {
+        if ($getShared) {
+            return static::getSharedInstance('hostedAdminReset');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Auth\HostedAdminReset($db, static::hostedLimits(), static::unitsOfWork());
     }
 
     /** Accounts for the sign-in pages (Auth), with the failed sign-in deadline from SIGN_IN_FAIL_MS (sign_in_fail_ms). Stateless. */
@@ -933,11 +946,12 @@ class Services extends BaseService
         $db = $config->database();
         $db['connect_timeout'] = 5;
         $password = $config->values()['app_password'] ?? '';
+        $hosted = ($config->values()['hosted'] ?? false) === true;
         if (($db['driver'] ?? '') === 'd1') {
             // Storage mode: the Installation's database over the D1 bridge, with the same 5 s per try.
             $d1 = new \Apotheke\Core\Database\D1HttpExecutor(\Apotheke\Core\Database\D1HttpExecutor::DEFAULT_BASE, null, 5);
 
-            return new \Apotheke\Auth\Commands\AuthStatus(\Apotheke\Auth\Commands\AuthStatus::d1($d1, \Apotheke\Migrations\PdoMigrationRunner::connectFailure($db)), is_string($password) ? $password : '', $out, $err);
+            return new \Apotheke\Auth\Commands\AuthStatus(\Apotheke\Auth\Commands\AuthStatus::d1($d1, \Apotheke\Migrations\PdoMigrationRunner::connectFailure($db)), is_string($password) ? $password : '', $out, $err, $hosted);
         }
 
         return new \Apotheke\Auth\Commands\AuthStatus(static function () use ($db): ?\PDO {
@@ -949,7 +963,7 @@ class Services extends BaseService
             } catch (\PDOException) {
                 throw new \Apotheke\Migrations\MigrateConnectException(\Apotheke\Migrations\PdoMigrationRunner::connectFailure($db));
             }
-        }, is_string($password) ? $password : '', $out, $err);
+        }, is_string($password) ? $password : '', $out, $err, $hosted);
     }
 
     /**

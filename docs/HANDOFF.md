@@ -7,7 +7,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.42.0). The 2.6.x line has security support from `old`
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.52.0). The 2.6.x line has security support from `old`
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
@@ -70,16 +70,24 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 - Unparsable paths (#323, `fix/unparsable-paths`): a path PHP's `parse_url()` rejects, such as `/stats:1`, keeps its
   path up to `?` (`Core\Http\RequestPath`, also in the front controllers) and is a 404; under `/api` the API's 404.
 
-- Operator console C1 (`feat/operator-console-c1`): the `Installation` object answers read-only `GET /stats`,
-  `/users` and `/limits` on `d1.internal` in storage mode. `APOTHEKE_HOSTED` turns on the plan's limits (checked
-  inside the adding unit of work, with a `plan-limit:<key>` key), the upload-size ceilings, always-on sign-in and the
-  one-time first-admin claim (`accounts:claim-create`, `/claim#<token>`, only while no active admin exists); off,
-  nothing changes. The container does not set `APOTHEKE_HOSTED` yet (edge `index.ts`); limit values come only from
-  `plan_limits` ([operator console](operator-console.md#hosted-installations)).
-- Operator console C2 (`feat/operator-console-c2`, on C1): with `APOTHEKE_HOSTED`, `POST /internal/backup` on
-  `ops.internal` makes one stored backup per lifecycle job id (signed with a key derived from `APP_KEY`; not routed
-  from public hosts) and answers its id, size and relative key; `edge/src/ops-signature.ts` builds the request
-  ([operator console](operator-console.md#backup-for-a-lifecycle-job)).
+- Operator console C1 (#317) and C2 (#320) are released in v3.47.0 and v3.48.0: read-only `GET /stats`, `/users` and
+  `/limits` on `d1.internal`; with `APOTHEKE_HOSTED` the plan's limits, always-on sign-in, the first-admin claim and
+  one stored backup per lifecycle job on `ops.internal`
+  ([operator console](operator-console.md#hosted-installations); [log](history/handoff-log.md#pull-requests)).
+- Operator console follow-up (#326, released in v3.49.2): with `APOTHEKE_HOSTED`, `APP_PASSWORD` is optional (set, it
+  seeds `admin` as before; unset, nothing is seeded and the claim makes the first admin); once an active admin exists
+  the claim gives one answer for any token, and `accounts:claim-create` refuses; the backup dump is one read
+  transaction, a job's backup stops before a takeover could overlap it, and parts without a manifest are removed after
+  a day; out-of-range or non-finite plan limits are refused.
+- Hosted autofill (#327, released in v3.50.0; the `AUTOFILL` binding #329, released in v3.51.0): with plan limits on,
+  an installation other than primary reaches autofill at `http://autofill.internal` through the `AUTOFILL` service
+  binding; primary is not wired.
+- Hosted installation env (#318): the Worker sets `APOTHEKE_HOSTED=1` and `APOTHEKE_INSTALLATION` to the installation's
+  own name, and no `APP_PASSWORD`, for installations other than `primary`; `primary` is unchanged.
+  `APOTHEKE_INSTALLATION` alone does not mark an install as hosted. Non-primary installations started before this
+  change hold an admin seeded from the shared `APP_PASSWORD`; restart the container and run
+  `php spark accounts:hosted-reset-admins` before a tenant gets access (that also drops their sessions and any
+  first-admin claim).
 
 ## Open pull requests
 

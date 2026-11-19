@@ -69,6 +69,39 @@ final class ApothekeConfigTest extends TestCase
         $this->assertSame(720, ApothekeConfig::load('/repo', null, ['HOSTED_CLAIM_HOURS' => '9999'])->values()['hosted_claim_hours']);
     }
 
+    /** Hosted or not, APP_PASSWORD is read as before; APOTHEKE_HOSTED only makes it optional (the legacy loader marks it). */
+    public function testHostedKeepsAppPassword(): void
+    {
+        $pw = 'pw-' . bin2hex(random_bytes(6));
+        $cases = [
+            [['APP_PASSWORD' => $pw], $pw, false],
+            [['APP_PASSWORD' => $pw, 'APOTHEKE_INSTALLATION' => 'tenant-a'], $pw, false],
+            [['APP_PASSWORD' => $pw, 'APOTHEKE_HOSTED' => '0'], $pw, false],
+            [['APP_PASSWORD' => $pw, 'APOTHEKE_HOSTED' => 'maybe'], $pw, false],
+            [['APP_PASSWORD' => $pw, 'APOTHEKE_HOSTED' => '1'], $pw, true],
+            [['APP_PASSWORD' => $pw, 'APOTHEKE_HOSTED' => 'true'], $pw, true],
+            [['APOTHEKE_HOSTED' => '1'], '', true],
+        ];
+        foreach ($cases as $i => [$env, $want, $hosted]) {
+            $ci4 = ApothekeConfig::load('/repo', null, $env)->values();
+            $legacy = config_load('/repo', null, $env);
+            $this->assertSame([$want, $hosted], [$ci4['app_password'], $ci4['hosted']], 'ci4 case ' . $i);
+            $this->assertSame([$want, $hosted], [$legacy['app_password'], ($legacy['hosted'] ?? false) === true], 'legacy case ' . $i);
+        }
+        $file = tempnam(sys_get_temp_dir(), 'apo-cfg-');
+        $this->assertIsString($file);
+        try {
+            file_put_contents($file, "<?php\nreturn ['hosted' => true];\n");
+            $this->assertTrue(ApothekeConfig::load('/repo', $file, ['APP_PASSWORD' => $pw])->values()['hosted'], 'ci4, hosted in config.php');
+            $this->assertSame($pw, ApothekeConfig::load('/repo', $file, ['APP_PASSWORD' => $pw])->values()['app_password'], 'ci4, hosted in config.php keeps APP_PASSWORD');
+            $this->assertSame([$pw, true], [config_load('/repo', $file, ['APP_PASSWORD' => $pw])['app_password'], config_load('/repo', $file, ['APP_PASSWORD' => $pw])['hosted'] ?? false], 'legacy, hosted in config.php');
+            $this->assertFalse(ApothekeConfig::load('/repo', $file, ['APOTHEKE_HOSTED' => '0'])->values()['hosted'], 'the environment wins');
+            $this->assertFalse((config_load('/repo', $file, ['APOTHEKE_HOSTED' => '0'])['hosted'] ?? false) === true, 'legacy: the environment wins');
+        } finally {
+            unlink($file);
+        }
+    }
+
     /** RESTORE_CHUNK_KB is clamped to 64–16384 (under PHP's 20 MB upload limit), RESTORE_MAX_MB to 1–4096. */
     public function testTheChunkedRestoreSizesAreClamped(): void
     {

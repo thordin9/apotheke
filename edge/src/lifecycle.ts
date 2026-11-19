@@ -47,7 +47,7 @@ export interface FirstAdminClaim {
 
 /** Drops cached routes for these hosts. Today routes are cached only inside each apotheke-api isolate, for up to 30 s,
  *  so a status change can take that long to show in routing (the container itself refuses to start unless the
- *  installation is provisioning or active). */
+ *  installation is provisioning or active, except for a lifecycle backup, which public requests cannot use). */
 export interface RouteCache {
 	purge(hosts: string[]): Promise<void>;
 }
@@ -79,6 +79,14 @@ export class LifecycleRetry extends Error {
 		super(`lifecycle: ${code}`);
 		this.code = code;
 	}
+}
+
+/** The job error code on a thrown step. Workflows rethrows a plain Error (the class and .code are gone); a
+ *  NonRetryableError's message is "NonRetryableError: lifecycle: <code>". */
+export function lifecycleCode(e: unknown): string | undefined {
+	if (e instanceof LifecycleError || e instanceof LifecycleRetry) return e.code;
+	const m = e instanceof Error ? e.message : String(e);
+	return /(?:^|:\s)lifecycle: (\S+)$/.exec(m)?.[1];
 }
 
 /** R2 deletes at most this many keys per call; each page is its own step. */
@@ -300,6 +308,12 @@ export const steps = {
 		const { t } = await begin(d.db, jobId, "delete.stop", ["deleting"]);
 		await d.container.stop(t.doName);
 	},
+	/** After an export, or after a backup that failed the job: stops the container again unless the installation is active
+	 *  (the backup may have started it). */
+	async exportStop(d: LifecycleDeps, jobId: string): Promise<void> {
+		const { t } = await begin(d.db, jobId, "export.stop", ["active", "suspended", "deleting"]);
+		if (t.status !== "active") await d.container.stop(t.doName);
+	},
 	/** Purge page `page`, phase 1: aborts up to 100 unfinished multipart uploads that have a marker under the prefix and
 	 *  deletes their markers. Returns how many markers it handled; 0 means none are left. */
 	purgeUploads(d: LifecycleDeps, jobId: string, page: number): Promise<{ count: number }> {
@@ -336,11 +350,30 @@ export const steps = {
 
 type Runner = Pick<WorkflowStep, "do">;
 
+/** The export steps wait on the container's backup, which takes up to 900 s. A retry while that first call still runs
+ *  gets 409, so retries are spaced to outlast it: 10 more attempts, 3 minutes apart. */
+export const EXPORT_STEP = { timeout: "20 minutes", retries: { limit: 10, delay: "3 minutes", backoff: "constant" } } as const;
+
 /** Runs a confirmed job's steps in order, each as its own Workflow step. A failure marks the job failed and rethrows. */
 export async function runJob(d: LifecycleDeps, jobId: string, step: Runner): Promise<void> {
 	try {
 		const kind = await step.do("start", () => startJob(d.db, jobId));
 		const one = (name: string, fn: (d: LifecycleDeps, jobId: string) => Promise<unknown>) => step.do(name, async () => void (await fn(d, jobId)));
+		const exporting = (name: string) => step.do(name, EXPORT_STEP, async () => void (await steps.exportBackup(d, jobId)));
+		const exportingThenStop = async (backupStep: string, stopStep: string) => {
+			try {
+				await exporting(backupStep);
+			} catch (e) {
+				// step.do only throws once retries are finished, so a 409/5xx stop is then safe.
+				try {
+					await one(stopStep, steps.exportStop);
+				} catch {
+					// The backup error is the one the job records.
+				}
+				throw e;
+			}
+			await one(stopStep, steps.exportStop);
+		};
 		switch (kind) {
 			case "provision":
 				await one("provision.check", steps.provisionCheck);
@@ -356,12 +389,12 @@ export async function runJob(d: LifecycleDeps, jobId: string, step: Runner): Pro
 				await one("resume.status", steps.resumeStatus);
 				break;
 			case "export":
-				await one("export.backup", steps.exportBackup);
+				await exportingThenStop("export.backup", "export.stop");
 				break;
 			case "delete":
 				await one("delete.status", steps.deleteStatus);
 				await one("delete.stop", steps.deleteStop);
-				await one("delete.export", steps.exportBackup);
+				await exportingThenStop("delete.export", "delete.export.stop");
 				break;
 			case "purge":
 				for (let i = 0; (await step.do(`purge.uploads.${i}`, () => steps.purgeUploads(d, jobId, i))).count > 0; i++);
@@ -372,7 +405,7 @@ export async function runJob(d: LifecycleDeps, jobId: string, step: Runner): Pro
 		}
 		await step.do("done", () => finishJob(d.db, jobId));
 	} catch (e) {
-		const code = e instanceof LifecycleError || e instanceof LifecycleRetry ? e.code : "error";
+		const code = lifecycleCode(e) ?? "error";
 		await step.do("failed", () => failJob(d.db, jobId, code));
 		throw e;
 	}
