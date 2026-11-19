@@ -8,6 +8,11 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Maintenance
+
+- **ci:** the merged edge dry run also requires the `AUTOFILL` service binding (`apotheke-autofill#HostedAutofill`) ([#334](https://github.com/thordin9/apotheke/pull/334))
+- **docs:** say to raise the production container `max_instances` before onboarding a hosted tenant ([#334](https://github.com/thordin9/apotheke/pull/334))
+
 ## [3.53.2] - 2026-11-19
 
 ### Fixed
