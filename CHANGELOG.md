@@ -12,6 +12,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** the lifecycle jobs' backup step calls the container's backup endpoint through `ApothekeContainer.opsBackup`, and the backup can start a suspended or deleting installation while public requests stay refused (L-2167) ([#324](https://github.com/thordin9/apotheke/pull/324))
 
+### Fixed
+
+- **edge:** a failed lifecycle backup still stops a non-active container, a public request after a container-object restart re-checks status, a backup key has to be `backups/<id>/manifest.json`, and a refused or unstartable backup fails the job without a retry ([#328](https://github.com/thordin9/apotheke/pull/328))
+
 ## [3.48.0] - 2026-11-19
 
 ### Added
