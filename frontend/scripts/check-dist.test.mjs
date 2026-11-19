@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -127,6 +128,27 @@ test('a missing dist names npm ci and npm run build', () => {
     assert.match(DIST_REQUIRED, /npm ci/);
     assert.match(DIST_REQUIRED, /npm run build/);
     assert.equal(missingDistMessage(dirname(fileURLToPath(import.meta.url))), null);
+});
+
+test('URL-resolution tests fail fast when DIST points at a missing directory', () => {
+    const missing = join(dirname(fileURLToPath(import.meta.url)), 'no-such-dist-override');
+    const script = fileURLToPath(import.meta.url);
+    for (const name of [
+        'resolves rejects http and allows https and mailto',
+        'a link to another host must name https',
+        'relative links resolve from the page that contains them',
+    ]) {
+        const env = { ...process.env, APOTHEKE_CHECK_DIST: missing };
+        delete env.NODE_TEST_CONTEXT;
+        delete env.NODE_TEST_WORKER_ID;
+        const child = spawnSync(process.execPath, ['--test', '--test-name-pattern', name, script], {
+            encoding: 'utf8',
+            env,
+        });
+        const out = `${child.stdout || ''}${child.stderr || ''}`;
+        assert.notEqual(child.status, 0, name);
+        assert.match(out, /run npm ci and npm run build in frontend\//, name + ' ' + out);
+    }
 });
 
 test('resolves rejects http and allows https and mailto', () => {

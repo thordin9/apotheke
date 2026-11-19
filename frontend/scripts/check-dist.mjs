@@ -10,14 +10,22 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { appFallback } from './app-fallback.mjs';
 
 const frontend = join(dirname(fileURLToPath(import.meta.url)), '..');
-const dist = join(frontend, 'dist');
 const failures = [];
 const fail = (msg) => failures.push(msg);
 
 /** Message when frontend/dist is absent. CI already runs npm ci and npm run build first. */
 export const DIST_REQUIRED = 'frontend/dist is missing (run npm ci and npm run build in frontend/)';
 
-export function missingDistMessage(dir = dist) {
+/** APOTHEKE_CHECK_DIST wins, read on each call so tests can point it at a missing directory. Unset by default. */
+export function getDist() {
+    const override = process.env.APOTHEKE_CHECK_DIST;
+    if (typeof override === 'string' && override !== '') {
+        return override;
+    }
+    return join(frontend, 'dist');
+}
+
+export function missingDistMessage(dir = getDist()) {
     return existsSync(dir) ? null : DIST_REQUIRED;
 }
 
@@ -634,14 +642,14 @@ export function resolves(url, from = PAGE_BASE) {
     if (path === '') return { ok: true };
     const decision = appFallback(path, spaMount.endsWith('/') ? spaMount : spaMount + '/');
     if (decision.kind === 'shell' || decision.kind === 'redirect') {
-        const shell = join(dist, 'app/index.html');
+        const shell = join(getDist(), 'app/index.html');
         const ok = existsSync(shell) && statSync(shell).isFile();
         return { ok, why: ok ? '' : 'missing app shell' };
     }
     const rel = path.replace(/^\/+/, '');
-    const candidates = rel === '' ? [join(dist, 'index.html')] : [join(dist, rel), join(dist, rel, 'index.html')];
+    const candidates = rel === '' ? [join(getDist(), 'index.html')] : [join(getDist(), rel), join(getDist(), rel, 'index.html')];
     const found = candidates.some((file) => {
-        return existsSync(file) && statSync(file).isFile() && (file === dist || file.startsWith(dist + '/'));
+        return existsSync(file) && statSync(file).isFile() && (file === getDist() || file.startsWith(getDist() + '/'));
     });
     return { ok: found, why: found ? '' : 'missing in dist' };
 }
@@ -653,7 +661,7 @@ function scriptOpenAt(html, index) {
 }
 
 function checkScripts(rel, external) {
-    const html = readFileSync(join(dist, rel), 'utf8');
+    const html = readFileSync(join(getDist(), rel), 'utf8');
     const lower = html.toLowerCase();
     let files = 0;
     let index = 0;
@@ -713,7 +721,7 @@ function checkChrome() {
     const pages = ['index.html', 'privacy/index.html', '404.html', 'app/index.html'];
     const htmls = [];
     for (const rel of pages) {
-        const file = join(dist, rel);
+        const file = join(getDist(), rel);
         if (!existsSync(file)) return;
         htmls.push({ rel, html: readFileSync(file, 'utf8') });
     }
@@ -766,18 +774,18 @@ function run() {
         process.exit(1);
     }
     for (const rel of ['index.html', 'privacy/index.html', '404.html', 'app/index.html', 'favicon.ico']) {
-        if (!existsSync(join(dist, rel))) fail('missing ' + rel);
+        if (!existsSync(join(getDist(), rel))) fail('missing ' + rel);
     }
-    const assetsDir = join(dist, 'assets');
+    const assetsDir = join(getDist(), 'assets');
     if (!existsSync(assetsDir) || !statSync(assetsDir).isDirectory()) fail('missing assets/');
-    if (existsSync(join(dist, 'index.html'))) checkScripts('index.html', 1);
-    if (existsSync(join(dist, 'privacy/index.html'))) checkScripts('privacy/index.html', 1);
-    if (existsSync(join(dist, 'app/index.html'))) checkScripts('app/index.html', 1);
-    if (existsSync(join(dist, '404.html'))) checkScripts('404.html', 1);
+    if (existsSync(join(getDist(), 'index.html'))) checkScripts('index.html', 1);
+    if (existsSync(join(getDist(), 'privacy/index.html'))) checkScripts('privacy/index.html', 1);
+    if (existsSync(join(getDist(), 'app/index.html'))) checkScripts('app/index.html', 1);
+    if (existsSync(join(getDist(), '404.html'))) checkScripts('404.html', 1);
     checkChrome();
 
-    if (existsSync(join(dist, '_headers'))) {
-        const rules = parseHeaders(readFileSync(join(dist, '_headers'), 'utf8'));
+    if (existsSync(join(getDist(), '_headers'))) {
+        const rules = parseHeaders(readFileSync(join(getDist(), '_headers'), 'utf8'));
         const landingPaths = ['/', '/index.html', '/privacy/', '/privacy/index.html', '/404.html'];
         for (const path of landingPaths) {
             const headers = headersFor(rules, path);
@@ -808,8 +816,8 @@ function run() {
             fail('a missing /assets file is cached as ' + JSON.stringify(missingAsset));
         }
         const paths = new Set(['/', '/privacy/', '/app/', '/404.html']);
-        if (existsSync(dist)) {
-            for (const rel of walk(dist)) paths.add('/' + rel);
+        if (existsSync(getDist())) {
+            for (const rel of walk(getDist())) paths.add('/' + rel);
         }
         for (const path of paths) {
             const cache = headersFor(rules, path).get('cache-control');
@@ -820,9 +828,9 @@ function run() {
         fail('missing _headers');
     }
 
-    if (existsSync(dist)) {
-        for (const rel of walk(dist).filter((name) => name.endsWith('.html') || name.endsWith('.css'))) {
-            const body = readFileSync(join(dist, rel), 'utf8');
+    if (existsSync(getDist())) {
+        for (const rel of walk(getDist()).filter((name) => name.endsWith('.html') || name.endsWith('.css'))) {
+            const body = readFileSync(join(getDist(), rel), 'utf8');
             checkOffSite(rel, body, rel.endsWith('.css'));
             const from = pageUrl(rel);
             const urls = rel.endsWith('.css') ? cssResourceUrls(body) : htmlUrls(body);
