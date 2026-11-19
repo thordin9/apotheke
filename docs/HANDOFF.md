@@ -67,7 +67,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   and an import row error. A small web POST gets the sign-in or CSRF answer, not 413. In the FrankenPHP image a
   signed-out `/api` body gets problem+json 413 or 401. A missing asset's 404 is `no-store`. Empty answers carry no
   `Content-Type`; the OpenAPI version is `1.0.0-p3` with a `servers` entry.
-- Unparsable paths (#323, `fix/unparsable-paths`): a path PHP's `parse_url()` rejects, such as `/stats:1`, keeps its
+- Unparsable paths (#332, `fix/unparsable-paths`): a path PHP's `parse_url()` rejects, such as `/stats:1`, keeps its
   path up to `?` (`Core\Http\RequestPath`, also in the front controllers) and is a 404; under `/api` the API's 404.
 
 - Operator console C1 (#317) and C2 (#320) are released in v3.47.0 and v3.48.0: read-only `GET /stats`, `/users` and
