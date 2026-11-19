@@ -12,6 +12,13 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **hosted:** when `APOTHEKE_HOSTED` is set and `autofill_url` is not, it defaults to `http://autofill.internal` ([#331](https://github.com/thordin9/apotheke/pull/331))
 
+## [3.52.0] - 2026-11-19
+
+### Added
+
+- **edge:** installations other than `primary` start with `APOTHEKE_HOSTED=1` and `APOTHEKE_INSTALLATION` set to their own name, and without `APP_PASSWORD`; `primary`'s container env is unchanged ([#318](https://github.com/thordin9/apotheke/pull/318))
+- **auth:** `php spark accounts:hosted-reset-admins` removes existing admin accounts, their session records and any first-admin claim on a hosted installation so the first-admin claim can be used ([#318](https://github.com/thordin9/apotheke/pull/318))
+
 ## [3.51.0] - 2026-11-19
 
 ### Added
@@ -1861,7 +1868,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.51.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.52.0...HEAD
+[3.52.0]: https://github.com/thordin9/apotheke/compare/v3.51.0...v3.52.0
 [3.51.0]: https://github.com/thordin9/apotheke/compare/v3.50.0...v3.51.0
 [3.50.0]: https://github.com/thordin9/apotheke/compare/v3.49.2...v3.50.0
 [3.49.2]: https://github.com/thordin9/apotheke/compare/v3.49.1...v3.49.2
