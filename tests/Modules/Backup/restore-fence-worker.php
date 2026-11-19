@@ -33,6 +33,19 @@ try {
         fflush(STDOUT);
         exit(0);
     }
+    if ($mode === 'claim') {
+        fwrite(STDOUT, "started\n");
+        fflush(STDOUT);
+        RestoreFence::claim($database->db, $argv[3]);
+        fwrite(STDOUT, "claimed\n");
+        $conn = $database->db->connID;
+        if ($conn instanceof SQLite3) {
+            $timeout = $conn->querySingle('PRAGMA busy_timeout');
+            fwrite(STDOUT, 'busy_timeout ' . (is_numeric($timeout) ? (int)$timeout : (string)$timeout) . "\n");
+        }
+        fflush(STDOUT);
+        exit(0);
+    }
     if ($mode === 'takeover') {
         fwrite(STDOUT, "started\n");
         fflush(STDOUT);

@@ -55,6 +55,15 @@ final class RestoreFence
             $sqlite->exec('PRAGMA busy_timeout = ' . self::SQLITE_CLAIM_WAIT_MS);
         }
         try {
+            $waiting = getenv('APOTHEKE_RESTORE_FENCE_WAITING');
+            if (is_string($waiting) && $waiting !== '') {
+                $reported = 'waiting';
+                if ($sqlite !== null) {
+                    $busy = $sqlite->querySingle('PRAGMA busy_timeout');
+                    $reported = is_numeric($busy) ? (string)(int)$busy : (string)$busy;
+                }
+                file_put_contents($waiting, $reported);
+            }
             Writes::transaction($db, static function () use ($db, $token, $stamp): void {
                 Writes::check($db->query('DELETE FROM restore_marker WHERE run = ?', [self::RUN]), 'restore fence');
                 Writes::check(

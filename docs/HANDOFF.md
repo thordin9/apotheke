@@ -7,7 +7,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.53.1). The 2.6.x line has security support from `old`
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.53.2). The 2.6.x line has security support from `old`
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
@@ -96,6 +96,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
+- `RestoreFenceTest` checks a waiting fence claim by outcome, not wall-clock bounds.
 - E1 (#300, ready for review): the edge deploy applies `edge/migrations/control/` to D1 `apotheke-api` before `wrangler deploy`. Schema SQL is on main (#299). Awaiting *Account > D1 > Edit* on the existing deploy token before merge.
 - Backup restore on d1 is in v3.41.0; #308 fixes its confirm on the hosted database. FrankenPHP worker mode is on for the hosted container from #297 (`APOTHEKE_PHP_WORKER=1`; rollback in [Deployment and operations](deployment-and-operations.md#the-frankenphp-image)). For other open work, see the open pull requests on GitHub.
 - Branch `test/unit-lock-held` (after #310): the no-wait checks in `UnitOfWorkLockTest` also see the unit hold its key's lock until it ends, and a busy key with no wait budget answers 503 instead of waiting.
