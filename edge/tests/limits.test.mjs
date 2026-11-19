@@ -67,7 +67,7 @@ function readyBox(name, vars, storage = kvStorage(), reply = () => new Response(
     getTcpPort: () => ({ fetch: async (input) => { calls.push(input); return reply(); } }),
   };
   const ctx = { id: { name }, container, storage, blockConcurrencyWhile: (f) => f(), waitUntil() {},
-    exports: { D1Outbound: () => ({}), R2Outbound: (o) => { wired.push(o.props); return {}; } } };
+    exports: { D1Outbound: () => ({}), R2Outbound: (o) => { wired.push(o.props); return {}; }, AutofillOutbound: () => ({}) } };
   const env = { APP_PASSWORD: 'p', APP_KEY: 'k', STORAGE: {}, DB: {}, INSTALLATION: {}, ...vars };
   return { box: new ApothekeContainer(ctx, env), calls, wired, storage };
 }

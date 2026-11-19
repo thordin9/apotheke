@@ -8,6 +8,7 @@ import { d1UnboundResponse, type D1Env } from "./d1";
 import { INSTALLATION_NAME, installationAppKey, installationPrefix, installationStub, lifecycleName, propsDoName, validDoName, type InstallationEnv, type StorageProps } from "./installation";
 import { routeFor, routeResponse } from "./route";
 import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env, type StorageMeter } from "./r2";
+import { AUTOFILL_HOST, handleAutofill, type AutofillEnv, type AutofillProps } from "./autofill";
 import { forwardWithLimits, isPreflight, LIMITS_HEADER, limitsEnabled, takeLimits, UsageMeter, WARNING_HEADER, withCors, type Limits } from "./limits";
 
 export { Installation } from "./installation";
@@ -43,6 +44,14 @@ export class R2Outbound extends WorkerEntrypoint<Env & R2Env & InstallationEnv, 
 			? { add: (delta, enforce) => installationStub(ns, doName).storageAdd(delta, enforce && typeof hard === "number" ? hard : null, doName) }
 			: undefined;
 		return handleR2Request(request, bucket, installationPrefix(doName), meter);
+	}
+}
+
+/** Outbound Worker for the container's http://autofill.internal (autofill.ts). Wired only with limits on, for an
+ *  installation other than primary; the props come from the container object, never from PHP. */
+export class AutofillOutbound extends WorkerEntrypoint<Env & AutofillEnv, AutofillProps> {
+	async fetch(request: Request): Promise<Response> {
+		return handleAutofill(request, this.env, this.ctx?.props);
 	}
 }
 
@@ -82,6 +91,11 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		const props = !validDoName(doName) ? {} : limits ? { doName, prefix: installationPrefix(doName), storageHard: limits.storage_bytes?.hard ?? null } : { doName, prefix: installationPrefix(doName) };
 		await c.interceptOutboundHttp("d1.internal", this.ctx.exports.D1Outbound({ props }));
 		await c.interceptOutboundHttp("r2.internal", this.ctx.exports.R2Outbound({ props }));
+		// Limits (L-2190): autofill for this installation, with its monthly limit (null for none).
+		if (limits && validDoName(doName)) {
+			const autofill: AutofillProps = { doName, autofill: limits.autofill_calls_month ?? null };
+			await c.interceptOutboundHttp(AUTOFILL_HOST, this.ctx.exports.AutofillOutbound({ props: autofill }));
+		}
 	}
 
 	/** Starts the container if needed and waits for /healthz. Returns the cold-start time in ms (0 when warm). */

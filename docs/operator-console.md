@@ -135,7 +135,27 @@ console API.
   a change. `ApothekeContainer.usage()` returns the month's `requests` and
   `container_seconds` for the Cron that will copy them into `usage_counters` (not scheduled yet).
 - **Not in the Worker:** item, photo and user ceilings and the `/limits` bridge are in the app (C1); the autofill
-  budget is in the autofill service; an email to the operator at the soft active-time value comes later.
+  budget is counted in the autofill service (see [Autofill](#autofill)); an email to the operator at the soft
+  active-time value comes later.
+
+### Autofill
+
+With `LIMITS_ENABLED` "1", the container object of an installation other than primary binds `http://autofill.internal`
+to `AutofillOutbound` (`edge/src/autofill.ts`). The hosting side sets the installation's `autofill_url` to
+`http://autofill.internal`. The Worker forwards `GET /v1/info` and `POST /v1/suggest` (anything else is 404) to the
+autofill service's `HostedAutofill` entrypoint through the `AUTOFILL` service binding, so no bearer token is used and
+none is given to the container, stored in D1 or set as a var. Only the Worker sets the request headers the service
+reads:
+
+- `X-Apotheke-Installation`: the container object's own name, never anything from PHP.
+- `X-Apotheke-Autofill-Limit` and `X-Apotheke-Autofill-Soft`: the hard and soft `autofill_calls_month` from
+  `plan_limits` (loaded with the route, as whole numbers), or neither when the plan has no such row.
+
+Every other header from the container (`Authorization`, `Cookie`, any installation or limit header) is dropped; only
+`Content-Type`, `Content-Length` and `Accept` are kept. The answer is 503 without calling the service when limits are
+off, for primary, or when the `AUTOFILL` binding is not on the Worker. Primary is not wired. The binding
+(`"services": [{ "binding": "AUTOFILL", "service": "apotheke-autofill", "entrypoint": "HostedAutofill" }]`) is added
+by the deploy owner; `edge/wrangler.jsonc` does not declare it yet.
 
 ## Per-installation APP_KEY and ALLOWED_HOSTS
 
