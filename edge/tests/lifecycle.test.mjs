@@ -583,3 +583,37 @@ test('L-2167: export and delete pass the export step config only to the backup s
   await runJob(w.deps, exB.id, once);
   assert.ok(w.container.running.has('tenant-b'));
 });
+
+test('L-2230: a failed backup still stops a non-active container for export and delete', async () => {
+  const fail = (w) => async (n) => { w.container.running.add(n); throw new LifecycleError('backup_404'); };
+  const w = world();
+  const sus = await confirmed(w, 'suspend');
+  await runJob(w.deps, sus.id, once);
+  w.deps.container.backup = fail(w);
+  const exp = await confirmed(w, 'export');
+  const seen = [];
+  const rec = { do: async (name, config, fn) => { seen.push(name); return (fn ?? config)(); } };
+  await assert.rejects(runJob(w.deps, exp.id, rec), refusedAs('backup_404'));
+  assert.deepEqual(seen, ['start', 'export.backup', 'export.stop', 'failed']);
+  assert.ok(!w.container.running.has('tenant-a'), 'suspended export stops after a failed backup');
+  assert.equal(jobRow(w, exp.id).state, 'failed');
+  assert.equal(jobRow(w, exp.id).error_code, 'backup_404');
+
+  const d = world();
+  d.deps.container.backup = fail(d);
+  const del = await confirmed(d, 'delete', 't-a', { retentionDays: 30 });
+  const seenDel = [];
+  const recDel = { do: async (name, config, fn) => { seenDel.push(name); return (fn ?? config)(); } };
+  await assert.rejects(runJob(d.deps, del.id, recDel), refusedAs('backup_404'));
+  assert.deepEqual(seenDel, ['start', 'delete.status', 'delete.stop', 'delete.export', 'delete.export.stop', 'failed']);
+  assert.ok(!d.container.running.has('tenant-a'), 'delete export stops after a failed backup');
+  assert.equal(jobRow(d, del.id).state, 'failed');
+  // A retryable backup error does not stop the container: a 409 means the first call may still be running.
+  const r = world();
+  const sus2 = await confirmed(r, 'suspend');
+  await runJob(r.deps, sus2.id, once);
+  r.deps.container.backup = async (n) => { r.container.running.add(n); throw new LifecycleRetry('backup_409'); };
+  const exp2 = await confirmed(r, 'export');
+  await assert.rejects(runJob(r.deps, exp2.id, once), (e) => e instanceof LifecycleRetry && e.code === 'backup_409');
+  assert.ok(r.container.running.has('tenant-a'), 'a retried backup leaves the container running');
+});

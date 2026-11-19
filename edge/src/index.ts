@@ -58,7 +58,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	private meter?: UsageMeter;
 	/** True only while opsBackup starts the container: the start gate then also accepts suspended and deleting. */
 	private opsStart = false;
-	/** The container was started by opsBackup: a public request passes the public start gate before it is forwarded. */
+	/** A public request must pass the public start gate before it is forwarded: after opsBackup, or when this
+	 *  object restarts over a running non-primary container. */
 	private opsOnly = false;
 
 	private sleepAfter(): number {
@@ -72,6 +73,9 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		// Re-bind d1.internal so a warm container keeps the outbound handler after a DO eviction.
 		if (c?.running) {
 			this.ready = true;
+			const doName = ctx.id?.name;
+			// Re-check status on the next public request: opsOnly is in memory and would otherwise stay false.
+			if (validDoName(doName) && doName !== INSTALLATION_NAME) this.opsOnly = true;
 			void ctx.blockConcurrencyWhile(async () => {
 				await c.setInactivityTimeout(this.sleepAfter());
 				await this.wireStorage(c);
@@ -199,29 +203,35 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 
 	/** Lifecycle export (C2): the app's backup for jobId, through the container's port like the readiness probe, never the
 	 *  public forward (POST http://ops.internal/internal/backup, signed with this installation's APP_KEY). May start the
-	 *  container while the installation is suspended or deleting. Refused like stopContainer. Returns the full key, or
-	 *  the status when there is none (200: an answer without a usable key). */
-	async opsBackup(jobId: string): Promise<{ key: string } | { status: number }> {
-		const doName = lifecycleName(this.ctx.id?.name);
-		const c = this.ctx.container;
-		if (!c) throw new Error("no container configured");
-		if (!c.running || !this.ready) {
-			if (!c.running) this.opsOnly = true;
-			this.opsStart = true;
-			try {
-				await this.ensureReady();
-			} finally {
-				this.opsStart = false;
+	 *  container while the installation is suspended or deleting. Refused like stopContainer. Returns the full key, the
+	 *  status when there is none (200: an answer without a usable key), or a code for a permanent refusal (primary, not
+	 *  startable, missing APP_KEY). */
+	async opsBackup(jobId: string): Promise<{ key: string } | { status: number } | { code: string }> {
+		try {
+			const doName = lifecycleName(this.ctx.id?.name);
+			const c = this.ctx.container;
+			if (!c) throw new Error("no container configured");
+			this.opsOnly = true;
+			if (!c.running || !this.ready) {
+				this.opsStart = true;
+				try {
+					await this.ensureReady();
+				} finally {
+					this.opsStart = false;
+				}
 			}
+			const res = await c.getTcpPort(PORT).fetch(await opsBackupRequest(await installationAppKey(doName, this.env.APP_KEY), jobId), { redirect: "manual" });
+			if (res.status !== 200) return { status: res.status };
+			const body = (await res.json().catch(() => null)) as { ok?: unknown; backup?: { job_id?: unknown; key?: unknown } } | null;
+			if (body === null) return { status: 502 };
+			const rel = body.backup?.key;
+			const valid = body.ok === true && body.backup?.job_id === jobId && typeof rel === "string" && BACKUP_MANIFEST_KEY.test(rel);
+			return valid ? { key: installationPrefix(doName) + rel } : { status: 200 };
+		} catch (e) {
+			const code = permanentBackupCode(e);
+			if (code) return { code };
+			throw e;
 		}
-		const res = await c.getTcpPort(PORT).fetch(await opsBackupRequest(await installationAppKey(doName, this.env.APP_KEY), jobId), { redirect: "manual" });
-		if (res.status !== 200) return { status: res.status };
-		const body = (await res.json().catch(() => null)) as { ok?: unknown; backup?: { job_id?: unknown; key?: unknown } } | null;
-		if (body === null) return { status: 502 };
-		const rel = body.backup?.key;
-		const key = installationPrefix(doName) + String(rel);
-		const valid = body.ok === true && body.backup?.job_id === jobId && typeof rel === "string" && /^backups\/[^/]/.test(rel) && !rel.split("/").some((p) => p === "" || p === "." || p === "..");
-		return valid && key.startsWith(installationPrefix(doName)) ? { key } : { status: 200 };
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -275,6 +285,18 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	async usage(): Promise<{ period: string; requests: number; container_seconds: number }> {
 		return (this.meter ??= new UsageMeter(this.ctx.storage, () => this.sleepAfter())).usage();
 	}
+}
+
+/** PHP StoredBackups: the relative key is exactly backups/<id>/manifest.json, id YYYYMMDD-HHMMSS- plus six hex digits. */
+const BACKUP_MANIFEST_KEY = /^backups\/\d{8}-\d{6}-[a-f0-9]{6}\/manifest\.json$/;
+
+/** Permanent opsBackup failures: returned as a code so the Workflow fails the job instead of retrying. */
+function permanentBackupCode(e: unknown): string | undefined {
+	const m = e instanceof Error ? e.message : "";
+	if (m === "lifecycle refused for this installation") return "refused";
+	if (m === "APP_KEY is not a 32-byte key") return "bad_app_key";
+	if (m === "no installation hosts" || m === "no installation name" || m === "no container configured") return "not_startable";
+	return undefined;
 }
 
 /** Never show the reason to the client (plan 1A.6). */

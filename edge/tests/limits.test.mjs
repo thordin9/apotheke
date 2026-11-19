@@ -68,7 +68,7 @@ function readyBox(name, vars, storage = kvStorage(), reply = () => new Response(
   };
   const ctx = { id: { name }, container, storage, blockConcurrencyWhile: (f) => f(), waitUntil() {},
     exports: { D1Outbound: () => ({}), R2Outbound: (o) => { wired.push(o.props); return {}; } } };
-  const env = { APP_PASSWORD: 'p', APP_KEY: 'k', STORAGE: {}, DB: {}, INSTALLATION: {}, ...vars };
+  const env = { APP_PASSWORD: 'p', APP_KEY: 'k', STORAGE: {}, DB: controlDb(), INSTALLATION: {}, ...vars };
   return { box: new ApothekeContainer(ctx, env), calls, wired, storage };
 }
 const limited = (limits) => new Request('https://b.example.test/api/v1/items', { headers: { [LIMITS_HEADER]: JSON.stringify(limits) } });

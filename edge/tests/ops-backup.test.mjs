@@ -13,6 +13,8 @@ const { backupKey, lifecycleDeps } = await import('../src/lifecycle-workflow.ts'
 const { EXPORT_STEP, LifecycleError, LifecycleRetry } = await import('../src/lifecycle.ts');
 
 const MASTER = Buffer.alloc(32, 0x5a).toString('base64');
+const REL = 'backups/20261119-010000-abcdef/manifest.json';
+const KEY = `installations/tenant-b/${REL}`;
 const quiet = async (fn) => { const e = console.error; console.error = () => {}; try { return await fn(); } finally { console.error = e; } };
 
 /** The control migrations behind D1's prepare().bind().all()/first(). */
@@ -41,7 +43,7 @@ function box(name, { status = 'active', running = false, answer } = {}) {
       requests.push(req);
       const path = new URL(req.url).pathname;
       if (path === '/healthz') return new Response('ok');
-      if (path === '/internal/backup') return answer ? answer(req) : Response.json({ ok: true, created: true, backup: { job_id: 'job-1', id: 'bk1', key: 'backups/bk1/manifest.json' } });
+      if (path === '/internal/backup') return answer ? answer(req) : Response.json({ ok: true, created: true, backup: { job_id: 'job-1', id: '20261119-010000-abcdef', key: REL } });
       return new Response('app');
     } }),
   };
@@ -55,7 +57,7 @@ const publicReq = () => new Request('https://b.example.test/api/items', { header
 test('C2 wiring: the backup request is signed with the installation key, Host ops.internal, no forwarding headers, on the port', async () => {
   const { b, requests } = box('tenant-b', { running: true });
   const r = await b.opsBackup('job-1');
-  assert.deepEqual(r, { key: 'installations/tenant-b/backups/bk1/manifest.json' });
+  assert.deepEqual(r, { key: KEY });
   const req = requests.find((q) => new URL(q.url).pathname === '/internal/backup');
   assert.equal(req.method, 'POST');
   assert.equal(req.url, 'http://ops.internal/internal/backup');
@@ -70,28 +72,40 @@ test('C2 wiring: the backup request is signed with the installation key, Host op
   assert.notEqual(sig, await opsSignature(MASTER, 'POST', '/internal/backup', body, t), 'not the Worker master key');
 });
 
-test('C2 wiring: the key is the installation prefix plus a relative backups/ key; anything else has no key', async () => {
+test('C2 wiring: the key is the installation prefix plus backups/<id>/manifest.json; anything else has no key', async () => {
   const ok = (key, extra = {}) => () => Response.json({ ok: true, created: false, backup: { job_id: 'job-1', key, ...extra } });
-  for (const key of ['backups/bk1/manifest.json', 'backups/x']) {
-    assert.deepEqual(await box('tenant-b', { running: true, answer: ok(key) }).b.opsBackup('job-1'), { key: `installations/tenant-b/${key}` });
-  }
-  for (const key of ['/backups/x', 'backups/../photo.jpg', 'backups/', 'backups//x', 'backups/./x', 'photos/x', '../tenant-a/backups/x', 'installations/tenant-b/backups/x', 42, null, undefined]) {
+  assert.deepEqual(await box('tenant-b', { running: true, answer: ok(REL) }).b.opsBackup('job-1'), { key: KEY });
+  const bad = [
+    'backups/bk1/manifest.json', 'backups/x', 'backups/x/', 'backups/20261119-010000-abcdef',
+    'backups/20261119-010000-ABCDEF/manifest.json', 'backups/20261119-010000-abcdef0/manifest.json',
+    'backups/20261119-010000-abcde/manifest.json', 'backups/2026-1119-010000-abcdef/manifest.json',
+    '/backups/20261119-010000-abcdef/manifest.json', 'backups/../photo.jpg', 'backups/', 'backups//x',
+    'backups/./x', 'photos/x', '../tenant-a/backups/x', 'installations/tenant-b/backups/x',
+    'backups/%2e%2e/manifest.json', 'backups/%2e%2e%2fphoto.jpg', 'backups/．．/manifest.json',
+    'backups/․․/manifest.json', 'backups/ .. /manifest.json', 'backups/20261119-010000-abcdef /manifest.json',
+    ' backups/20261119-010000-abcdef/manifest.json', 'backups/20261119-010000-abcdef/manifest.json/',
+    ['backups/20261119-010000-abcdef/manifest.json'], 42, null, undefined,
+  ];
+  for (const key of bad) {
     assert.deepEqual(await box('tenant-b', { running: true, answer: ok(key) }).b.opsBackup('job-1'), { status: 200 }, String(key));
   }
-  assert.deepEqual(await box('tenant-b', { running: true, answer: ok('backups/x', { job_id: 'job-2' }) }).b.opsBackup('job-1'), { status: 200 }, 'another job');
-  assert.deepEqual(await box('tenant-b', { running: true, answer: () => Response.json({ ok: false, backup: { job_id: 'job-1', key: 'backups/x' } }) }).b.opsBackup('job-1'), { status: 200 });
+  assert.deepEqual(await box('tenant-b', { running: true, answer: ok(REL, { job_id: 'job-2' }) }).b.opsBackup('job-1'), { status: 200 }, 'another job');
+  assert.deepEqual(await box('tenant-b', { running: true, answer: () => Response.json({ ok: false, backup: { job_id: 'job-1', key: REL } }) }).b.opsBackup('job-1'), { status: 200 });
   assert.deepEqual(await box('tenant-b', { running: true, answer: () => new Response('{"ok":tr') }).b.opsBackup('job-1'), { status: 502 }, 'a cut-off answer');
-  for (const s of [400, 401, 404, 405, 409, 410, 500, 503]) {
-    assert.deepEqual(await box('tenant-b', { running: true, answer: () => Response.json({ ok: false }, { status: s }) }).b.opsBackup('job-1'), { status: s });
+  for (const s of [201, 202, 204, 301, 302, 303, 307, 308, 400, 401, 404, 405, 409, 410, 500, 503]) {
+    assert.deepEqual(await box('tenant-b', { running: true, answer: () => new Response(null, { status: s }) }).b.opsBackup('job-1'), { status: s });
   }
 });
 
-test('C2 wiring: 409, 5xx and an unfinished call are retried; 400, 401, 410, 503 and a bad key fail the job', async () => {
+test('C2 wiring: 409, 5xx and an unfinished call are retried; 400, 401, 410, 503, a bad key and a permanent code fail the job', async () => {
   for (const s of [409, 500, 502, 504]) await assert.rejects(backupKey(async () => ({ status: s })), (e) => e instanceof LifecycleRetry && e.code === `backup_${s}`);
   await assert.rejects(backupKey(async () => { throw new Error('network connection lost'); }), (e) => e instanceof LifecycleRetry && e.code === 'backup_unreachable');
-  for (const s of [400, 401, 404, 410, 503]) await assert.rejects(backupKey(async () => ({ status: s })), (e) => e instanceof LifecycleError && e.code === `backup_${s}`);
+  for (const s of [201, 204, 301, 400, 401, 404, 410, 503]) await assert.rejects(backupKey(async () => ({ status: s })), (e) => e instanceof LifecycleError && e.code === `backup_${s}`);
   await assert.rejects(backupKey(async () => ({ status: 200 })), (e) => e instanceof LifecycleError && e.code === 'bad_export');
-  assert.deepEqual(await backupKey(async () => ({ key: 'installations/tenant-b/backups/x/manifest.json' })), { key: 'installations/tenant-b/backups/x/manifest.json' });
+  for (const code of ['refused', 'not_startable', 'bad_app_key']) {
+    await assert.rejects(backupKey(async () => ({ code })), (e) => e instanceof LifecycleError && e.code === code);
+  }
+  assert.deepEqual(await backupKey(async () => ({ key: KEY })), { key: KEY });
 });
 
 test('L-2167: a suspended or deleting installation starts for the backup only; public requests stay refused', async () => {
@@ -100,7 +114,7 @@ test('L-2167: a suspended or deleting installation starts for the backup only; p
       const { b, container, db } = box('tenant-b', { status });
       assert.equal((await b.fetch(publicReq())).status, 503, `${status}: public start refused`);
       assert.equal(container.starts, 0);
-      assert.deepEqual(await b.opsBackup('job-1'), { key: 'installations/tenant-b/backups/bk1/manifest.json' });
+      assert.deepEqual(await b.opsBackup('job-1'), { key: KEY });
       assert.equal(container.starts, 1, `${status}: started for the backup`);
       assert.equal((await b.fetch(publicReq())).status, 503, `${status}: not forwarded to the backup's container`);
       await b.stopContainer();
@@ -116,14 +130,14 @@ test('L-2167: a suspended or deleting installation starts for the backup only; p
     assert.equal((await a.b.fetch(publicReq())).status, 200);
     // deleted (purged) never starts, not even for a backup.
     const d = box('tenant-b', { status: 'deleted' });
-    await assert.rejects(d.b.opsBackup('job-1'));
+    assert.deepEqual(await d.b.opsBackup('job-1'), { code: 'not_startable' });
     assert.equal(d.container.starts, 0);
   });
 });
 
 test('C2 wiring: primary is refused and its container is never called', async () => {
   const { b, container, requests } = box('primary', { running: true });
-  await assert.rejects(b.opsBackup('job-1'), /refused/);
+  assert.deepEqual(await b.opsBackup('job-1'), { code: 'refused' });
   assert.deepEqual(requests, []);
   assert.equal(container.starts, 0);
 });
@@ -139,6 +153,8 @@ test('C2 wiring: the Workflow calls the container object by name with the job id
   assert.deepEqual(calls, [['tenant-b', 'job-1']]);
   const failing = lifecycleDeps({ APOTHEKE: { getByName: () => ({ opsBackup: async () => ({ status: 409 }) }) } });
   await assert.rejects(failing.container.backup('tenant-b', 'job-1'), (e) => e instanceof LifecycleRetry && e.code === 'backup_409');
+  const refused = lifecycleDeps({ APOTHEKE: { getByName: () => ({ opsBackup: async () => ({ code: 'not_startable' }) }) } });
+  await assert.rejects(refused.container.backup('tenant-b', 'job-1'), (e) => e instanceof LifecycleError && e.code === 'not_startable');
 });
 
 test('C2 wiring: the export step config outlasts a 900 s backup and its 409 retries', () => {
@@ -146,4 +162,38 @@ test('C2 wiring: the export step config outlasts a 900 s backup and its 409 retr
   assert.ok(ms(EXPORT_STEP.timeout) > 900_000);
   assert.equal(EXPORT_STEP.retries.backoff, 'constant');
   assert.ok(ms(EXPORT_STEP.retries.delay) * EXPORT_STEP.retries.limit >= 2 * 900_000);
+});
+
+test('L-2231: a restarted object over a running non-primary container re-checks status for a public request', async () => {
+  await quiet(async () => {
+    for (const status of ['suspended', 'deleting']) {
+      const { b, container } = box('tenant-b', { status, running: true });
+      assert.equal((await b.fetch(publicReq())).status, 503, `${status}: public request after a restart`);
+      assert.equal(container.starts, 0, `${status}: the running container is not started again`);
+    }
+    const a = box('tenant-b', { status: 'active', running: true });
+    assert.equal((await a.b.fetch(publicReq())).status, 200, 'active: still forwarded after a restart');
+    const p = box('primary', { running: true });
+    assert.equal((await p.b.fetch(publicReq())).status, 200, 'primary: never status-gated');
+  });
+});
+
+test('N-2232: a running but not ready non-primary container also sets the public start gate', async () => {
+  await quiet(async () => {
+    const { b, container } = box('tenant-b', { status: 'suspended', running: true });
+    b.ready = false;
+    assert.deepEqual(await b.opsBackup('job-1'), { key: KEY });
+    assert.equal((await b.fetch(publicReq())).status, 503);
+    assert.equal(container.starts, 0);
+  });
+});
+
+test('N-2234: a missing APP_KEY and an unstartable installation fail without a throw', async () => {
+  const bad = box('tenant-b', { running: true });
+  bad.b.env.APP_KEY = 'not-a-key';
+  assert.deepEqual(await bad.b.opsBackup('job-1'), { code: 'bad_app_key' });
+  assert.equal(bad.requests.filter((q) => new URL(q.url).pathname === '/internal/backup').length, 0);
+  const none = box('tenant-b');
+  none.b.ctx.container = undefined;
+  assert.deepEqual(await none.b.opsBackup('job-1'), { code: 'not_startable' });
 });
