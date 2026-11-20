@@ -12,8 +12,23 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** a live `limit_overrides` row raises that installation's plan limit in `/limits` and the route cache ([#000](https://github.com/thordin9/apotheke/pull/000))
 
+## [3.55.0] - 2026-11-20
+
+### Added
+
+- **auth:** hosted installations answer signed `ops.internal` requests for a first-admin claim and an admin reset ([#338](https://github.com/thordin9/apotheke/pull/338))
+
+## [3.54.0] - 2026-11-20
+
+### Added
+
+- **ops:** an operator console shell, a typed client and a local preview for the fleet and the installations list ([#337](https://github.com/thordin9/apotheke/pull/337))
+
 ### Maintenance
 
+- **edge:** ci: require AUTOFILL binding in merged dry run ([#334](https://github.com/thordin9/apotheke/pull/334))
+- **backup:** test: check fence claims by outcome, not wall-clock ([#335](https://github.com/thordin9/apotheke/pull/335))
+- **frontend:** test: fail fast when check-dist has no dist ([#336](https://github.com/thordin9/apotheke/pull/336))
 - **ci:** the merged edge dry run also requires the `AUTOFILL` service binding (`apotheke-autofill#HostedAutofill`) ([#334](https://github.com/thordin9/apotheke/pull/334))
 - **docs:** say to raise the production container `max_instances` before onboarding a hosted tenant ([#334](https://github.com/thordin9/apotheke/pull/334))
 
@@ -1897,7 +1912,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.53.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.55.0...HEAD
+[3.55.0]: https://github.com/thordin9/apotheke/compare/v3.54.0...v3.55.0
+[3.54.0]: https://github.com/thordin9/apotheke/compare/v3.53.2...v3.54.0
 [3.53.2]: https://github.com/thordin9/apotheke/compare/v3.53.1...v3.53.2
 [3.53.1]: https://github.com/thordin9/apotheke/compare/v3.53.0...v3.53.1
 [3.53.0]: https://github.com/thordin9/apotheke/compare/v3.52.0...v3.53.0

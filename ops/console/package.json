@@ -1,0 +1,23 @@
+{
+  "name": "apotheke-ops-console",
+  "private": true,
+  "type": "module",
+  "description": "Operator console for hosted Apotheke installations. A local preview only: it is not deployed and it is not part of the public site.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 4181 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "test": "node --experimental-strip-types --test src/api/client.test.ts preview/mock-api.test.ts",
+    "test:bundle": "node --experimental-strip-types --test scripts/bundle-has-no-mock.test.ts",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.11.2",
+    "@playwright/test": "1.64.1",
+    "@types/node": "22.19.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.5"
+  }
+}
