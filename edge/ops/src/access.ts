@@ -1,8 +1,11 @@
-// Cloudflare Access for apotheke-ops: every request needs a valid Cf-Access-Jwt-Assertion, checked here against the
-// team's signing keys (https://<team>.cloudflareaccess.com/cdn-cgi/access/certs). Fails closed: no configuration, no
-// token, an unknown key, a bad signature, another issuer or audience, or an expired token is never an operator.
+// Cloudflare Access for apotheke-ops: every request needs a valid Access token, checked here against the team's
+// signing keys (https://<team>.cloudflareaccess.com/cdn-cgi/access/certs). The token is the Cf-Access-Jwt-Assertion
+// header, or the CF_Authorization cookie when the header is missing or empty. Fails closed: no configuration, an empty
+// OPS_ALLOWED_EMAILS, no token, an unknown key, a bad signature, another issuer or audience, an expired token, or an
+// email that is not on OPS_ALLOWED_EMAILS is never an operator.
 
 export const ACCESS_JWT_HEADER = "Cf-Access-Jwt-Assertion";
+export const ACCESS_COOKIE = "CF_Authorization";
 
 /** How long the team's keys are kept before they are fetched again. */
 export const JWKS_TTL_MS = 5 * 60 * 1000;
@@ -15,17 +18,36 @@ export const JWKS_FAILURE_MS = 10 * 1000;
 /** Allowed clock difference for nbf and iat. exp has none. */
 const SKEW_S = 60;
 
-export type AccessConfig = { team: string; aud: string };
-export type AccessEnv = { ACCESS_TEAM_DOMAIN?: string; ACCESS_AUD?: string };
+export type AccessConfig = { team: string; aud: string; emails: ReadonlySet<string> };
+export type AccessEnv = { ACCESS_TEAM_DOMAIN?: string; ACCESS_AUD?: string; OPS_ALLOWED_EMAILS?: string };
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
-/** The configured team domain and audience, or null when either is missing or the team domain is not
- *  <team>.cloudflareaccess.com (a scheme and a trailing slash are accepted). */
+/** OPS_ALLOWED_EMAILS: comma-separated, case-insensitive. Blank entries are dropped. */
+export function allowedEmails(value: string | undefined): Set<string> {
+	return new Set(String(value ?? "").split(",").map((e) => e.trim().toLowerCase()).filter((e) => e !== ""));
+}
+
+/** The configured team domain, audience and allowed emails, or null when any is missing or the team domain is not
+ *  <team>.cloudflareaccess.com (a scheme and a trailing slash are accepted). An empty OPS_ALLOWED_EMAILS admits no
+ *  one, so it is treated as not configured. */
 export function accessConfig(env: AccessEnv): AccessConfig | null {
 	const team = String(env.ACCESS_TEAM_DOMAIN ?? "").trim().toLowerCase().replace(/^https:\/\//, "").replace(/\/$/, "");
 	const aud = String(env.ACCESS_AUD ?? "").trim();
-	if (aud === "" || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.cloudflareaccess\.com$/.test(team)) return null;
-	return { team, aud };
+	const emails = allowedEmails(env.OPS_ALLOWED_EMAILS);
+	if (aud === "" || emails.size === 0 || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.cloudflareaccess\.com$/.test(team)) return null;
+	return { team, aud, emails };
+}
+
+/** The Access token: a non-empty header, else the CF_Authorization cookie, else "". An empty or blank header falls
+ *  through to the cookie, which is verified the same way. */
+export function accessToken(request: Request): string {
+	const header = (request.headers.get(ACCESS_JWT_HEADER) ?? "").trim();
+	if (header !== "") return header;
+	for (const part of (request.headers.get("Cookie") ?? "").split(";")) {
+		const eq = part.indexOf("=");
+		if (eq > 0 && part.slice(0, eq).trim() === ACCESS_COOKIE) return part.slice(eq + 1).trim();
+	}
+	return "";
 }
 
 type Jwk = JsonWebKey & { kid?: string };
@@ -104,10 +126,10 @@ function b64urlJson(part: string): Record<string, unknown> | null {
 export type AccessResult = { ok: true; email: string } | { ok: false; code: "unauthorized" | "forbidden" | "access_unavailable" };
 
 /** The operator behind request: the email claim of a valid Access token. unauthorized: no valid token for this
- *  application. forbidden: a valid token without an email (for example a service token). access_unavailable: the
- *  team's keys could not be read. */
+ *  application. forbidden: a valid token without an email (for example a service token) or with an email that is not
+ *  on OPS_ALLOWED_EMAILS. access_unavailable: the team's keys could not be read. */
 export async function verifyAccess(request: Request, config: AccessConfig, fetcher: Fetch, nowMs: number): Promise<AccessResult> {
-	const token = request.headers.get(ACCESS_JWT_HEADER) ?? "";
+	const token = accessToken(request);
 	const parts = token.split(".");
 	if (parts.length !== 3 || token.length > 16384) return { ok: false, code: "unauthorized" };
 	const header = b64urlJson(parts[0]);
@@ -131,5 +153,7 @@ export async function verifyAccess(request: Request, config: AccessConfig, fetch
 	if (payload.iat !== undefined && (typeof payload.iat !== "number" || payload.iat > now + SKEW_S)) return { ok: false, code: "unauthorized" };
 	const email = payload.email;
 	if (typeof email !== "string" || email.length > 254 || !/^[^\s@]+@[^\s@]+$/.test(email)) return { ok: false, code: "forbidden" };
-	return { ok: true, email: email.toLowerCase() };
+	const operator = email.toLowerCase();
+	if (!config.emails.has(operator)) return { ok: false, code: "forbidden" };
+	return { ok: true, email: operator };
 }

@@ -10,6 +10,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 case "$worker" in
   getapotheke-app) perms='Account > Workers Scripts > Edit (environment deploy-site)' ;;
   apotheke-api) perms='Editor on apotheke-api (or Account > Workers Scripts > Edit for its first deploy) and Account > Containers > Edit (environment deploy-edge)' ;;
+  apotheke-ops) perms='Editor on apotheke-ops (or Account > Workers Scripts > Edit for its first deploy) and Account > D1 > Read (environment deploy-edge)' ;;
   *) echo "::error title=Worker guard::$worker is not a Worker this repository deploys"; exit 1 ;;
 esac
 : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is not set}"
