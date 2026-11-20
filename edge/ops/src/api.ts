@@ -3,6 +3,7 @@
 // 422 or 503 (405 for a known path with another method).
 import { audited, type AuditDb } from "./audit";
 import { readRoute, runRead } from "./reads";
+import { writeRoute, type WritesEnv } from "./writes";
 
 export const API_PREFIX = "/api/ops/v1";
 /** The largest request body an action reads. */
@@ -46,7 +47,7 @@ function edgeFailure(result: OpsFailure): Response {
 
 /** The request's JSON object body, at most MAX_BODY_BYTES, or null. A declared Content-Length over the cap is not
  *  read at all; without one, reading stops as soon as more than MAX_BODY_BYTES have arrived. */
-async function readBody(request: Request): Promise<Record<string, unknown> | null> {
+export async function readBody(request: Request): Promise<Record<string, unknown> | null> {
 	const declared = request.headers.get("Content-Length");
 	if (declared !== null && !(Number(declared) <= MAX_BODY_BYTES)) return null;
 	const bytes = new Uint8Array(MAX_BODY_BYTES);
@@ -150,6 +151,9 @@ export async function handleApi(request: Request, env: ApiEnv, op: Operator, now
 		if (method !== "GET" && method !== "HEAD") return withAllow("GET, HEAD");
 		return json(200, { ok: true, provisioning_enabled: env.OPS_PROVISIONING === "1", limits_enabled: env.LIMITS_ENABLED === "1" });
 	}
+	// Writes (writes.ts): plan limits, subscriptions, jobs and limit overrides. GET and HEAD /jobs fall through to the read.
+	const write = writeRoute(path, method);
+	if (write) return write instanceof Response ? write : write(request, env as WritesEnv, op, nowMs);
 	const read = readRoute(path);
 	if (read) {
 		if (method !== "GET" && method !== "HEAD") return withAllow("GET, HEAD");

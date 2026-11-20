@@ -92,7 +92,8 @@ without a row, or with no `hard_value`, is no limit, and an installation without
 cached with it (30 seconds per isolate). A live `limit_overrides` row for the same installation and key
 (`expires_at` empty or a well-formed timestamp in the future) overrides (raises or lowers) that key's hard value; the soft value is then 80% of the new hard.
 A non-integer `hard_value` is ignored so the plan cap stays. A malformed `expires_at` is treated as expired; NULL never expires. Expired rows are ignored and do not add a key the plan does not already cap. `primary` is not given overrides, and
-when limits are off the route lookup does not read them. The console API that grants or withdraws a row is separate.
+when limits are off the route lookup does not read them. The console grants and withdraws a row with `PUT` and `DELETE /installations/:id/limits/:key` (see
+[Writes](#writes)), never below the plan's hard value.
 
 | Limit (`limit_key`) | Where | Soft | Hard |
 |---|---|---|---|
@@ -464,7 +465,8 @@ the parameter's name as `detail`; an empty value is no filter, and unknown param
 it is null on the last one. Installations are in `id` order; jobs and audit rows newest first.
 
 - `GET /overview` returns `installations_by_status` (`[{status,count}]`, every status), `installations_by_plan`
-  (`[{plan_id,plan_name,count}]`, every plan, counted by subscription), `subscriptions_by_status` (every status),
+  (`[{plan_id,plan_name,count}]`, every plan, counted by subscription: every `subscriptions` row of the plan,
+  `cancelled` ones and those of `deleting` or `deleted` installations included), `subscriptions_by_status` (every status),
   `open_jobs_by_state` (`paused`, `queued`, `running`), `usage_totals` (`[{metric,value}]`, the sum of
   `usage_counters` for `usage_period`, the current UTC month), `revenue` and `as_of`. `revenue` is null because there
   are no prices, and the screen leaves the amount blank and says that no prices are set. `as_of` is the stats
@@ -488,24 +490,70 @@ it is null on the last one. Installations are in `id` order; jobs and audit rows
   `installation`, `operator` (any case) and `action` are exact; `from` (included) and `to` (excluded) are a UTC date
   (`2026-11-20`) or date-time (`2026-11-20T10:00:00Z`).
 - `GET /audit.csv` takes the same filters and is a `text/csv` download of at most 10,000 rows, newest first, with a
-  header row and CRLF line ends; `X-Truncated: 1` when more rows match. A cell starting with `=`, `+`, `-`, `@`, a
+  header row and CRLF line ends; `X-Truncated: 1` when more rows match, else `0` (also at exactly 10,000). A cell starting with `=`, `+`, `-`, `@`, a
   tab or a CR gets a leading `'` so a spreadsheet does not run it, and a cell with a quote, comma, CR or LF is quoted.
+
+#### Writes
+
+`edge/ops/src/writes.ts`. Each passes Access and the CSRF check first (403 `csrf`), then its route (an unknown method
+is 405 with `Allow`), then its body: a JSON object of at most 4 KiB with only the fields listed, else 422
+`invalid_body`, with the field as `detail` when one is unknown or not valid. `primary` is refused with 403 `primary`
+by every write: by id before any lookup, and again by its row (`do_name` `primary`). An unknown installation is 404
+`not_found` and a `deleted` one 410 `gone`. Each D1 change and its `operator_audit` row (operator, action,
+installation, `before_json`, `after_json`, `request_id`) are one D1 batch: a failed batch keeps neither and answers
+503 `unavailable`. Audit rows hold control-plane fields only.
+
+- `PUT /plans/:id/limits` with `{"limits":{"<key>":{"soft_value":…,"hard_value":…}}}` replaces all of the plan's
+  `plan_limits` rows. Keys are the `plan_limits` keys; each value is a non-negative integer or null, and `soft_value`
+  is at most `hard_value`. A key left out, given as null, or with both values null has no row (no limit). Returns
+  `{"ok":true,"plan_id":…,"limits":[…]}` (the new rows, as in `GET /plans`). Unknown plan 404 `not_found`; the plan of
+  `primary`'s subscription 403 `primary`. Audit action `plan.limits`, no installation, `before_json` and `after_json`
+  `{"plan_id","limits":{"<key>":{"soft_value","hard_value"}}}`: the audit rows are the limits' version history.
+- `PUT /installations/:id/subscription` with any of `plan_id`, `status` (`trial`, `active`, `past_due`,
+  `cancelled`), `trial_end`, `period_end` (`YYYY-MM-DD`, `YYYY-MM-DDTHH:MM:SSZ` or null) and `confirm` (boolean).
+  Fields left out keep their value; an installation without a subscription needs `plan_id` and `status` and gets one.
+  Returns `{"ok":true,"subscription":…}`. A plan that does not exist is 422 `unknown_plan`, an inactive one 409
+  `plan_inactive`. A change to a plan that sets any hard limit lower than the current plan (a key with no row or no
+  hard value is no limit, so a newly capped key is lower too) is 409 `downgrade_requires_confirm` with the `keys`,
+  unless `confirm` is true. Audit action `subscription.update`, `before_json` (null without a subscription) and
+  `after_json` `{"plan_id","status","trial_end","period_end"}`. `notes` is not changed here.
+- `POST /jobs` with `{"kind","installation_id","nonce","retention_days"}` creates a `paused` job (see
+  [Lifecycle jobs](#lifecycle-jobs)): 201 `{"ok":true,"created":true,"job":…}`, or 200 with `"created":false` and the
+  existing job for the same kind, installation and `nonce` (8 to 128 of `A-Z a-z 0-9 _ -`). `retention_days` (1 to
+  3650) is required for `delete` and refused for the other kinds. `provision` is 403 `provisioning_disabled` unless
+  `OPS_PROVISIONING` is `"1"` (it is `"0"` in `edge/ops/wrangler.jsonc` and on prod). A `purge` before a finished
+  delete's retention is over is 409 `retention`. Audit row `<job id>:create`, action `lifecycle.<kind>.create`,
+  `after_json` `{"job_id","retention_days"}`; a repeated request writes none.
+- `POST /jobs/:id/confirm` with `{}` (or `{"confirm_host":…}` for a purge: one of the installation's hosts, trimmed
+  and lower case, else 422 `confirm_host`; a purge whose retention is not over is 409 `retention`) sets the job
+  `queued` with `confirmed_by`, writes audit row `<job id>:confirm` (action `lifecycle.<kind>.confirm`, `after_json`
+  `{"job_id","host"}`), and starts the Workflow instance with the job id as its id. Returns `{"ok":true,"job":…}`.
+  Confirming a `queued` job again starts its instance if it did not start (an existing instance is fine); `running`,
+  `done` and `failed` are 409 `not_paused` with the state as `detail`. If the instance cannot be created: 503
+  `workflow_unavailable`, and the job stays `queued`. A `provision` job is 403 `provisioning_disabled` while
+  provisioning is off. **The Workflow is not bound to `apotheke-ops` yet** (binding `LIFECYCLE`, the
+  `LifecycleWorkflow` of `edge/src/lifecycle-workflow.ts`): until it is, confirm answers 503 `not_configured`
+  before reading or changing anything, so no job can start from the console.
+- `PUT /installations/:id/limits/:key` with `{"hard_value","reason","expires_at"}` grants or replaces the
+  installation's `limit_overrides` row for `key`: `hard_value` a non-negative integer, `reason` at most 200
+  characters or null, `expires_at` a future `YYYY-MM-DDTHH:MM:SSZ` or null (never expires). The override may only
+  raise: a value below the plan's hard value is 422 `below_plan_limit` (with `plan_hard_value`); a key the plan has
+  no hard value for is 409 `no_plan_limit`, and an installation without a subscription 409 `no_subscription`. An
+  unknown key is 404 `unknown_limit`. Returns `{"ok":true,"override":…}`. Audit action `limit_override.set`,
+  `before_json` (the previous row or null) and `after_json` `{"limit_key","hard_value","reason","expires_at"}`.
+- `DELETE /installations/:id/limits/:key` withdraws it (no body is read): `{"ok":true}`, or 404 `not_found` when there
+  is none. Audit action `limit_override.delete` with the previous row as `before_json`.
 
 ### Planned
 
 Not served yet; the shapes may still change.
 
 - `GET /installations/:id/users` (metadata only)
-- `PUT /plans/:id/limits`
-- `PUT /installations/:id/subscription`
 - `GET /subscriptions/rules` is a report only. A rule with an unset value shows `not run: value not set`.
-- `POST /jobs` comes back `paused` for every kind. `kind` `provision` returns 409 `provisioning_disabled` while
-  provisioning is off, which it is on prod.
-- `POST /jobs/:id/confirm`, with `confirm_host` for a purge.
 - `GET /jobs/:id/export` is a download for a finished export job (streamed, size-capped).
 
-Deferred, and not in E6: `POST /installations/:id/users/:uid/disable`, `POST /installations/:id/users/:uid/reset-link`,
-`POST /installations/:id/overrides` and `POST /jobs/:id/retry`.
+Deferred, and not in E6: `POST /installations/:id/users/:uid/disable`, `POST /installations/:id/users/:uid/reset-link`
+and `POST /jobs/:id/retry`.
 
 The local preview in `ops/console` answers only `GET /config`, `GET /overview`, `GET /installations` and
 `GET /installations/:id`, with made-up rows, and can answer 401, 503 and 410 so the error screens can be checked.
