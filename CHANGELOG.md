@@ -12,6 +12,16 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** a live `limit_overrides` row can override (raise or lower) that installation's plan limit in `/limits` and the route cache ([#344](https://github.com/thordin9/apotheke/pull/344))
 
+## [3.58.0] - 2026-11-20
+
+### Added
+
+- **edge:** read endpoints for the operator console: overview, installations, plans, subscriptions due, lifecycle jobs, and the operator audit log with a CSV export ([#348](https://github.com/thordin9/apotheke/pull/348))
+
+### Maintenance
+
+- **deps-dev:** build: bump vite from 8.3.7 to 8.3.8 in /frontend ([#340](https://github.com/thordin9/apotheke/pull/340))
+
 ## [3.57.0] - 2026-11-20
 
 ### Added
@@ -1928,7 +1938,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.57.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.58.0...HEAD
+[3.58.0]: https://github.com/thordin9/apotheke/compare/v3.57.0...v3.58.0
 [3.57.0]: https://github.com/thordin9/apotheke/compare/v3.56.0...v3.57.0
 [3.56.0]: https://github.com/thordin9/apotheke/compare/v3.55.0...v3.56.0
 [3.55.0]: https://github.com/thordin9/apotheke/compare/v3.54.0...v3.55.0

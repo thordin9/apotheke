@@ -1,7 +1,9 @@
 // Operator console E6-1: the apotheke-ops Worker (edge/ops). Cloudflare Access fails closed, writes need the CSRF
 // header and their own Origin, GET /config reports the vars, and the claim and admin reset go through apotheke-api's
-// Ops entrypoint with every refusal, one audit row in one batch, and no token in D1 or a log. The Access keys are
-// generated here; tokens and hosts are fakes. Loaded by r2.test.mjs, which registers the cloudflare:workers stub and
+// Ops entrypoint with every refusal, one audit row in one batch, and no token in D1 or a log. E6-2: the reads
+// (overview, installations, plans, subscriptions due, jobs, audit and its CSV) with paging, filters and 422s, the key
+// fetch timeout and failure window, and the streamed body cap. The Access keys are generated here; tokens and hosts
+// are fakes. Loaded by r2.test.mjs, which registers the cloudflare:workers stub and
 // the extensionless import hook, so CI's existing node --test command runs it.
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -362,4 +364,354 @@ test('E6-1 ops: wrangler.jsonc ships with no routes, no workers.dev or preview U
   assert.ok(storage.includes(`"database_name": "${config.d1_databases[0].database_name}"`), 'the same D1 as apotheke-api');
   assert.equal(config.d1_databases[0].database_id, undefined);
   assert.equal(config.assets.run_worker_first, true, 'the console files go through the Access check');
+});
+
+// E6-2: the reads. seedReads adds plans, limits, subscriptions, usage, jobs and audit rows to controlDb's
+// installations (b, d, n, p, primary, s, x).
+function seedReads(db) {
+  const r = db.raw;
+  r.exec(`INSERT INTO plans (id, name, active, created_at) VALUES ('shelf', 'Shelf', 1, '2026-10-01T00:00:00Z'), ('loft', 'Loft', 0, '2026-10-02T00:00:00Z')`);
+  r.exec(`INSERT INTO plan_limits (plan_id, limit_key, soft_value, hard_value) VALUES ('shelf', 'items', NULL, 500), ('shelf', 'photos_per_item', 20, 40), ('loft', 'storage_bytes', 1000, 5000)`);
+  const sub = r.prepare('INSERT INTO subscriptions (installation_id, plan_id, status, trial_end, period_end, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+  sub.run('b', 'shelf', 'active', null, '2026-11-25', '2026-11-01T00:00:00Z');
+  sub.run('p', 'shelf', 'trial', '2026-12-10T00:00:00Z', null, '2026-11-01T00:00:00Z');
+  sub.run('s', 'loft', 'past_due', null, '2026-11-17', '2026-11-01T00:00:00Z');
+  sub.run('d', 'loft', 'cancelled', null, '2026-11-21', '2026-11-01T00:00:00Z');
+  sub.run('x', 'shelf', 'active', null, null, '2026-11-01T00:00:00Z');
+  const use = r.prepare('INSERT INTO usage_counters (installation_id, period, metric, value) VALUES (?, ?, ?, ?)');
+  use.run('b', '2026-11', 'items', 12); use.run('p', '2026-11', 'items', 4); use.run('b', '2026-10', 'items', 9); use.run('primary', '2026-11', 'photos', 1);
+  const job = r.prepare('INSERT INTO lifecycle_jobs (id, installation_id, kind, idempotency_key, state, confirmed_by, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  for (const [id, inst, kind, state, day] of [['j1', 'b', 'export', 'done', '01'], ['j2', 'b', 'suspend', 'paused', '02'], ['j3', 's', 'suspend', 'running', '03'], ['j4', 'p', 'provision', 'queued', '04'], ['j5', 'x', 'delete', 'failed', '05'], ['j6', 'x', 'delete', 'paused', '05']]) {
+    const at = `2026-11-${day}T00:00:00Z`;
+    job.run(id, inst, kind, `${kind}:${inst}:${id}`, state, state === 'paused' ? null : 'ops-a@example.test', 'ops-a@example.test', at, at);
+  }
+  const audit = r.prepare('INSERT INTO operator_audit (id, at, operator, action, installation_id, before_json, after_json, request_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  audit.run('a1', '2026-11-01T10:00:00Z', 'ops-a@example.test', 'installation.claim', 'b', null, '{"host":"b.example.test","expires_at":"2026-11-02 10:00:00 UTC"}', 'r1');
+  audit.run('a2', '2026-11-02T10:00:00Z', 'ops-b@example.test', 'installation.admin_reset', 'p', null, '{"host":"p.example.test"}', 'r2');
+  audit.run('a3', '2026-11-03T10:00:00Z', 'ops-a@example.test', 'subscription.update', 'b', '{"plan_id":"loft"}', '{"plan_id":"shelf"}', 'r3');
+  audit.run('a4', '2026-11-03T10:00:00Z', 'ops-b@example.test', 'installation.claim', 's', null, '{"host":"s.example.test","expires_at":"2026-11-04 10:00:00 UTC"}', 'r4');
+  return db;
+}
+
+const API = '/api/ops/v1';
+const READS = ['/overview', '/installations', '/installations/b', '/plans', '/subscriptions?due=14', '/jobs', '/audit', '/audit.csv'];
+const readSetup = () => setup({ db: seedReads(controlDb()) });
+/** Every page of a list, following next_cursor. */
+async function walk(t, path, key) {
+  const rows = [];
+  let next = null;
+  let pages = 0;
+  do {
+    const r = await t.go(path + (path.includes('?') ? '&' : '?') + (next ? `cursor=${next}` : ''));
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    rows.push(...r.json[key]);
+    next = r.json.next_cursor;
+    pages++;
+  } while (next);
+  return { rows, pages };
+}
+
+test('E6-2 ops: every read needs Access, is GET or HEAD only, no-store, and OPTIONS is 405 before Access', async () => {
+  for (const path of READS) {
+    const t = readSetup();
+    const none = await t.go(API + path, { token: null });
+    assert.deepEqual([none.status, none.json], [401, { ok: false, code: 'unauthorized' }], path);
+    assertNoStore(none.res);
+    const bad = await t.go(API + path, { token: await jwt({ aud: ['another-aud'] }) });
+    assert.equal(bad.status, 401, path);
+    const ok = await t.go(API + path);
+    assert.equal(ok.status, 200, path);
+    assertNoStore(ok.res);
+    assert.match(ok.res.headers.get('x-request-id'), /^[0-9a-f-]{36}$/);
+    const head = await t.go(API + path, { method: 'HEAD' });
+    assert.equal(head.status, 200, `HEAD ${path}`);
+    for (const token of [undefined, null]) {
+      const opt = await t.go(API + path, { method: 'OPTIONS', token, headers: { Origin: 'https://evil.example.test', 'Access-Control-Request-Method': 'GET' } });
+      assert.deepEqual([opt.status, opt.json], [405, { ok: false, code: 'method_not_allowed' }], `OPTIONS ${path}`);
+      assertNoStore(opt.res);
+    }
+    const csrf = await t.go(API + path, { method: 'POST', body: '{}' });
+    assert.deepEqual([csrf.status, csrf.json], [403, { ok: false, code: 'csrf' }], `POST ${path}`);
+    const post = await t.write(API + path, {});
+    assert.deepEqual([post.status, post.json, post.res.headers.get('allow')], [405, { ok: false, code: 'method_not_allowed' }, 'GET, HEAD'], `POST ${path}`);
+    assert.equal(t.db.batches.length, 0, 'a read writes nothing');
+  }
+  const unbound = readSetup();
+  delete unbound.env.DB;
+  assert.deepEqual((await unbound.go(API + '/overview')).json, { ok: false, code: 'not_configured' });
+});
+
+test('E6-2 ops: GET /overview counts installations, plans, subscriptions and open jobs; revenue and as_of are null', async () => {
+  const t = readSetup();
+  const r = await t.go(API + '/overview');
+  assert.deepEqual(r.json, {
+    ok: true, revenue: null, as_of: null,
+    installations_by_status: [{ status: 'provisioning', count: 1 }, { status: 'active', count: 3 }, { status: 'suspended', count: 1 }, { status: 'deleting', count: 1 }, { status: 'deleted', count: 1 }],
+    installations_by_plan: [{ plan_id: 'internal', plan_name: 'Internal', count: 1 }, { plan_id: 'loft', plan_name: 'Loft', count: 2 }, { plan_id: 'shelf', plan_name: 'Shelf', count: 3 }],
+    subscriptions_by_status: [{ status: 'trial', count: 1 }, { status: 'active', count: 3 }, { status: 'past_due', count: 1 }, { status: 'cancelled', count: 1 }],
+    open_jobs_by_state: [{ state: 'paused', count: 2 }, { state: 'queued', count: 1 }, { state: 'running', count: 1 }],
+    usage_period: '2026-11',
+    usage_totals: [{ metric: 'items', value: 16 }, { metric: 'photos', value: 1 }],
+  });
+  const empty = setup();
+  const e = await empty.go(API + '/overview');
+  assert.deepEqual(e.json.open_jobs_by_state.map((x) => x.count), [0, 0, 0]);
+  assert.deepEqual(e.json.usage_totals, []);
+});
+
+test('E6-2 ops: GET /installations lists every installation with routes, subscription and plan; primary is marked; paging and filters', async () => {
+  const t = readSetup();
+  const r = await t.go(API + '/installations');
+  assert.deepEqual(r.json.installations.map((x) => [x.installation.id, x.primary]), [['b', false], ['d', false], ['n', false], ['p', false], ['primary', true], ['s', false], ['x', false]]);
+  assert.equal(r.json.next_cursor, null);
+  const b = r.json.installations[0];
+  assert.deepEqual(Object.keys(b.installation).sort(), ['created_at', 'do_name', 'id', 'notes', 'owner_contact', 'r2_prefix', 'status', 'updated_at']);
+  assert.deepEqual([b.installation.do_name, b.installation.status], ['tenant-b', 'active']);
+  assert.deepEqual(b.routes.map((x) => x.host), ['b-alt.example.test', 'b.example.test']);
+  assert.deepEqual(b.subscription, { installation_id: 'b', plan_id: 'shelf', status: 'active', trial_end: null, period_end: '2026-11-25', notes: null, updated_at: '2026-11-01T00:00:00Z' });
+  assert.deepEqual(b.plan, { id: 'shelf', name: 'Shelf', active: 1, created_at: '2026-10-01T00:00:00Z' });
+  const n = r.json.installations[2];
+  assert.deepEqual([n.routes, n.subscription, n.plan], [[], null, null], 'no host and no subscription');
+
+  const paged = await walk(t, API + '/installations?limit=3', 'installations');
+  assert.deepEqual([paged.pages, paged.rows.map((x) => x.installation.id)], [3, ['b', 'd', 'n', 'p', 'primary', 's', 'x']]);
+  const ids = async (q) => (await t.go(API + '/installations?' + q)).json.installations.map((x) => x.installation.id);
+  assert.deepEqual(await ids('status=active'), ['b', 'n', 'primary']);
+  assert.deepEqual(await ids('plan=shelf'), ['b', 'p', 'x']);
+  assert.deepEqual(await ids('plan=shelf&status=active'), ['b']);
+  assert.deepEqual(await ids('plan=nope'), []);
+  assert.deepEqual(await ids('q=B-ALT'), ['b']);
+  assert.deepEqual(await ids('q=%25'), [], 'q is a plain substring, not a LIKE pattern');
+  assert.deepEqual(await ids('status=&plan=&q=&cursor='), ['b', 'd', 'n', 'p', 'primary', 's', 'x'], 'empty values are no filter');
+  const mainHost = (await t.go(API + '/installations?status=active')).json.installations.find((x) => x.primary);
+  assert.deepEqual(mainHost.routes.map((x) => x.host), ['api.services.getapotheke.com']);
+});
+
+test('E6-2 ops: bad query values are 422 invalid_query with the parameter', async () => {
+  const t = readSetup();
+  const cases = [
+    ['/installations?status=gone', 'status'], ['/installations?status=Active', 'status'], ['/installations?limit=0', 'limit'],
+    ['/installations?limit=101', 'limit'], ['/installations?limit=1.5', 'limit'], ['/installations?limit=-1', 'limit'],
+    ['/installations?cursor=***', 'cursor'], ['/installations?cursor=' + Buffer.from('["a","b"]').toString('base64url'), 'cursor'],
+    ['/installations?cursor=' + Buffer.from('{"a":1}').toString('base64url'), 'cursor'], ['/installations?plan=' + 'p'.repeat(65), 'plan'],
+    ['/installations?q=%00', 'q'], ['/jobs?kind=reboot', 'kind'], ['/jobs?state=stuck', 'state'], ['/jobs?status=stuck', 'status'],
+    ['/jobs?state=done&status=failed', 'status'], ['/jobs?cursor=' + Buffer.from('["x"]').toString('base64url'), 'cursor'], ['/jobs?limit=500', 'limit'],
+    ['/audit?from=yesterday', 'from'], ['/audit?to=2026-13-01', 'to'], ['/audit?from=2026-02-30', 'from'], ['/audit?to=2026-11-20T25:00Z', 'to'],
+    ['/audit?operator=' + 'o'.repeat(255), 'operator'], ['/audit?limit=x', 'limit'], ['/audit.csv?from=x', 'from'],
+    ['/subscriptions?due=366', 'due'], ['/subscriptions?due=-1', 'due'], ['/subscriptions?due=abc', 'due'], ['/subscriptions?due=14days', 'due'], ['/subscriptions?due=1e2', 'due'],
+  ];
+  for (const [path, param] of cases) {
+    const r = await t.go(API + path);
+    assert.deepEqual([r.status, r.json], [422, { ok: false, code: 'invalid_query', detail: param }], path);
+    assertNoStore(r.res);
+  }
+});
+
+test('E6-2 ops: GET /installations/:id has routes, subscription, plan limits, usage, the last jobs and audit rows; primary is readable', async () => {
+  const t = readSetup();
+  const r = await t.go(API + '/installations/b');
+  assert.equal(r.status, 200);
+  assert.deepEqual(Object.keys(r.json).sort(), ['audit', 'installation', 'jobs', 'limits', 'ok', 'plan', 'primary', 'routes', 'subscription', 'usage']);
+  assert.deepEqual([r.json.installation.id, r.json.primary, r.json.plan.id], ['b', false, 'shelf']);
+  assert.deepEqual(r.json.limits, [{ plan_id: 'shelf', limit_key: 'items', soft_value: null, hard_value: 500 }, { plan_id: 'shelf', limit_key: 'photos_per_item', soft_value: 20, hard_value: 40 }]);
+  assert.deepEqual(r.json.usage, [{ installation_id: 'b', period: '2026-11', metric: 'items', value: 12 }, { installation_id: 'b', period: '2026-10', metric: 'items', value: 9 }]);
+  assert.deepEqual(r.json.jobs.map((j) => [j.id, j.kind, j.state]), [['j2', 'suspend', 'paused'], ['j1', 'export', 'done']]);
+  assert.deepEqual(r.json.audit.map((a) => a.id), ['a3', 'a1']);
+  assert.deepEqual(Object.keys(r.json.audit[0]).sort(), ['action', 'after_json', 'at', 'before_json', 'id', 'installation_id', 'operator', 'request_id']);
+
+  const job = t.db.raw.prepare('INSERT INTO lifecycle_jobs (id, installation_id, kind, idempotency_key, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+  const audit = t.db.raw.prepare('INSERT INTO operator_audit (id, at, operator, action, installation_id) VALUES (?, ?, ?, ?, ?)');
+  for (let i = 10; i < 40; i++) {
+    job.run(`k${i}`, 'b', 'export', `export:b:${i}`, 'o@example.test', `2026-11-15T00:00:${i}Z`);
+    audit.run(`z${i}`, `2026-11-15T00:00:${i}Z`, 'o@example.test', 'x', 'b');
+  }
+  const many = await t.go(API + '/installations/b');
+  assert.equal(many.json.jobs.length, 20);
+  assert.equal(many.json.audit.length, 20);
+  assert.deepEqual([many.json.jobs[0].id, many.json.audit[0].id], ['k39', 'z39'], 'newest first');
+
+  const primary = await t.go(API + '/installations/primary');
+  assert.deepEqual([primary.status, primary.json.primary, primary.json.plan.id, primary.json.limits], [200, true, 'internal', []]);
+  const none = await t.go(API + '/installations/n');
+  assert.deepEqual([none.json.subscription, none.json.plan, none.json.limits, none.json.routes], [null, null, [], []]);
+  for (const id of ['nope', '%E0%A4%A', 'b%00', 'x'.repeat(129)]) {
+    const miss = await t.go(API + '/installations/' + id);
+    assert.deepEqual([miss.status, miss.json], [404, { ok: false, code: 'not_found' }], id);
+  }
+  assert.equal((await t.go(API + '/installations/b/')).status, 404);
+});
+
+test('E6-2 ops: GET /plans returns every plan with its limits', async () => {
+  const t = readSetup();
+  const r = await t.go(API + '/plans');
+  assert.deepEqual(r.json, {
+    ok: true,
+    plans: [
+      { id: 'internal', name: 'Internal', active: 1, created_at: r.json.plans[0].created_at, limits: [] },
+      { id: 'loft', name: 'Loft', active: 0, created_at: '2026-10-02T00:00:00Z', limits: [{ plan_id: 'loft', limit_key: 'storage_bytes', soft_value: 1000, hard_value: 5000 }] },
+      { id: 'shelf', name: 'Shelf', active: 1, created_at: '2026-10-01T00:00:00Z', limits: [{ plan_id: 'shelf', limit_key: 'items', soft_value: null, hard_value: 500 }, { plan_id: 'shelf', limit_key: 'photos_per_item', soft_value: 20, hard_value: 40 }] },
+    ],
+  });
+});
+
+test('E6-2 ops: GET /subscriptions?due= lists subscriptions due within N days, overdue first, cancelled never', async () => {
+  const t = readSetup();
+  const due = async (q) => (await t.go(API + '/subscriptions' + q)).json;
+  const d14 = await due('');
+  assert.deepEqual([d14.due_days, d14.now, d14.truncated], [14, '2026-11-20T12:00:00Z', false]);
+  assert.deepEqual(d14.subscriptions.map((s) => [s.installation_id, s.due_at, s.overdue]), [['s', '2026-11-17', true], ['b', '2026-11-25', false]]);
+  assert.deepEqual(d14.subscriptions[1], { installation_id: 'b', plan_id: 'shelf', plan_name: 'Shelf', status: 'active', trial_end: null, period_end: '2026-11-25', notes: null, updated_at: '2026-11-01T00:00:00Z', due_at: '2026-11-25', hosts: ['b-alt.example.test', 'b.example.test'], overdue: false });
+  assert.deepEqual((await due('?due=14d')).subscriptions.length, 2);
+  assert.deepEqual((await due('?due=30')).subscriptions.map((s) => s.installation_id), ['s', 'b', 'p']);
+  assert.deepEqual((await due('?due=0')).subscriptions.map((s) => s.installation_id), ['s']);
+  assert.deepEqual((await due('?due=365')).due_days, 365);
+});
+
+test('E6-2 ops: GET /jobs filters by kind, state and installation, newest first, paged', async () => {
+  const t = readSetup();
+  const ids = async (q) => (await t.go(API + '/jobs' + q)).json.jobs.map((j) => j.id);
+  assert.deepEqual(await ids(''), ['j6', 'j5', 'j4', 'j3', 'j2', 'j1']);
+  assert.deepEqual(await ids('?kind=suspend'), ['j3', 'j2']);
+  assert.deepEqual(await ids('?state=paused'), ['j6', 'j2']);
+  assert.deepEqual(await ids('?status=paused'), ['j6', 'j2']);
+  assert.deepEqual(await ids('?state=paused&status=paused&kind=delete'), ['j6']);
+  assert.deepEqual(await ids('?installation=b'), ['j2', 'j1']);
+  const paged = await walk(t, API + '/jobs?limit=4', 'jobs');
+  assert.deepEqual([paged.pages, paged.rows.map((j) => j.id)], [2, ['j6', 'j5', 'j4', 'j3', 'j2', 'j1']]);
+  const two = await walk(t, API + '/jobs?limit=1&kind=delete', 'jobs');
+  assert.deepEqual(two.rows.map((j) => j.id), ['j6', 'j5'], 'the same created_at pages by id');
+  const j = (await t.go(API + '/jobs?installation=b&kind=export')).json.jobs[0];
+  assert.deepEqual(Object.keys(j).sort(), ['confirmed_at', 'confirmed_by', 'created_at', 'created_by', 'error_code', 'id', 'idempotency_key', 'installation_id', 'kind', 'params_json', 'result_json', 'state', 'step', 'updated_at']);
+});
+
+test('E6-2 ops: GET /audit filters by installation, operator, action and time, newest first, paged', async () => {
+  const t = readSetup();
+  const ids = async (q) => (await t.go(API + '/audit' + q)).json.audit.map((a) => a.id);
+  assert.deepEqual(await ids(''), ['a4', 'a3', 'a2', 'a1']);
+  assert.deepEqual(await ids('?installation=b'), ['a3', 'a1']);
+  assert.deepEqual(await ids('?operator=OPS-B@example.test'), ['a4', 'a2']);
+  assert.deepEqual(await ids('?action=installation.claim'), ['a4', 'a1']);
+  assert.deepEqual(await ids('?action=installation.claim&operator=ops-a@example.test&installation=b'), ['a1']);
+  assert.deepEqual(await ids('?from=2026-11-02'), ['a4', 'a3', 'a2']);
+  assert.deepEqual(await ids('?to=2026-11-02T10:00:00Z'), ['a1'], 'to is exclusive');
+  assert.deepEqual(await ids('?from=2026-11-02T10:00Z&to=2026-11-03'), ['a2']);
+  const paged = await walk(t, API + '/audit?limit=1', 'audit');
+  assert.deepEqual([paged.pages, paged.rows.map((a) => a.id)], [4, ['a4', 'a3', 'a2', 'a1']]);
+});
+
+test('E6-2 ops: GET /audit.csv has the same filters, escapes formula cells, quotes properly, and is capped', async () => {
+  const { csvCell, CSV_MAX_ROWS } = await import('../ops/src/reads.ts');
+  for (const [v, out] of [
+    ['=1+1', "'=1+1"], ['+1', "'+1"], ['-1', "'-1"], ['@SUM(A1)', "'@SUM(A1)"], ['\tx', "'\tx"], ['\rx', `"'\rx"`],
+    ['a,b', '"a,b"'], ['say "hi"', '"say ""hi"""'], ['a\nb', '"a\nb"'], ['=HYPERLINK("x","y")', `"'=HYPERLINK(""x"",""y"")"`],
+    [null, ''], [undefined, ''], ['plain', 'plain'], [' =x', ' =x'], [12, '12'],
+  ]) assert.equal(csvCell(v), out, JSON.stringify(v));
+
+  const t = readSetup();
+  t.db.raw.prepare('INSERT INTO operator_audit (id, at, operator, action, installation_id, before_json, after_json, request_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('a5', '2026-11-04T10:00:00Z', '=cmd@example.test', '+action', null, '{"note":"a,\\"b\\""}', '-x', '@r5');
+  const r = await t.go(API + '/audit.csv');
+  assert.equal(r.status, 200);
+  assert.equal(r.res.headers.get('content-type'), 'text/csv; charset=utf-8');
+  assert.equal(r.res.headers.get('content-disposition'), 'attachment; filename="operator-audit.csv"');
+  assert.equal(r.res.headers.get('x-truncated'), '0');
+  assertNoStore(r.res);
+  const lines = r.text.split('\r\n');
+  assert.equal(lines[0], 'id,at,operator,action,installation_id,before_json,after_json,request_id');
+  assert.equal(lines[1], `a5,2026-11-04T10:00:00Z,'=cmd@example.test,'+action,,"{""note"":""a,\\""b\\""""}",'-x,'@r5`);
+  assert.equal(lines[2], 'a4,2026-11-03T10:00:00Z,ops-b@example.test,installation.claim,s,,"{""host"":""s.example.test"",""expires_at"":""2026-11-04 10:00:00 UTC""}",r4');
+  assert.equal(lines.length, 7, 'header, five rows and the final CRLF');
+  const filtered = await t.go(API + '/audit.csv?installation=b&operator=OPS-A@example.test');
+  assert.deepEqual(filtered.text.split('\r\n').slice(1, -1).map((l) => l.split(',')[0]), ['a3', 'a1']);
+
+  const big = setup();
+  const ins = big.db.raw.prepare('INSERT INTO operator_audit (id, at, operator, action) VALUES (?, ?, ?, ?)');
+  big.db.raw.exec('BEGIN');
+  for (let i = 0; i <= CSV_MAX_ROWS; i++) ins.run(`r${String(i).padStart(6, '0')}`, '2026-11-01T00:00:00Z', 'o@example.test', 'x');
+  big.db.raw.exec('COMMIT');
+  const capped = await big.go(API + '/audit.csv');
+  assert.equal(capped.res.headers.get('x-truncated'), '1');
+  assert.equal(capped.text.split('\r\n').length, CSV_MAX_ROWS + 2);
+});
+
+test('E6-2 ops: no read returns a claim token or link, after a claim and an admin reset', async () => {
+  const t = readSetup();
+  assert.equal((await t.write(API + '/installations/b/claim', { confirm_host: 'b.example.test' })).status, 200);
+  assert.equal((await t.write(API + '/installations/b/admin-reset', { confirm_host: 'b.example.test' })).status, 200);
+  for (const path of [...READS, '/installations/b']) {
+    const r = await t.go(API + path);
+    assert.equal(r.status, 200, path);
+    assert.ok(!r.text.includes(TOKEN) && !r.text.includes('/claim#'), path);
+  }
+  const audit = (await t.go(API + '/audit?installation=b&action=installation.claim')).json.audit;
+  assert.deepEqual(JSON.parse(audit[0].after_json), { host: 'b.example.test', expires_at: EXPIRES });
+});
+
+test('E6-2 ops: a failed key fetch has a timeout and is not retried for JWKS_FAILURE_MS; still 503 access_unavailable', async () => {
+  const { JWKS_FAILURE_MS, JWKS_TIMEOUT_MS } = await import('../ops/src/access.ts');
+  assert.equal(JWKS_TIMEOUT_MS, 5000);
+  const calls = [];
+  let fail = true;
+  const fetch = async (url, init) => {
+    calls.push(init);
+    assert.ok(init.signal instanceof AbortSignal, 'the fetch has a timeout signal');
+    if (fail) throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    return Response.json({ keys: [KEY.jwk] });
+  };
+  const t = setup({ fetch });
+  const down = { status: 503, json: { ok: false, code: 'access_unavailable' } };
+  for (let i = 0; i < 3; i++) {
+    const r = await t.go(API + '/config');
+    assert.deepEqual({ status: r.status, json: r.json }, down);
+  }
+  assert.equal(calls.length, 1, 'failures within the window do not fetch again');
+  t.tick(JWKS_FAILURE_MS);
+  assert.equal((await t.go(API + '/config')).status, 503);
+  assert.equal(calls.length, 2, 'after the window it tries again');
+  fail = false;
+  t.tick(JWKS_FAILURE_MS);
+  assert.equal((await t.go(API + '/config')).status, 200);
+  assert.equal(calls.length, 3);
+  const status = setup({ fetch: async () => new Response('no', { status: 502 }) });
+  assert.equal((await status.go(API + '/config')).status, 503);
+});
+
+test('E6-2 ops: a body without Content-Length is read only up to the 4 KiB cap; check order is Access, CSRF, route, body', async () => {
+  const { MAX_BODY_BYTES } = await import('../ops/src/api.ts');
+  const t = setup();
+  let pulled = 0;
+  const endless = new ReadableStream({ pull(c) { pulled += 1024; c.enqueue(new Uint8Array(1024).fill(32)); } });
+  const req = new Request(ORIGIN + API + '/installations/b/claim', {
+    method: 'POST', body: endless, duplex: 'half',
+    headers: { 'Cf-Access-Jwt-Assertion': await jwt(), 'X-CSRF': '1', Origin: ORIGIN },
+  });
+  assert.equal(req.headers.get('content-length'), null);
+  const r = await handle(req, t.env, { fetch: t.fetch, now: () => NOW });
+  assert.deepEqual([r.status, await r.json()], [422, { ok: false, code: 'invalid_body' }]);
+  assert.ok(pulled <= MAX_BODY_BYTES + 2048, `read ${pulled} bytes`);
+  assert.equal(t.ops.calls.length, 0);
+
+  const exact = await t.go(API + '/installations/b/claim', { method: 'POST', headers: { 'X-CSRF': '1', Origin: ORIGIN }, body: JSON.stringify({ confirm_host: 'b.example.test', pad: '' }).padEnd(MAX_BODY_BYTES, ' ') });
+  assert.equal(exact.status, 200, 'a body of exactly 4 KiB is read');
+
+  // Order: no Access token is 401 before CSRF, no CSRF is 403 before the route, an unknown route is 404 before the body.
+  const body = 'x'.repeat(MAX_BODY_BYTES + 1);
+  assert.equal((await t.go(API + '/installations/b/claim', { method: 'POST', token: null, body })).status, 401);
+  assert.equal((await t.go(API + '/nope', { method: 'POST', body })).status, 403);
+  assert.equal((await t.go(API + '/nope', { method: 'POST', headers: { 'X-CSRF': '1', Origin: ORIGIN }, body })).status, 404);
+});
+
+test('E6-2 ops: an installation whose row has do_name primary is refused by id other than primary, and listed as primary', async () => {
+  const db = controlDb();
+  db.raw.exec("DELETE FROM subscriptions WHERE installation_id = 'primary'; DELETE FROM installation_routes WHERE installation_id = 'primary'; DELETE FROM installations WHERE id = 'primary'");
+  db.raw.exec("INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('main', 'primary', 'installations/primary/', 'active'); INSERT INTO installation_routes (host, installation_id) VALUES ('main.example.test', 'main')");
+  const t = setup({ db });
+  for (const action of ['claim', 'admin-reset']) {
+    const r = await t.write(`${API}/installations/main/${action}`, { confirm_host: 'main.example.test' });
+    assert.deepEqual([r.status, r.json], [403, { ok: false, code: 'primary' }], action);
+  }
+  assert.equal(t.ops.calls.length, 0);
+  assert.equal(t.db.batches.length, 0);
+  assert.equal((await t.go(API + '/installations/main')).json.primary, true);
+  assert.equal((await t.go(API + '/installations')).json.installations.find((x) => x.installation.id === 'main').primary, true);
 });
