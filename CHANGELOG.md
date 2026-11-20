@@ -11,6 +11,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Added
 
 - **edge:** the `apotheke-ops` Worker for the operator console behind Cloudflare Access, with its config endpoint and the installation claim and admin reset ([#346](https://github.com/thordin9/apotheke/pull/346))
+- **edge:** read endpoints for the operator console: overview, installations, plans, subscriptions due, lifecycle jobs, and the operator audit log with a CSV export ([#348](https://github.com/thordin9/apotheke/pull/348))
 
 ## [3.56.0] - 2026-11-20
 
