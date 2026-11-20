@@ -150,29 +150,19 @@ test.describe('operator console', () => {
     await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
   });
 
-  test('a same-origin CSP reports no violations', async ({ page }) => {
-    const violations: string[] = [];
-    await page.route('**/*', async (route) => {
-      const response = await route.fetch();
-      const headers = response.headers();
-      headers['content-security-policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self'";
-      await route.fulfill({ response, headers });
-    });
-    page.on('console', (message) => {
-      if (message.text().includes('Content Security Policy')) violations.push(message.text());
-    });
+  test('the preview CSP reports no violations', async ({ page }) => {
     await page.addInitScript(() => {
       document.addEventListener('securitypolicyviolation', (event) => {
         const list = (window as unknown as { __csp?: string[] });
         list.__csp = list.__csp ?? [];
-        list.__csp.push(event.violatedDirective);
+        list.__csp.push(`${event.violatedDirective} ${event.blockedURI}`);
       });
     });
-    await page.goto('/overview');
+    const response = await page.goto('/overview');
+    expect(response?.headers()['content-security-policy'] ?? '').toContain("default-src 'self'");
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview');
     const reported = await page.evaluate(() => (window as unknown as { __csp?: string[] }).__csp ?? []);
     expect(reported).toEqual([]);
-    expect(violations).toEqual([]);
   });
 });
 

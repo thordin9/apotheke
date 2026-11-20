@@ -22,14 +22,23 @@ function mockApi(req: { url?: string; method?: string; headers: { cookie?: strin
   res.end(typeof result.body === 'string' ? result.body : JSON.stringify(result.body));
 }
 
+const PREVIEW_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'";
+
+function previewCsp(_req: { url?: string }, res: { setHeader(name: string, value: string): void }, next: () => void): void {
+  res.setHeader('content-security-policy', PREVIEW_CSP);
+  next();
+}
+
 function mockPlugin() {
   return {
     name: 'ops-console-mock',
     apply: 'serve' as const,
     configureServer(server: ViteDevServer) {
+      server.middlewares.use(previewCsp);
       server.middlewares.use(mockApi);
     },
     configurePreviewServer(server: ViteDevServer) {
+      server.middlewares.use(previewCsp);
       server.middlewares.use(mockApi);
     },
   };
