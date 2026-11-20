@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **ops:** the operator console shows the read-only overview, installations, plans, subscriptions, jobs and audit ([#350](https://github.com/thordin9/apotheke/pull/350))
+
 ### Maintenance
 
 - **edge:** deploy wiring for the operator console Worker `apotheke-ops`: a PR dry run, and a deploy job that stays off until `OPS_DEPLOY_ENABLED` is 1; the console ships read-only (`OPS_WRITES_ENABLED` "0") and only for the emails in `OPS_ALLOWED_EMAILS` ([#352](https://github.com/thordin9/apotheke/pull/352))
