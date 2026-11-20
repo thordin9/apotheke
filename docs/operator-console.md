@@ -483,7 +483,10 @@ With `APOTHEKE_HOSTED`, the container also answers `POST /internal/accounts/clai
 installation a first admin without a shell in the container. They are reached and refused exactly like
 `/internal/backup` (see [Backup for a lifecycle job](#backup-for-a-lifecycle-job)): no forwarding headers, the same
 `X-Apotheke-Ops-Signature` over `POST`, the request's own path, `t` and the body (any body up to 4 KiB, for example
-`{}`), accepted within 300 seconds. A signature for one path is not valid for another. Self-hosted, neither exists.
+`{}`; a larger one is refused with 401), accepted within 300 seconds. A signature for one path is not valid for
+another. The path must match exactly: with a query string or a trailing `/` it is not this endpoint. Such a
+request, and any request on `ops.internal` when self-hosted (where neither exists), gets the host list's 421, as an
+unknown host does.
 
 - **`/internal/accounts/claim`** does what `accounts:claim-create` does: 200
   `{"ok":true,"token":…,"expires_at":"YYYY-MM-DD HH:MM:SS UTC"}`, and any earlier claim stops working. The link is
@@ -492,4 +495,5 @@ installation a first admin without a shell in the container. They are reached an
 - **`/internal/accounts/reset-admins`** does what `accounts:hosted-reset-admins` does (removes admin accounts, their
   session records and any claim; other accounts stay): 200 `{"ok":true}`, also when there was nothing to remove.
 
-Other errors are `{"ok":false,"code":…}`: 401 `unauthorized`, 405, 500 `accounts_failed`, 503 `not_configured`.
+Other errors are `{"ok":false,"code":…}`: 401 `unauthorized`, 405 `method_not_allowed` (with `Allow: POST`),
+500 `accounts_failed`, 503 `not_configured`.
