@@ -1,16 +1,24 @@
-# Changelog
-
-All notable changes to Apotheke are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
-Release sections are written by `scripts/release.php` when a pull request is merged to `main`
-(see [docs/releasing.md](docs/releasing.md)); the version lives in `VERSION`.
-Releases before 2.6.0 are summarised once per minor version; their full notes are in git history.
-
 ## [Unreleased]
 
 ### Added
 
 - **auth:** a hosted installation can disable or re-enable one user on the signed ops accounts channel ([#000](https://github.com/thordin9/apotheke/pull/000))
+
+## [3.57.0] - 2026-11-20
+
+### Added
+
+- **edge:** the `apotheke-ops` Worker for the operator console behind Cloudflare Access, with its config endpoint and the installation claim and admin reset ([#346](https://github.com/thordin9/apotheke/pull/346))
+
+### Maintenance
+
+- **auth:** test: cover ops accounts method, size, path and hosted off ([#345](https://github.com/thordin9/apotheke/pull/345))
+
+## [3.56.0] - 2026-11-20
+
+### Added
+
+- **edge:** `Ops` entrypoint on apotheke-api to create a first-admin claim or reset the admins of a hosted installation through its container ([#339](https://github.com/thordin9/apotheke/pull/339))
 
 ## [3.55.0] - 2026-11-20
 
@@ -1912,7 +1920,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.55.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.57.0...HEAD
+[3.57.0]: https://github.com/thordin9/apotheke/compare/v3.56.0...v3.57.0
+[3.56.0]: https://github.com/thordin9/apotheke/compare/v3.55.0...v3.56.0
 [3.55.0]: https://github.com/thordin9/apotheke/compare/v3.54.0...v3.55.0
 [3.54.0]: https://github.com/thordin9/apotheke/compare/v3.53.2...v3.54.0
 [3.53.2]: https://github.com/thordin9/apotheke/compare/v3.53.1...v3.53.2

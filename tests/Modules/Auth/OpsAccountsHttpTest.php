@@ -11,6 +11,7 @@ use Apotheke\Auth\UserRepository;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Hosted\HostedLimits;
 use Apotheke\Core\Hosted\PlanLimits;
+use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\OpsSignature;
 use CodeIgniter\Test\CIUnitTestCase;
@@ -74,12 +75,12 @@ final class OpsAccountsHttpTest extends CIUnitTestCase
     }
 
     /** @param array<string,string> $headers */
-    private function post(string $host, string $path, array $headers, string $body = '{}'): TestResponse
+    private function post(string $host, string $path, array $headers, string $body = '{}', string $method = 'POST'): TestResponse
     {
         service('superglobals')->setServer('HTTP_HOST', $host);
         service('superglobals')->setServer('REQUEST_URI', $path);
         try {
-            return $this->withHeaders($headers)->withBody($body)->call('POST', ltrim($path, '/'));
+            return $this->withHeaders($headers)->withBody($body)->call($method, ltrim($path, '/'));
         } catch (\CodeIgniter\Exceptions\PageNotFoundException) {
             return new TestResponse((new \CodeIgniter\HTTP\Response(config(\Config\App::class)))->setStatusCode(404));
         }
@@ -212,5 +213,54 @@ final class OpsAccountsHttpTest extends CIUnitTestCase
         }
         $this->assertSame(1, $this->admins());
         $this->assertFalse($this->claimRow());
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testOnlyAPostOfAtMost4KiBToTheExactPathIsAnswered(): void
+    {
+        $this->wire(true);
+        $claim = OpsAccountsEndpoint::CLAIM_PATH;
+        // Signed as a POST with the same body: only the method differs.
+        $get = $this->post('ops.internal', $claim, $this->signed($claim), '{}', 'GET');
+        $get->assertStatus(405);
+        $this->assertSame('POST', $get->response()->getHeaderLine('Allow'));
+        $this->assertSame(['ok' => false, 'code' => 'method_not_allowed'], self::json($get));
+        $this->assertFalse($this->claimRow());
+
+        $big = (string)json_encode(['pad' => str_repeat('x', 4097 - 10)]);
+        $this->assertSame(4097, strlen($big));
+        $r = $this->post('ops.internal', $claim, $this->signed($claim, $big), $big);
+        $r->assertStatus(401);
+        $this->assertSame(['ok' => false, 'code' => 'unauthorized'], self::json($r));
+        $this->assertFalse($this->claimRow());
+
+        // Signed for exactly the path sent, so only the path match keeps these out.
+        foreach ([$claim . '?x=1', $claim . '/'] as $path) {
+            $r = $this->post('ops.internal', $path, $this->signed($path), '{}');
+            $this->assertContains($r->response()->getStatusCode(), [404, 421], $path);
+            $this->assertStringNotContainsString('"ok"', (string)$r->response()->getBody(), $path);
+            $this->assertFalse($this->claimRow(), $path);
+        }
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testTheServiceAnswersOnlyWhenHosted(): void
+    {
+        putenv('APP_KEY=base64:' . base64_encode(implode('', array_map('chr', range(1, 32)))));
+        $sig = OpsSignature::fromAppKey(getenv('APP_KEY') ?: null) ?? throw new \LogicException('key');
+        $path = OpsAccountsEndpoint::RESET_PATH;
+        $headers = [OpsSignature::HEADER => $sig->header('POST', $path, '{}', (new Clock())->unix())];
+        foreach (['0' => false, '1' => true] as $env => $answers) {
+            Services::reset(true);
+            Services::injectMock('apothekeConfig', ApothekeConfig::load(ApothekeConfig::repoRoot(), null,
+                ['APOTHEKE_HOSTED' => (string)$env, 'DB_DRIVER' => 'sqlite', 'DATA_DIR' => sys_get_temp_dir()]));
+            $endpoint = Services::opsAccountsEndpoint(false);
+            $this->assertSame($answers, $endpoint->applies($path, 'ops.internal', $headers), (string)$env);
+            // A GET never reaches the actions, so nothing is changed either way.
+            $r = $endpoint->handle('GET', $path, 'ops.internal', $headers, '{}');
+            $this->assertSame($answers ? 405 : null, $r['status'] ?? null, (string)$env);
+        }
     }
 }

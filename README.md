@@ -77,11 +77,11 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 <!-- coverage:start -->
 | Area | Module suite | Root suite (with HTTP) | Combined |
 |---|---:|---:|---:|
-| Front controller, config & routes | 82.6 % | 86.7 % | 87.7 % |
+| Front controller, config & routes | 82.7 % | 86.7 % | 87.8 % |
 | Items, search, bulk, lending | 39.9 % | 75.9 % | 83.5 % |
 | Favourites, undo, history | 35.5 % | 65.4 % | 67.2 % |
 | Stocktake & labels | 47.6 % | 95.6 % | 96.0 % |
-| Users, roles & sign-in | 66.5 % | 66.2 % | 84.4 % |
+| Users, roles & sign-in | 66.6 % | 66.2 % | 84.6 % |
 | CSV import & export | 54.6 % | 79.9 % | 91.0 % |
 | Photos & autofill | 70.9 % | 17.6 % | 72.3 % |
 | Notes & layout | 87.5 % | 75.4 % | 94.8 % |
