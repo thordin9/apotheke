@@ -529,8 +529,8 @@ real host), and can answer 401, 503 and 410 so the error screens can be checked.
 build. The users screen calls `GET /installations/:id/users` and stays read-only: it shows the username (there is
 no display name), the roles, the raw status, and the created and last sign-in times. A status other than `active`
 is inactive, and a null last sign-in is "never". Primary is 403 and the screen says those users are not shown
-here. An installation that is not running or has no host is 409. The Worker route is still the planned read below;
-the console and the preview use that response shape.
+here. An installation that is not running or has no host is 409. The Worker route is the read above;
+the screen and the preview use that response shape.
 
 ## First-admin claim and admin reset for the hosting side
 
