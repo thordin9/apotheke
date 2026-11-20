@@ -8,13 +8,19 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Maintenance
+
+- **edge:** deploy wiring for the operator console Worker `apotheke-ops`: a PR dry run, and a deploy job that stays off until `OPS_DEPLOY_ENABLED` is 1; the console ships read-only (`OPS_WRITES_ENABLED` "0") and only for the emails in `OPS_ALLOWED_EMAILS` ([#352](https://github.com/thordin9/apotheke/pull/352))
+
+## [3.59.0] - 2026-11-20
+
 ### Added
 
 - **edge:** a live `limit_overrides` row can override (raise or lower) that installation's plan limit in `/limits` and the route cache ([#344](https://github.com/thordin9/apotheke/pull/344))
 
 ### Maintenance
 
-- **edge:** deploy wiring for the operator console Worker `apotheke-ops`: a PR dry run, and a deploy job that stays off until `OPS_DEPLOY_ENABLED` is 1; the console ships read-only (`OPS_WRITES_ENABLED` "0") and only for the emails in `OPS_ALLOWED_EMAILS` ([#352](https://github.com/thordin9/apotheke/pull/352))
+- ci: bump puppeteer-core from 25.16.0 to 25.17.0 in /tests/e2e ([#341](https://github.com/thordin9/apotheke/pull/341))
 
 ## [3.58.0] - 2026-11-20
 
@@ -1942,7 +1948,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.58.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.59.0...HEAD
+[3.59.0]: https://github.com/thordin9/apotheke/compare/v3.58.0...v3.59.0
 [3.58.0]: https://github.com/thordin9/apotheke/compare/v3.57.0...v3.58.0
 [3.57.0]: https://github.com/thordin9/apotheke/compare/v3.56.0...v3.57.0
 [3.56.0]: https://github.com/thordin9/apotheke/compare/v3.55.0...v3.56.0
