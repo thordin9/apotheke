@@ -55,7 +55,7 @@ const PINNED = {
   '0002_seed_primary.sql': '7c0ecfebc8603b75300154ac1ba66adabebc550ddb0fdbb445df5994a9db8dcc',
   '0003_lifecycle_jobs.sql': '932738cbb9f76105a4d9f8a1333341ad0cf0c3d503bfebe3de53693571d6fd83',
   '0004_plan_limits_photos_per_item.sql': 'c2720cf2f3b4fa03bd6655d483d076be0c3cbe235c0e1ff5ab469c3d5f2a3c78',
-  '0005_limit_overrides.sql': '9764a050cdacfc34160f74c575b59e72944ff916eb30a89c91ccca8df95c4735',
+  '0005_limit_overrides.sql': '8eda1932ee7158054602b708ff1bc860b321f5a2daab5eebf004cd30dc038340',
 };
 
 test('applied migrations are pinned by sha256', () => {
@@ -222,6 +222,9 @@ test('0005 limit_overrides: columns, primary key, foreign key, checks, idempoten
     VALUES ('primary', 'photos_per_item', 8, 'raise', NULL, 'ops@example.test')`);
   refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('primary', 'photos_each', 4, 'ops@example.test')`, /CHECK/);
   refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('primary', 'items', -1, 'ops@example.test')`, /CHECK/);
+  refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('primary', 'items', 'nope', 'ops@example.test')`, /CHECK/);
+  db.exec(`INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('primary', 'items', 0, 'ops@example.test')`);
+  assert.equal(db.prepare(`SELECT hard_value AS n FROM limit_overrides WHERE installation_id = 'primary' AND limit_key = 'items'`).get().n, 0);
   refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('nope', 'items', 1, 'ops@example.test')`, /FOREIGN KEY/);
   refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('primary', 'photos_per_item', 9, 'ops@example.test')`, /UNIQUE|PRIMARY KEY/);
   refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value) VALUES ('primary', 'items', 1)`, /NOT NULL/);

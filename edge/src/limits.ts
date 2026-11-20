@@ -21,7 +21,8 @@ export function limitsEnabled(env: { LIMITS_ENABLED?: string }): boolean {
 /**
  * The plan_limits of installation i's subscription as one JSON value ({"key": [soft, hard]}; NULL without a
  * subscription or limit rows), for a query that has the installations row as i. Only rows with a hard value.
- * A live limit_overrides row for the same installation and key (expires_at NULL or in the future) replaces hard;
+ * A live limit_overrides row for the same installation and key (expires_at NULL or in the future) replaces hard
+ * with that override (raise or lower); a non-integer hard_value is ignored so the plan cap stays.
  * soft is then NULL so parseLimits() defaults it to 80% of the new hard. primary is not joined. parseLimits() reads it.
  */
 export const PLAN_LIMITS_JSON_SQL = "(SELECT json_group_object(x.limit_key, json_array(x.soft_value, x.hard_value))"
@@ -30,6 +31,7 @@ export const PLAN_LIMITS_JSON_SQL = "(SELECT json_group_object(x.limit_key, json
 	+ " FROM subscriptions s JOIN plan_limits l ON l.plan_id = s.plan_id"
 	+ " LEFT JOIN limit_overrides o ON o.installation_id = i.id AND o.limit_key = l.limit_key"
 	+ " AND i.do_name <> 'primary'"
+	+ " AND typeof(o.hard_value) = 'integer'"
 	+ " AND (o.expires_at IS NULL OR o.expires_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"
 	+ " WHERE s.installation_id = i.id AND l.hard_value IS NOT NULL) x WHERE x.hard_value IS NOT NULL)";
 

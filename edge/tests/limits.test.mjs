@@ -117,6 +117,25 @@ test('a live override raises hard and clears soft in the shared SQL; an expired 
   assert.equal('users' in (await routeFor('b.example.test', db, 1000, true)).limits, false);
 });
 
+test('a zero override lowers the plan cap; a non-integer row is ignored so the plan cap stays', async () => {
+  clearRouteCache();
+  const db = controlDb();
+  const rowSql = `SELECT ${PLAN_LIMITS_JSON_SQL} AS limits FROM installations i WHERE i.do_name = ?`;
+  const raw = (name) => {
+    const v = db.raw.prepare(rowSql).get(name);
+    return v && v.limits != null ? JSON.parse(v.limits) : null;
+  };
+  db.raw.exec(`INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('b', 'import_file_bytes', 0, 'ops@example.test')`);
+  assert.deepEqual(raw('tenant-b').import_file_bytes, [null, 0]);
+  assert.deepEqual((await routeFor('b.example.test', db, 1000, true)).limits.import_file_bytes, { soft: 0, hard: 0 });
+  db.raw.exec(`PRAGMA ignore_check_constraints = ON;
+    UPDATE limit_overrides SET hard_value = 'not-an-int' WHERE installation_id = 'b' AND limit_key = 'import_file_bytes';
+    PRAGMA ignore_check_constraints = OFF;`);
+  clearRouteCache();
+  assert.deepEqual(raw('tenant-b').import_file_bytes, [null, 1572864]);
+  assert.deepEqual((await routeFor('b.example.test', db, 1000, true)).limits.import_file_bytes, { soft: 1572864 * 0.8, hard: 1572864 });
+});
+
 test('LIMITS_ENABLED off does not consult overrides; primary does not apply them', async () => {
   clearRouteCache();
   const db = controlDb();
