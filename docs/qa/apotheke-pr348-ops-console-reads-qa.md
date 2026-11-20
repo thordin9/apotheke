@@ -1,15 +1,16 @@
 # QA: apotheke #348, the operator console read endpoints (E6-2)
 
 - PR: https://github.com/thordin9/apotheke/pull/348 (Coder), base `main`. The `apotheke-ops` reads under `/api/ops/v1` (`overview`, `installations`, `installations/:id`, `plans`, `subscriptions`, `jobs`, `audit`, `audit.csv`) and the #346 nits N-2400 to N-2402.
-- Reviewed head: `ddface0a9712c8f5c2f385b0e280c621c0d34f26`. 0 behind main `3a6156b6` (v3.57.0); `mergeStateStatus` CLEAN. Commits: `0ee910b1` (feature), `f2f94548` (CHANGELOG) and the merge `ddface0a`.
+- Reviewed head: `b0eba15e558202cc4542c175eff36ce610455d81`, 0 behind main `8d28bf05` (#340). Content reviewed at `ddface0a` (then 0 behind `3a6156b6`, v3.57.0); since then only the first QA doc commit `104784cd` and the catch-up merge `b0eba15e`. Commits: `0ee910b1` (feature), `f2f94548` (CHANGELOG), the merge `ddface0a`, `104784cd` (docs(qa)) and the merge `b0eba15e`.
 - Gate: full (new code, security): full read of `reads.ts` and the `access.ts`, `api.ts` and `index.ts` changes, a cross-check against the control schema (`edge/migrations/control`), the edge suite, `wrangler types --check` and `tsc`, ad-hoc probes, 36 mutants and a secret scan. No PHP changed.
-- CI on `ddface0a`, all green: CI 44779012532, Deploy edge 44779012457 and CodeQL 44778998550 (all three for this head). 22 pass, 1 skipped (Deploy apotheke-api).
-- Reviewed 2026-11-20, 19:24 to 19:40 (UTC+2). Reviewer: Apotheke QA 2
+- CI on `ddface0a`, all green: CI 44779012532, Deploy edge 44779012457 and CodeQL 44778998550 (all three for that head). 22 pass, 1 skipped (Deploy apotheke-api). CI on `104784cd` green (CI 44784707473, Deploy edge 44784707355, CodeQL 44784698575). The final head needs green CI before the squash.
+- Reviewed 2026-11-20, 19:24 to 19:40 (UTC+2); merge-only read of `b0eba15e` at 20:12. Reviewer: Apotheke QA 2
 
 ## Checklist
 
 - [x] Scope (main...head): 7 files, +823/−27: `edge/ops/src/reads.ts` (new), `access.ts`, `api.ts`, `index.ts`, `edge/tests/ops-worker.test.mjs`, `docs/operator-console.md` and CHANGELOG. No change to `edge/src`, the Worker configs, migrations or PHP.
 - [x] Merge `ddface0a`: parents exactly `[f2f94548, 3a6156b6]`. `git merge-tree --write-tree` differs from the head tree only in `CHANGELOG.md`, the declared resolution (the #348 bullet moved from the released 3.57.0 section to `[Unreleased]` / `### Added`). Outside CHANGELOG, `f2f94548..ddface0a` equals main's own delta. main...head equals the PR's own commits apart from that move. Released sections, `README.md` and `VERSION` (3.57.0) are byte-identical to main.
+- [x] Catch-up `b0eba15e` (merge-only read): parents exactly `[104784cd, 8d28bf05]`; `git merge-tree --write-tree` equals the head tree (no hand resolution). `104784cd..b0eba15e` equals main's delta `3a6156b6..8d28bf05` (only `frontend/package*.json` and the #340 QA doc). main...head numstat is the PR's own 8 files (the 7 above plus this doc's first copy); `CHANGELOG.md` is unchanged since `104784cd` with the bullet in `[Unreleased]`, and `VERSION` equals main.
 - [x] Access: every read runs after the #346 check in `index.ts`; nothing is routed before it. Without a token, with another `aud`, `alg: none` or `HS256`, the reads, unknown paths, bad queries and unknown ids all give 401. `OPTIONS` gives 405 before Access. A write method on a read gives 403 `csrf`, or with CSRF 405 `Allow: GET, HEAD` (PUT, PATCH, DELETE, POST, PROPFIND). Without `DB` all eight reads give 503 `not_configured`. Every answer, 401/404/422/503 and the CSV included, gets `no-store` from `finish()`.
 - [x] SQL: every value is a bound parameter; `routesFor` binds one JSON array through `json_each`. `q` is trimmed, lower-cased and matched with `instr()`, so `%`, `_` and `\` are plain text (no match), `.` matches every host, and `'%20OR%201=1--` matches nothing. A `plan` value with SQL in it matches nothing. A control character or a too-long value gives 422.
 - [x] Bounds: `limit` 0, 101, −1, `abc`, `1e2`, `1.5`, ` 5`, `0100` and 11 digits give 422; 1 and 100 work. `due` −1, 366, `+1`, `14dd` and 1000 give 422; 0, `0d`, 365 and `365d` work. A cursor that is malformed, not JSON, an object, a number, the wrong arity, over 256 characters per key or over 1024 in all gives 422 (never 500). A forged key is only a bound value (empty page or rows after it). Walking `limit=1` returns each installation, job and audit row exactly once.
@@ -34,4 +35,4 @@
 
 ## Verdict
 
-**PASS** at `ddface0a`, 0 behind main `3a6156b6`. This doc lands byte-exact as the last commit ("docs(qa): add QA 2 review for #348"), followed by the hash check and green CI on that head. Squash as "feat(edge): add read endpoints to the operator console API" (65 characters with " (#348)"). As a `feat`, this cuts a minor release (v3.58.0).
+**PASS** at `b0eba15e` (content at `ddface0a`), 0 behind main `8d28bf05`. This doc lands byte-exact as the last commit ("docs(qa): add QA 2 review for #348"), followed by the hash check and green CI on that head. Squash as "feat(edge): add read endpoints to the operator console API" (65 characters with " (#348)"). As a `feat`, this cuts a minor release (v3.58.0).
