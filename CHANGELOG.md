@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **ops:** the operator console shows the read-only overview, installations, plans, subscriptions, jobs and audit
+
 ## [3.58.0] - 2026-11-20
 
 ### Added
