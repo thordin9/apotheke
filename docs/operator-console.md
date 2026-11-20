@@ -89,8 +89,10 @@ The Worker enforces four plan limits for installations other than `primary` (`ed
 from `plan_limits` rows of the installation's subscription plan, which the console edits; no tier is built in. A key
 without a row, or with no `hard_value`, is no limit, and an installation without a subscription has none. When
 `soft_value` is empty the soft value is 80% of the hard one. The limits are read with the route in the same query and
-cached with it (30 seconds per isolate). There is no `limit_overrides` table yet; temporary raises come with the
-console API.
+cached with it (30 seconds per isolate). A live `limit_overrides` row for the same installation and key
+(`expires_at` empty or a well-formed timestamp in the future) overrides (raises or lowers) that key's hard value; the soft value is then 80% of the new hard.
+A non-integer `hard_value` is ignored so the plan cap stays. A malformed `expires_at` is treated as expired; NULL never expires. Expired rows are ignored and do not add a key the plan does not already cap. `primary` is not given overrides, and
+when limits are off the route lookup does not read them. The console API that grants or withdraws a row is separate.
 
 | Limit (`limit_key`) | Where | Soft | Hard |
 |---|---|---|---|
@@ -418,13 +420,19 @@ Every request, the console's files included, goes through the Worker's script (`
 3. The `Cf-Access-Jwt-Assertion` token must be RS256-signed by one of the team's keys (read from
    `https://<team>/cdn-cgi/access/certs` and kept for five minutes; a token with an unknown key reads them again, at
    most every 30 seconds), with issuer `https://<team>`, the configured audience, and an `exp` in the future;
-   otherwise 401 `unauthorized`. The operator is the token's `email` (lower case); a token without one (a service
-   token) is 403 `forbidden`. If the keys cannot be read: 503 `access_unavailable`.
+   `nbf` and `iat`, when present, may be up to 60 seconds in the future (clock skew); `exp` has no skew. Otherwise 401
+   `unauthorized`. The operator is the token's `email` (lower case); a token without one (a service token) is 403
+   `forbidden`. If the keys cannot be read (an answer other than 200, or no full answer within 5 seconds): 503
+   `access_unavailable`, and for the next 10 seconds every request gets that answer without fetching the keys
+   again.
 4. A write (`POST`, `PUT`, `PATCH`, `DELETE`) needs `X-CSRF: 1` and an `Origin` equal to the request's own origin
    (scheme and host); otherwise 403 `csrf`. There is no CSRF token. In the console, `csrfHeaders()` is the only place
    that header is set, so a real token can replace the fixed value later.
 5. `/api/ops/v1/…` goes to the API (`edge/ops/src/api.ts`); any other `/api/` path is 404 `not_found`; everything
-   else is the console's files.
+   else is the console's files. An unknown API path is 404 and a known one with another method 405, before any body
+   is read.
+6. Only then is a write's body read: at most 4 KiB. A larger `Content-Length` is not read at all; without one,
+   reading stops as soon as more than 4 KiB have arrived. Either is 422 `invalid_body`.
 
 Every answer is `Cache-Control: no-store` and carries `X-Request-Id`, which is also the `request_id` of any audit row
 it writes. Errors are `{"ok":false,"code":…}`, sometimes with a `detail`. The console types these failures: 401 (the
@@ -465,28 +473,55 @@ answer, is not hosted, gave a bad answer) 503 `unavailable` with that code as `d
 refusal. If the audit row cannot be written after a successful claim, the answer is 503 `audit_failed` and the link
 is withheld (the next claim voids it); after a reset, also 503 `audit_failed`.
 
+#### Reads
+
+All are `GET` (or `HEAD`); another method is 405 with `Allow: GET, HEAD`. Answers are `{"ok":true,…}` with the
+control-plane rows as stored (the column names of `edge/migrations/control`). None has a token or a secret: the
+control plane stores none, and audit rows refuse them. A query value that is not valid is 422 `invalid_query` with
+the parameter's name as `detail`; an empty value is no filter, and unknown parameters are ignored. A list takes
+`limit` (1 to 100, default 50) and `cursor`, and answers `next_cursor`: pass it back as `cursor` for the next page;
+it is null on the last one. Installations are in `id` order; jobs and audit rows newest first.
+
+- `GET /overview` returns `installations_by_status` (`[{status,count}]`, every status), `installations_by_plan`
+  (`[{plan_id,plan_name,count}]`, every plan, counted by subscription), `subscriptions_by_status` (every status),
+  `open_jobs_by_state` (`paused`, `queued`, `running`), `usage_totals` (`[{metric,value}]`, the sum of
+  `usage_counters` for `usage_period`, the current UTC month), `revenue` and `as_of`. `revenue` is null because there
+  are no prices, and the screen leaves the amount blank and says that no prices are set. `as_of` is the stats
+  freshness stamp: null until the stats Cron lands, as is 90-day usage.
+- `GET /installations?status=&plan=&q=&limit=&cursor=` returns `installations`, each
+  `{installation,routes,subscription,plan,primary}`: the `installations` row, its `installation_routes`, its
+  `subscriptions` row and its plan (both null without a subscription). `q` is a substring of one of its hosts (case
+  does not matter). `primary` is listed with `"primary":true`, and no action accepts it.
+- `GET /installations/:id` returns the same fields as a list entry plus `limits` (its plan's `plan_limits`), `usage`
+  (its `usage_counters`, newest period first, at most 120), `jobs` and `audit` (its last 20 `lifecycle_jobs` and
+  `operator_audit` rows). Unknown is 404 `not_found`; `primary` and deleted installations are readable.
+- `GET /plans` returns `plans`, each `plans` row with its `limits`.
+- `GET /subscriptions?due=14d` (`N` or `Nd`, 0 to 365 days, default 14) returns `due_days`, `now`, `subscriptions`
+  and `truncated` (more than 500). A subscription is due on its `trial_end` while `trial`, else its `period_end`;
+  listed when that is at most `N` days from now, overdue ones included (`"overdue":true`), soonest first.
+  `cancelled` and those without a date are never listed. Each has the `subscriptions` row, `plan_name`, `due_at` and
+  `hosts`.
+- `GET /jobs?kind=&state=&installation=&limit=&cursor=` returns `jobs`, `lifecycle_jobs` rows. `status` is accepted
+  for `state`.
+- `GET /audit?installation=&operator=&action=&from=&to=&limit=&cursor=` returns `audit`, `operator_audit` rows.
+  `installation`, `operator` (any case) and `action` are exact; `from` (included) and `to` (excluded) are a UTC date
+  (`2026-11-20`) or date-time (`2026-11-20T10:00:00Z`).
+- `GET /audit.csv` takes the same filters and is a `text/csv` download of at most 10,000 rows, newest first, with a
+  header row and CRLF line ends; `X-Truncated: 1` when more rows match. A cell starting with `=`, `+`, `-`, `@`, a
+  tab or a CR gets a leading `'` so a spreadsheet does not run it, and a cell with a quote, comma, CR or LF is quoted.
+
 ### Planned
 
 Not served yet; the shapes may still change.
 
-- `GET /overview` returns counts by status and plan, usage totals, `revenue` and `as_of`. `revenue` stays null
-  because there are no prices yet, and the screen leaves the amount blank and says that no prices are set. `as_of`
-  is the stats freshness stamp. 90-day usage fills in once the stats Cron lands.
-- `GET /installations?status=&plan=&q=`
-- `GET /installations/:id`
 - `GET /installations/:id/users` (metadata only)
-- `GET /plans`
 - `PUT /plans/:id/limits`
-- `GET /subscriptions?due=14d`
 - `PUT /installations/:id/subscription`
 - `GET /subscriptions/rules` is a report only. A rule with an unset value shows `not run: value not set`.
-- `GET /jobs`
 - `POST /jobs` comes back `paused` for every kind. `kind` `provision` returns 409 `provisioning_disabled` while
   provisioning is off, which it is on prod.
 - `POST /jobs/:id/confirm`, with `confirm_host` for a purge.
 - `GET /jobs/:id/export` is a download for a finished export job (streamed, size-capped).
-- `GET /audit?installation=&action=&from=&to=`
-- `GET /audit.csv`
 
 Deferred, and not in E6: `POST /installations/:id/users/:uid/disable`, `POST /installations/:id/users/:uid/reset-link`,
 `POST /installations/:id/overrides` and `POST /jobs/:id/retry`.
