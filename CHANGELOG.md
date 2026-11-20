@@ -10,8 +10,17 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
-- **edge:** the `apotheke-ops` Worker for the operator console behind Cloudflare Access, with its config endpoint and the installation claim and admin reset ([#346](https://github.com/thordin9/apotheke/pull/346))
 - **edge:** a lifecycle purge also deletes the installation's autofill budget, after its storage is purged ([#347](https://github.com/thordin9/apotheke/pull/347))
+
+## [3.57.0] - 2026-11-20
+
+### Added
+
+- **edge:** the `apotheke-ops` Worker for the operator console behind Cloudflare Access, with its config endpoint and the installation claim and admin reset ([#346](https://github.com/thordin9/apotheke/pull/346))
+
+### Maintenance
+
+- **auth:** test: cover ops accounts method, size, path and hosted off ([#345](https://github.com/thordin9/apotheke/pull/345))
 
 ## [3.56.0] - 2026-11-20
 
@@ -1919,7 +1928,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.56.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.57.0...HEAD
+[3.57.0]: https://github.com/thordin9/apotheke/compare/v3.56.0...v3.57.0
 [3.56.0]: https://github.com/thordin9/apotheke/compare/v3.55.0...v3.56.0
 [3.55.0]: https://github.com/thordin9/apotheke/compare/v3.54.0...v3.55.0
 [3.54.0]: https://github.com/thordin9/apotheke/compare/v3.53.2...v3.54.0
