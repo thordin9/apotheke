@@ -18,8 +18,18 @@ export type OpsEntrypoint = {
 	listUsers(installation: string): Promise<{ ok: true; users: unknown[] } | OpsFailure>;
 };
 
-/** One account in GET /installations/:id/users: these fields only (metadata, never a hash, token or link). */
-export type ConsoleUser = { id: number; username: string; role: string; status: string; created_at: string | null; last_login_at: string | null };
+/** One account in GET /installations/:id/users: these fields only (metadata, never a hash, token or link). The app
+ *  has no display name (null) and one role per account; active is status "active"; dates are ISO 8601 UTC or null. */
+export type ConsoleUser = {
+	id: number;
+	username: string;
+	display_name: string | null;
+	roles: string[];
+	active: boolean;
+	status: string;
+	created_at: string | null;
+	last_login_at: string | null;
+};
 
 export type ApiEnv = { DB?: AuditDb; OPS?: unknown; OPS_PROVISIONING?: string; LIMITS_ENABLED?: string };
 export type Operator = { email: string; requestId: string };
@@ -110,13 +120,32 @@ async function target(db: AuditDb, rawId: string, body: Record<string, unknown>)
 
 const nullableText = (v: unknown): v is string | null => v === null || typeof v === "string";
 
+/** A stored UTC date-time ("2026-11-20 10:00:00", with or without T, fraction or Z) as ISO 8601
+ *  ("2026-11-20T10:00:00Z"); null for null or any other text. */
+export function isoUtc(v: string | null): string | null {
+	const m = v === null ? null : /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?Z?$/.exec(v);
+	if (!m) return null;
+	const iso = `${m[1]}T${m[2]}Z`;
+	const t = Date.parse(iso);
+	return Number.isNaN(t) || new Date(t).toISOString().slice(0, 19) + "Z" !== iso ? null : iso;
+}
+
 /** The allowlisted fields of one account from apotheke-api, or null when one is missing or of the wrong type. */
 function consoleUser(u: unknown): ConsoleUser | null {
 	if (u === null || typeof u !== "object") return null;
 	const { id, username, role, status, created_at, last_login_at } = u as Record<string, unknown>;
 	if (!Number.isSafeInteger(id) || typeof username !== "string" || typeof role !== "string" || typeof status !== "string") return null;
 	if (!nullableText(created_at) || !nullableText(last_login_at)) return null;
-	return { id: id as number, username, role, status, created_at, last_login_at };
+	return {
+		id: id as number,
+		username,
+		display_name: null,
+		roles: role === "" ? [] : [role],
+		active: status === "active",
+		status,
+		created_at: isoUtc(created_at),
+		last_login_at: isoUtc(last_login_at),
+	};
 }
 
 /** GET /installations/:id/users: the installation's accounts through apotheke-api's Ops entrypoint (listUsers),
@@ -138,7 +167,8 @@ async function installationUsers(env: ApiEnv, op: Operator, rawId: string): Prom
 	if (!result || result.ok !== true) return edgeFailure((result ?? { ok: false, code: "bad_answer" }) as OpsFailure);
 	const users = Array.isArray(result.users) ? result.users.map(consoleUser) : [null];
 	if (users.some((u) => u === null)) return failure(503, "unavailable", { detail: "bad_answer" });
-	return json(200, { ok: true, installation: g.id, users });
+	// Not paginated: every account in one answer (installations have few), so next_cursor is always null.
+	return json(200, { ok: true, installation: g.id, users, next_cursor: null });
 }
 
 type Action = "claim" | "admin-reset";

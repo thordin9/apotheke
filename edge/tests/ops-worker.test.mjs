@@ -724,14 +724,15 @@ test('ops users: GET /installations/:id/users answers allowlisted account metada
   const t = setup({ ops: opsStub({ users: { ok: true, users: [USER, extra], token: 'fake-top-level' } }) });
   const r = await t.go('/api/ops/v1/installations/b/users');
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json, { ok: true, installation: 'b', users: [USER, { ...USER, id: 2, status: 'disabled' }] });
+  const shaped = { id: 1, username: 'admin', display_name: null, roles: ['admin'], active: true, status: 'active', created_at: '2026-11-01T10:00:00Z', last_login_at: null };
+  assert.deepEqual(r.json, { ok: true, installation: 'b', users: [shaped, { ...shaped, id: 2, active: false, status: 'disabled' }], next_cursor: null });
   assert.doesNotMatch(r.text, /fake|hash|token|epoch|email/);
   assertNoStore(r.res);
   assert.equal((await t.go('/api/ops/v1/installations/b/users', { method: 'HEAD' })).status, 200);
   assert.deepEqual(t.ops.calls, [['users', 'b'], ['users', 'b']]);
   assert.deepEqual(audits(t.db), []);
   const empty = setup();
-  assert.deepEqual((await empty.go('/api/ops/v1/installations/p/users')).json, { ok: true, installation: 'p', users: [] });
+  assert.deepEqual((await empty.go('/api/ops/v1/installations/p/users')).json, { ok: true, installation: 'p', users: [], next_cursor: null });
 });
 
 test('ops users: guards, primary, upstream failures and methods', async () => {
@@ -794,4 +795,21 @@ test('ops users: Access is required before any lookup or call', async () => {
   const off = setup({ vars: { ...VARS, ACCESS_AUD: '' } });
   assert.deepEqual((await off.go('/api/ops/v1/installations/b/users')).json, { ok: false, code: 'not_configured' });
   assert.deepEqual(off.ops.calls, []);
+});
+
+test('ops users: roles, active and ISO dates from the app fields', async () => {
+  const { isoUtc } = await import('../ops/src/api.ts');
+  const rows = [
+    { id: 3, username: 'p', role: 'viewer', status: 'pending', created_at: '2026-11-02T08:09:10.123Z', last_login_at: '2026-11-20 23:59:59' },
+    { id: 4, username: 'q', role: '', status: 'active', created_at: 'yesterday', last_login_at: '2026-02-30 10:00:00' },
+  ];
+  const t = setup({ ops: opsStub({ users: { ok: true, users: rows } }) });
+  const r = await t.go('/api/ops/v1/installations/b/users');
+  assert.deepEqual(r.json.users, [
+    { id: 3, username: 'p', display_name: null, roles: ['viewer'], active: false, status: 'pending', created_at: '2026-11-02T08:09:10Z', last_login_at: '2026-11-20T23:59:59Z' },
+    { id: 4, username: 'q', display_name: null, roles: [], active: true, status: 'active', created_at: null, last_login_at: null },
+  ]);
+  assert.equal(isoUtc(null), null);
+  assert.equal(isoUtc('2026-11-20T10:00:00Z'), '2026-11-20T10:00:00Z');
+  assert.equal(isoUtc('2026-11-20 10:00:00+02:00'), null);
 });
