@@ -227,3 +227,55 @@ test('PR0b: the Ops entrypoint resolves the installation in the control plane an
   assert.deepEqual(await resolveOpsInstallation({ prepare: () => ({ bind: () => ({ all: async () => ({ results: [{ id: 'p2', do_name: 'primary', status: 'active' }] }) }) }) }, 'p2'), { ok: false, code: 'refused' });
   assert.deepEqual(await new Ops({}, { APOTHEKE: env.APOTHEKE }).claimCreate('b'), { ok: false, code: 'not_configured' });
 });
+
+test('Ops.listUsers: account metadata from the Installation object, allowlisted; refused like the actions', async () => {
+  const { handleBridgeRead } = await import('../src/bridge.ts');
+  const { opsUsersResult, opsUser, OPS_USERS_URL } = await import('../src/ops-accounts.ts');
+  // The installation's own users table, with columns the read must never return.
+  const app = new DatabaseSync(':memory:');
+  app.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, role TEXT, status TEXT, password_hash TEXT, session_epoch INTEGER, created_at TEXT, last_login_at TEXT)");
+  app.prepare('INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(1, 'admin', 'admin', 'active', '$2y$fake-hash', 7, '2026-11-01 10:00:00', '2026-11-20 09:00:00');
+  app.prepare('INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(2, 'kim', 'viewer', 'disabled', '$2y$fake-hash-2', 1, '2026-11-02 10:00:00', null);
+  const appDb = { prepare: (sql) => ({ all: async () => ({ results: app.prepare(sql).all().map((r) => ({ ...r })) }) }) };
+  const calls = [];
+  let answer = null;
+  const INSTALLATION = {
+    jurisdiction: (j) => ({
+      idFromName: (n) => ({ n, j }),
+      get: (id) => ({ fetch: async (req) => { calls.push([id.j, id.n, req.method, req.url]); return answer ? answer() : await handleBridgeRead(req, appDb, undefined, id.n); } }),
+    }),
+  };
+  const db = controlDb([{ id: 'b', do_name: 'tenant-b', status: 'active' }, { id: 'c', do_name: 'tenant-c', status: 'suspended' }]);
+  const ops = new Ops({}, { DB: db, STORAGE: {}, INSTALLATION, APOTHEKE: { getByName: () => assert.fail('no container object') } });
+  const ok = await ops.listUsers('b');
+  assert.deepEqual(ok, { ok: true, users: [
+    { id: 1, username: 'admin', role: 'admin', status: 'active', created_at: '2026-11-01 10:00:00', last_login_at: '2026-11-20 09:00:00' },
+    { id: 2, username: 'kim', role: 'viewer', status: 'disabled', created_at: '2026-11-02 10:00:00', last_login_at: null },
+  ] });
+  assert.doesNotMatch(JSON.stringify(ok), /hash|epoch/);
+  assert.deepEqual(calls, [['eu', 'tenant-b', 'GET', OPS_USERS_URL]]);
+
+  calls.length = 0;
+  assert.deepEqual(await ops.listUsers('primary'), { ok: false, code: 'refused' });
+  assert.deepEqual(await ops.listUsers('nope'), { ok: false, code: 'unknown_installation' });
+  assert.deepEqual(await ops.listUsers('c'), { ok: false, code: 'not_startable' });
+  assert.deepEqual(calls, [], 'refusals never reach the Installation object');
+  assert.deepEqual(await new Ops({}, { DB: db }).listUsers('b'), { ok: false, code: 'unbound' }, 'storage not bound');
+  assert.deepEqual(await new Ops({}, { DB: db, INSTALLATION }).listUsers('b'), { ok: false, code: 'unbound' }, 'storage bindings incomplete');
+
+  // Extra fields of the answer are dropped; a wrong type or a failure is typed, with a short code only.
+  answer = () => Response.json({ ok: true, users: [{ id: 3, username: 'x', role: 'admin', status: 'active', created_at: null, last_login_at: null, password_hash: 'h', reset_token: 't' }] });
+  assert.deepEqual(await ops.listUsers('b'), { ok: true, users: [{ id: 3, username: 'x', role: 'admin', status: 'active', created_at: null, last_login_at: null }] });
+  answer = () => Response.json({ ok: false, code: 'read_failed', error: 'the read', reason: 'no such table: users' }, { status: 503 });
+  assert.deepEqual(await ops.listUsers('b'), { ok: false, code: 'read_failed', status: 503 });
+  answer = () => new Response('<html>', { status: 502 });
+  assert.deepEqual(await ops.listUsers('b'), { ok: false, code: 'http_502', status: 502 });
+  answer = () => Response.json({ ok: true, users: [{ id: '3', username: 'x', role: 'a', status: 'active', created_at: null, last_login_at: null }] });
+  assert.deepEqual(await ops.listUsers('b'), { ok: false, code: 'bad_answer', status: 200 });
+  answer = () => { throw new Error('object reset'); };
+  const [r, log] = await captured(() => ops.listUsers('b'));
+  assert.deepEqual(r, { ok: false, code: 'unreachable' });
+  assert.doesNotMatch(log, /object reset/);
+  assert.equal(opsUser(null), null);
+  assert.deepEqual(await opsUsersResult(Response.json({ ok: true })), { ok: false, code: 'bad_answer', status: 200 });
+});

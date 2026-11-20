@@ -2,8 +2,8 @@
 // header and their own Origin, GET /config reports the vars, and the claim and admin reset go through apotheke-api's
 // Ops entrypoint with every refusal, one audit row in one batch, and no token in D1 or a log. E6-2: the reads
 // (overview, installations, plans, subscriptions due, jobs, audit and its CSV) with paging, filters and 422s, the key
-// fetch timeout and failure window, and the streamed body cap. The Access keys are generated here; tokens and hosts
-// are fakes. Loaded by r2.test.mjs, which registers the cloudflare:workers stub and
+// fetch timeout and failure window, and the streamed body cap. GET /installations/:id/users: the field allowlist,
+// the guards and Access. The Access keys are generated here; tokens and hosts are fakes. Loaded by r2.test.mjs, which registers the cloudflare:workers stub and
 // the extensionless import hook, so CI's existing node --test command runs it.
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -93,6 +93,7 @@ function opsStub(answers = {}) {
     calls,
     claimCreate: async (id) => { calls.push(['claim', id]); return answers.claim ?? { ok: true, token: TOKEN, expires_at: EXPIRES }; },
     resetAdmins: async (id) => { calls.push(['reset', id]); return answers.reset ?? { ok: true }; },
+    listUsers: async (id) => { calls.push(['users', id]); if (answers.users instanceof Error) throw answers.users; return 'users' in answers ? answers.users : { ok: true, users: [] }; },
   };
 }
 
@@ -791,4 +792,101 @@ test('D1 ops: /api/ops/v1 goes to the API, other paths to ASSETS, both behind Ac
   assert.equal((await t.go('/assets/index.js')).text, 'asset /assets/index.js');
   assert.equal((await t.go('/api/ops/v1/config', { token: null })).status, 401);
   assert.equal((await t.go('/assets/index.js', { token: null })).status, 401);
+});
+
+const USER = { id: 1, username: 'admin', role: 'admin', status: 'active', created_at: '2026-11-01 10:00:00', last_login_at: null };
+
+test('ops users: GET /installations/:id/users answers allowlisted account metadata; HEAD too; no audit row', async () => {
+  const extra = { ...USER, id: 2, status: 'disabled', password_hash: '$2y$fake', reset_token: 'fake-reset', session_epoch: 3, email: 'kim@example.test' };
+  const t = setup({ ops: opsStub({ users: { ok: true, users: [USER, extra], token: 'fake-top-level' } }) });
+  const r = await t.go('/api/ops/v1/installations/b/users');
+  assert.equal(r.status, 200);
+  const shaped = { id: 1, username: 'admin', display_name: null, roles: ['admin'], active: true, status: 'active', created_at: '2026-11-01T10:00:00Z', last_login_at: null };
+  assert.deepEqual(r.json, { ok: true, installation: 'b', users: [shaped, { ...shaped, id: 2, active: false, status: 'disabled' }], next_cursor: null });
+  assert.doesNotMatch(r.text, /fake|hash|token|epoch|email/);
+  assertNoStore(r.res);
+  assert.equal((await t.go('/api/ops/v1/installations/b/users', { method: 'HEAD' })).status, 200);
+  assert.deepEqual(t.ops.calls, [['users', 'b'], ['users', 'b']]);
+  assert.deepEqual(audits(t.db), []);
+  const empty = setup();
+  assert.deepEqual((await empty.go('/api/ops/v1/installations/p/users')).json, { ok: true, installation: 'p', users: [], next_cursor: null });
+});
+
+test('ops users: guards, primary, upstream failures and methods', async () => {
+  const t = setup();
+  const cases = [
+    ['nope', 404, { ok: false, code: 'not_found' }],
+    ['%E0%A4%A', 404, { ok: false, code: 'not_found' }],
+    ['primary', 403, { ok: false, code: 'primary' }],
+    ['d', 410, { ok: false, code: 'gone' }],
+    ['s', 409, { ok: false, code: 'not_startable' }],
+    ['x', 409, { ok: false, code: 'not_startable' }],
+    ['n', 409, { ok: false, code: 'no_host' }],
+  ];
+  for (const [id, status, body] of cases) {
+    const r = await t.go(`/api/ops/v1/installations/${id}/users`);
+    assert.deepEqual([r.status, r.json], [status, body], id);
+    assertNoStore(r.res);
+  }
+  assert.deepEqual(t.ops.calls, [], 'no refusal reaches apotheke-api');
+
+  for (const method of ['POST', 'PUT', 'DELETE', 'PATCH']) {
+    const r = await t.go('/api/ops/v1/installations/b/users', { method, headers: { 'X-CSRF': '1', Origin: ORIGIN } });
+    assert.deepEqual([r.status, r.json, r.res.headers.get('allow')], [405, { ok: false, code: 'method_not_allowed' }, 'GET, HEAD'], method);
+  }
+  assert.deepEqual(t.ops.calls, []);
+
+  const upstream = [
+    [{ ok: false, code: 'refused' }, 403, { ok: false, code: 'primary' }],
+    [{ ok: false, code: 'unknown_installation' }, 404, { ok: false, code: 'not_found' }],
+    [{ ok: false, code: 'not_startable' }, 409, { ok: false, code: 'not_startable' }],
+    [{ ok: false, code: 'read_failed', status: 503 }, 503, { ok: false, code: 'unavailable', detail: 'read_failed' }],
+    [{ ok: false, code: 'unbound' }, 503, { ok: false, code: 'unavailable', detail: 'unbound' }],
+    [{ ok: true, users: [{ ...USER, id: '1' }] }, 503, { ok: false, code: 'unavailable', detail: 'bad_answer' }],
+    [{ ok: true, users: [{ ...USER, last_login_at: 5 }] }, 503, { ok: false, code: 'unavailable', detail: 'bad_answer' }],
+    [{ ok: true }, 503, { ok: false, code: 'unavailable', detail: 'bad_answer' }],
+    [null, 503, { ok: false, code: 'unavailable', detail: 'bad_answer' }],
+  ];
+  for (const [users, status, body] of upstream) {
+    const u = setup({ ops: opsStub({ users }) });
+    const r = await u.go('/api/ops/v1/installations/b/users');
+    assert.deepEqual([r.status, r.json], [status, body], JSON.stringify(users));
+  }
+  const thrown = setup({ ops: opsStub({ users: new Error('binding down') }) });
+  const [r, log] = await captured(() => thrown.go('/api/ops/v1/installations/b/users'));
+  assert.deepEqual([r.status, r.json], [503, { ok: false, code: 'unavailable' }]);
+  assert.doesNotMatch(log, /binding down/);
+  const unbound = setup();
+  delete unbound.env.OPS;
+  assert.deepEqual((await unbound.go('/api/ops/v1/installations/b/users')).json, { ok: false, code: 'not_configured' });
+});
+
+test('ops users: Access is required before any lookup or call', async () => {
+  const t = setup();
+  for (const token of [null, 'not-a-jwt', await jwt({ aud: ['another-aud'] })]) {
+    const r = await t.go('/api/ops/v1/installations/b/users', { token });
+    assert.deepEqual([r.status, r.json], [401, { ok: false, code: 'unauthorized' }]);
+    assertNoStore(r.res);
+  }
+  assert.deepEqual(t.ops.calls, []);
+  const off = setup({ vars: { ...VARS, ACCESS_AUD: '' } });
+  assert.deepEqual((await off.go('/api/ops/v1/installations/b/users')).json, { ok: false, code: 'not_configured' });
+  assert.deepEqual(off.ops.calls, []);
+});
+
+test('ops users: roles, active and ISO dates from the app fields', async () => {
+  const { isoUtc } = await import('../ops/src/api.ts');
+  const rows = [
+    { id: 3, username: 'p', role: 'viewer', status: 'pending', created_at: '2026-11-02T08:09:10.123Z', last_login_at: '2026-11-20 23:59:59' },
+    { id: 4, username: 'q', role: '', status: 'active', created_at: 'yesterday', last_login_at: '2026-02-30 10:00:00' },
+  ];
+  const t = setup({ ops: opsStub({ users: { ok: true, users: rows } }) });
+  const r = await t.go('/api/ops/v1/installations/b/users');
+  assert.deepEqual(r.json.users, [
+    { id: 3, username: 'p', display_name: null, roles: ['viewer'], active: false, status: 'pending', created_at: '2026-11-02T08:09:10Z', last_login_at: '2026-11-20T23:59:59Z' },
+    { id: 4, username: 'q', display_name: null, roles: [], active: true, status: 'active', created_at: null, last_login_at: null },
+  ]);
+  assert.equal(isoUtc(null), null);
+  assert.equal(isoUtc('2026-11-20T10:00:00Z'), '2026-11-20T10:00:00Z');
+  assert.equal(isoUtc('2026-11-20 10:00:00+02:00'), null);
 });

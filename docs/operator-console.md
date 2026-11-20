@@ -346,6 +346,12 @@ operator Worker's service binding. It has no route, and this Worker declares no 
   `unknown_installation`, `ambiguous_installation`, `not_startable`, `bad_app_key`, `unavailable` (the container did
   not start) and `unreachable` (the request did not finish). The claim token is only in the result: it is not logged
   and not put in an error.
+- **`listUsers(installation)`** resolves and refuses the installation exactly like `claimCreate`, then reads
+  `GET /users` (see [Hosted installations](#hosted-installations)) from the installation's `Installation` object. The
+  container is not started and nothing is signed: the read never leaves the edge. It returns `{ok:true, users}` with
+  only `id`, `username`, `role`, `status`, `created_at` and `last_login_at` per account (any other field is dropped),
+  or `{ok:false, code, status?}`: the refusals above, `unbound` (storage mode is not selected), `read_failed` (the
+  read failed), `http_<status>`, `bad_answer` (a field missing or of the wrong type) and `unreachable`.
 
 ## Backup for a lifecycle job
 
@@ -483,6 +489,18 @@ it is null on the last one. Installations are in `id` order; jobs and audit rows
 - `GET /installations/:id` returns the same fields as a list entry plus `limits` (its plan's `plan_limits`), `usage`
   (its `usage_counters`, newest period first, at most 120), `jobs` and `audit` (its last 20 `lifecycle_jobs` and
   `operator_audit` rows). Unknown is 404 `not_found`; `primary` and deleted installations are readable.
+- `GET /installations/:id/users` returns `{"ok":true,"installation":…,"users":[…],"next_cursor":null}` from the
+  installation's own database through `listUsers`. Each user is `{id, username, display_name, roles, active, status,
+  created_at, last_login_at}`: `display_name` is null (the app has none), `roles` is the account's one role as a list
+  (empty if it has none), `active` is whether `status` is `active`, `status` is the app's value as stored (`active` or
+  `pending` today), and the two dates are ISO 8601 UTC (`2026-11-20T10:00:00Z`) or null (also for a value that is not
+  a date). It is not paginated: every account is in one answer and `next_cursor` is always null. Metadata only:
+  `apotheke-ops` keeps those fields and drops anything else, so no password hash, session, token or link is ever in
+  it. It is guarded like the actions: `primary` 403 `primary` (as for a claim: the console does not act on `primary`,
+  and `listUsers` refuses it too), unknown 404 `not_found`, `deleted` 410 `gone`, any status other than
+  `provisioning` or `active` 409 `not_startable`, no host 409 `no_host`. `listUsers`'s refusals are mapped as for the
+  actions; any other failure is 503 `unavailable` with its code as `detail` (`read_failed`, `unbound`,
+  `bad_answer`). It writes no audit row.
 - `GET /plans` returns `plans`, each `plans` row with its `limits`.
 - `GET /subscriptions?due=14d` (`N` or `Nd`, 0 to 365 days, default 14) returns `due_days`, `now`, `subscriptions`
   and `truncated` (more than 500). A subscription is due on its `trial_end` while `trial`, else its `period_end`;
@@ -502,7 +520,6 @@ it is null on the last one. Installations are in `id` order; jobs and audit rows
 
 Not served yet; the shapes may still change.
 
-- `GET /installations/:id/users` (metadata only)
 - `PUT /plans/:id/limits`
 - `PUT /installations/:id/subscription`
 - `GET /subscriptions/rules` is a report only. A rule with an unset value shows `not run: value not set`.

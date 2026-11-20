@@ -23,7 +23,7 @@
 	// The control-plane D1 of apotheke-api (edge/storage.jsonc): same binding name and database. The id is added where
 	// the Worker is deployed, like apotheke-api's.
 	"d1_databases": [{ "binding": "DB", "database_name": "apotheke-api", "migrations_dir": "../migrations/control" }],
-	// apotheke-api's named entrypoint Ops (edge/src/index.ts): claimCreate(installation) and resetAdmins(installation).
+	// apotheke-api's named entrypoint Ops (edge/src/index.ts): claimCreate, resetAdmins and listUsers(installation).
 	// The only way from this Worker to an installation.
 	// AUTOFILL: the autofill Worker's HostedAutofill entrypoint, as on apotheke-api. This Worker is the host of the
 	// lifecycle Workflow (edge/src/lifecycle-workflow.ts), whose purge.autofill step needs it; without it a purge waits
