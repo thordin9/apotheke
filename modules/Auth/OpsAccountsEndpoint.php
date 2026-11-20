@@ -11,13 +11,15 @@ use Closure;
 use Throwable;
 
 /**
- * POST /internal/accounts/claim and POST /internal/accounts/reset-admins on the host `ops.internal` (operator console):
- * the hosting side asks its own container for a new first-admin claim (FirstAdminClaim::create) or to remove the
- * hosted admins (HostedAdminReset). Answered like /internal/backup (OpsBackupEndpoint): only on a hosted installation,
- * only for exactly that host and path with no forwarding headers, and only with a valid OpsSignature for that path.
- * Anything else is not this endpoint: handle() returns null and the request goes on as usual (404).
+ * POST /internal/accounts/{claim,reset-admins,disable,enable} on the host `ops.internal` (operator console):
+ * the hosting side asks its own container for a new first-admin claim (FirstAdminClaim::create), to remove the
+ * hosted admins (HostedAdminReset), or to disable or re-enable one user (HostedDisabledUsers). Answered like
+ * /internal/backup (OpsBackupEndpoint): only on a hosted installation, only for exactly that host and path with no
+ * forwarding headers, and only with a valid OpsSignature for that path. Anything else is not this endpoint: handle()
+ * returns null and the request goes on as usual (404).
  *
  * claim: 200 `{"ok":true,"token":…,"expires_at":…}`, 409 `active_admin_exists`. reset-admins: 200 `{"ok":true}`.
+ * disable / enable: 200 `{"ok":true}` (idempotent), 404 `not_found`, 409 `last_active_admin` (disable only).
  * Errors `{"ok":false,"code":…}`. The token is in the answer only: never logged or put in an error.
  */
 final class OpsAccountsEndpoint
@@ -28,6 +30,10 @@ final class OpsAccountsEndpoint
 
     public const RESET_PATH = '/internal/accounts/reset-admins';
 
+    public const DISABLE_PATH = '/internal/accounts/disable';
+
+    public const ENABLE_PATH = '/internal/accounts/enable';
+
     private const MAX_BODY = 4096;
 
     /** Headers the Worker sets on every public request it forwards to the container. */
@@ -36,6 +42,7 @@ final class OpsAccountsEndpoint
     /**
      * @param Closure():FirstAdminClaim $claim
      * @param Closure():HostedAdminReset $reset
+     * @param Closure():HostedDisabledUsers $disabled
      */
     public function __construct(
         private readonly bool $hosted,
@@ -43,6 +50,7 @@ final class OpsAccountsEndpoint
         private readonly Closure $claim,
         private readonly Closure $reset,
         private readonly Clock $clock,
+        private readonly Closure $disabled,
     ) {
     }
 
@@ -72,12 +80,28 @@ final class OpsAccountsEndpoint
 
                 return ['status' => 200, 'body' => ['ok' => true]];
             }
+            if ($uri === self::DISABLE_PATH || $uri === self::ENABLE_PATH) {
+                $id = self::userId($body);
+                if ($id === null) {
+                    return self::error('bad_request', 400);
+                }
+                if ($uri === self::DISABLE_PATH) {
+                    ($this->disabled)()->disable($id);
+                } else {
+                    ($this->disabled)()->enable($id);
+                }
+
+                return ['status' => 200, 'body' => ['ok' => true]];
+            }
             $made = ($this->claim)()->create();
 
             return ['status' => 200, 'body' => ['ok' => true, 'token' => $made['token'], 'expires_at' => $made['expires_at']]];
         } catch (UserError $e) {
             if ($e->getCode() === 409) {
-                return self::error('active_admin_exists', 409);
+                return self::error($uri === self::DISABLE_PATH ? 'last_active_admin' : 'active_admin_exists', 409);
+            }
+            if ($e->getCode() === 404) {
+                return self::error('not_found', 404);
             }
             error_log('ops accounts failed: ' . get_class($e));
         } catch (Throwable $e) {
@@ -95,7 +119,7 @@ final class OpsAccountsEndpoint
      */
     public function applies(string $uri, string $host, array $headers): bool
     {
-        if (!$this->hosted || ($uri !== self::CLAIM_PATH && $uri !== self::RESET_PATH) || strtolower($host) !== self::HOST) {
+        if (!$this->hosted || !in_array($uri, self::paths(), true) || strtolower($host) !== self::HOST) {
             return false;
         }
         $lower = array_change_key_case($headers, CASE_LOWER);
@@ -106,6 +130,23 @@ final class OpsAccountsEndpoint
         }
 
         return true;
+    }
+
+    /** @return list<string> */
+    private static function paths(): array
+    {
+        return [self::CLAIM_PATH, self::RESET_PATH, self::DISABLE_PATH, self::ENABLE_PATH];
+    }
+
+    /** A body of exactly `{"user_id": <positive integer>}`, or null. */
+    private static function userId(string $body): ?int
+    {
+        $json = json_decode($body, true);
+        if (!is_array($json) || array_keys($json) !== ['user_id'] || !is_int($json['user_id']) || $json['user_id'] < 1) {
+            return null;
+        }
+
+        return $json['user_id'];
     }
 
     /** @return array{status:int, body:array<string,mixed>} */

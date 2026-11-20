@@ -25,6 +25,7 @@ final class CurrentUser implements ActorGate
         private readonly UserRepository $users,
         private readonly Closure $session,
         private readonly SessionEpoch $epoch = new SessionEpoch(),
+        private readonly ?HostedDisabledUsers $disabled = null,
     ) {
     }
 
@@ -39,7 +40,8 @@ final class CurrentUser implements ActorGate
         $uid = is_scalar($session['uid'] ?? null) ? (int)$session['uid'] : 0;
         $user = $uid > 0 ? $this->users->find($uid) : null;
         $held = $session['auth_epoch'] ?? '';
-        if ($user !== null && $user['status'] === 'active' && is_string($held) && hash_equals($this->epoch->of($user), $held)) {
+        if ($user !== null && $user['status'] === 'active' && is_string($held) && hash_equals($this->epoch->of($user), $held)
+            && !($this->disabled?->isDisabled($user['id']) ?? false)) {
             return ['id' => $user['id'], 'username' => $user['username'], 'role' => $user['role'], 'status' => 'active', 'guest' => false, 'anon' => false];
         }
         if (!$settings->get('auth_guest_disabled')) {

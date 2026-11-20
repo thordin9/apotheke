@@ -422,5 +422,9 @@ installation a first admin without a shell in the container. They are reached an
   logged. While an active `admin` exists: 409 `active_admin_exists`, and nothing changes.
 - **`/internal/accounts/reset-admins`** does what `accounts:hosted-reset-admins` does (removes admin accounts, their
   session records and any claim; other accounts stay): 200 `{"ok":true}`, also when there was nothing to remove.
+- **`/internal/accounts/disable`** and **`/internal/accounts/enable`** take `{"user_id": <positive integer>}`. Disable
+  records that user, ends their sessions, and leaves `users.status` unchanged: 200 `{"ok":true}`, also on a second
+  call. Enable removes the record. The last active admin cannot be disabled: 409 `last_active_admin`, and nothing
+  changes. An unknown user is 404 `not_found`. A body that is not that object is 400 `bad_request`.
 
 Other errors are `{"ok":false,"code":…}`: 401 `unauthorized`, 405, 500 `accounts_failed`, 503 `not_configured`.
