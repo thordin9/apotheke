@@ -36,6 +36,8 @@ class Filters extends BaseFilters
         'performance'   => PerformanceMetrics::class,
         // POST /internal/backup on ops.internal, hosted only (operator console C2): answered here, before every other filter.
         'opsbackup' => \Apotheke\Backup\Filters\OpsBackupFilter::class,
+        // POST /internal/accounts/{claim,reset-admins} on ops.internal, hosted only (operator console): the same way.
+        'opsaccounts' => \Apotheke\Auth\Filters\OpsAccountsFilter::class,
         'headasget' => \Apotheke\Core\Filters\HeadAsGet::class,
         'harness' => \Apotheke\Core\Filters\HarnessMark::class,
         'originalsguard' => \Apotheke\Core\Filters\OriginalsGuardFilter::class,
@@ -82,6 +84,7 @@ class Filters extends BaseFilters
     public array $required = [
         'before' => [
             'opsbackup',
+            'opsaccounts',
             'headasget',
             'harness',
             'originalsguard',
