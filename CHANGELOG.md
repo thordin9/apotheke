@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **ops:** the operator console shows the read-only overview, installations, plans, subscriptions, jobs and audit ([#350](https://github.com/thordin9/apotheke/pull/350))
+
 ### Changed
 
 - **frontend:** the landing, privacy, 404 and app shell are lighter and tighter, with a paper header in the light theme ([#353](https://github.com/thordin9/apotheke/pull/353))
