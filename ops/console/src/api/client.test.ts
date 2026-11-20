@@ -90,6 +90,7 @@ test('401, 403, 404, 405, 409, 410, 422 and 503 are typed', async () => {
     [403, { ok: false, code: 'csrf' }, 'forbidden', 'The request was refused: CSRF.'],
     [403, { ok: false, code: 'forbidden' }, 'forbidden', 'The request was refused: a disallowed identity.'],
     [403, { ok: false, code: 'primary' }, 'forbidden', 'The request was refused: primary.'],
+    [403, { ok: false, code: 'writes_disabled' }, 'forbidden', 'The request was refused: writes are disabled.'],
     [404, { ok: false, code: 'not_found' }, 'not_found', 'That record was not found.'],
     [405, { ok: false, code: 'method_not_allowed' }, 'method', 'That method is not allowed.'],
     [409, { ok: false, code: 'active_admin_exists' }, 'conflict', 'The request conflicts with the current record.'],
@@ -126,5 +127,47 @@ test('a failed fetch is a network error', async () => {
 
 test('the audit export is a same-origin CSV URL with the filters', () => {
   const client = createClient({ fetchImpl: fakeFetch(() => jsonResponse(200, {})), base: '/api/ops/v1' });
-  assert.equal(client.auditExportUrl({ installation: 'north', from: '2026-11-01' }), '/api/ops/v1/audit.csv?installation=north&from=2026-11-01');
+  const path = client.auditExportUrl({ installation: 'north', from: '2026-11-01' });
+  assert.equal(path, '/api/ops/v1/audit.csv?installation=north&from=2026-11-01');
+  assert.equal(path.startsWith('/'), true);
+  assert.equal(/^https?:/i.test(path), false);
+  const hosted = createClient({ fetchImpl: fakeFetch(() => jsonResponse(200, {})), base: 'https://ops.example/api/ops/v1' });
+  const url = new URL(hosted.auditExportUrl({ installation: 'a b' }));
+  assert.equal(url.origin, 'https://ops.example');
+  assert.equal(url.pathname, '/api/ops/v1/audit.csv');
+  assert.equal(url.searchParams.get('installation'), 'a b');
+});
+
+test('ok false on a 2xx is an error', async () => {
+  const fetchImpl = fakeFetch(() => jsonResponse(200, { ok: false, code: 'unavailable', detail: 'bad_answer' }));
+  const client = createClient({ fetchImpl, base: '/api/ops/v1' });
+  await assert.rejects(client.users('north'), (error: unknown) => {
+    assert.ok(error instanceof OpsError);
+    assert.equal(error.status, 200);
+    assert.equal(error.kind, 'unexpected');
+    assert.equal(error.code, 'unavailable');
+    assert.equal(error.detail, 'bad_answer');
+    return true;
+  });
+});
+
+test('installation and user paths encode the id', async () => {
+  const fetchImpl = fakeFetch(() => jsonResponse(200, { ok: true }));
+  const client = createClient({ fetchImpl, base: '/api/ops/v1' });
+  await client.installation('a/b c');
+  await client.users('a/b c');
+  const calls = callsOf(fetchImpl);
+  assert.equal(String(calls[0].input), '/api/ops/v1/installations/a%2Fb%20c');
+  assert.equal(String(calls[1].input), '/api/ops/v1/installations/a%2Fb%20c/users');
+});
+
+test('a users conflict names the installation state', async () => {
+  const fetchImpl = fakeFetch(() => jsonResponse(409, { ok: false, code: 'no_host' }));
+  const client = createClient({ fetchImpl, base: '/api/ops/v1' });
+  await assert.rejects(client.users('north'), (error: unknown) => {
+    assert.ok(error instanceof OpsError);
+    assert.equal(error.code, 'no_host');
+    assert.equal(error.message, "This installation isn't running or has no host, so its users can't be read.");
+    return true;
+  });
 });

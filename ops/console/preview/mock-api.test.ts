@@ -66,6 +66,28 @@ test('a preview fault answers 401, 503 or 410', () => {
   assert.equal(handleMock('GET', new URL('/api/ops/v1/config', 'http://127.0.0.1'), '410').status, 410);
 });
 
+test('installation users are a read-only list', () => {
+  const north = get('/api/ops/v1/installations/north/users');
+  assert.equal(north.status, 200);
+  const body = north.body as { ok: true; installation: string; users: { username: string; display_name: null; roles: string[]; status: string }[]; next_cursor: null };
+  assert.equal(body.installation, 'north');
+  assert.equal(body.next_cursor, null);
+  assert.equal(body.users[0].username, '<b>x</b>');
+  assert.equal(body.users[0].display_name, null);
+  assert.deepEqual(body.users[0].roles, []);
+  assert.equal(body.users[1].status, 'active');
+  assert.equal(get('/api/ops/v1/installations/primary/users').status, 403);
+  assert.equal((get('/api/ops/v1/installations/primary/users').body as { code: string }).code, 'primary');
+  assert.equal(get('/api/ops/v1/installations/missing/users').status, 404);
+  assert.equal(get('/api/ops/v1/installations/south/users').status, 409);
+  assert.equal((get('/api/ops/v1/installations/south/users').body as { code: string }).code, 'not_startable');
+  assert.equal((get('/api/ops/v1/installations/nohost/users').body as { code: string }).code, 'no_host');
+  assert.equal(get('/api/ops/v1/installations/old/users').status, 410);
+  assert.equal((get('/api/ops/v1/installations/unread/users').body as { detail: string }).detail, 'read_failed');
+  assert.equal((get('/api/ops/v1/installations/unconfigured/users').body as { code: string }).code, 'not_configured');
+  assert.equal(handleMock('POST', new URL('/api/ops/v1/installations/north/users', 'http://127.0.0.1')).status, 405);
+});
+
 test('writes are not implemented', () => {
   const result = handleMock('POST', new URL('/api/ops/v1/jobs', 'http://127.0.0.1'));
   assert.equal(result.status, 405);
