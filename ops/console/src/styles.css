@@ -120,6 +120,9 @@ th { font-weight: 600; font-size: var(--text-sm); }
 td a { display: inline-flex; align-items: center; min-height: var(--hit); }
 .num { font-family: var(--font-outlier); font-variant-numeric: tabular-nums; }
 [role="alert"] { color: var(--color-error); }
+.badge { display: inline-flex; align-items: center; min-height: var(--hit); margin-right: var(--space-xs); padding: 0 var(--space-sm); background: var(--color-accent-soft); color: var(--color-accent-soft-ink); }
+.panel { background: var(--color-paper-2); padding: var(--space-md); max-width: 40rem; }
+#audit-csv { display: inline-flex; align-items: center; min-height: var(--hit); margin: var(--space-sm) 0; }
 .needs-js { padding: var(--space-lg); }
 @media (max-width: 48rem) {
   .shell { grid-template-columns: minmax(0, 1fr); }

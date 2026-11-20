@@ -34,6 +34,10 @@ test('the production build contains no mock or fixture code', async () => {
     for (const needle of banned) {
       assert.equal(source.includes(needle), false, `${file} contains ${needle}`);
     }
+    assert.equal(/<style[\s>]/i.test(source), false, `${file} has an inline style`);
+    assert.equal(/<script(?![^>]*\bsrc=)/i.test(source), false, `${file} has an inline script`);
+    assert.equal(/\sstyle="/i.test(source), false, `${file} has a style attribute`);
+    assert.equal(/https?:\/\//i.test(source), false, `${file} has an external URL`);
   }
 });
 

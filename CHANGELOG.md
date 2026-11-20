@@ -10,6 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
+- **ops:** the operator console shows the read-only overview, installations, plans, subscriptions, jobs and audit ([#350](https://github.com/thordin9/apotheke/pull/350))
 - **edge:** write endpoints for the operator console: plan limits, subscription plan and status, lifecycle job create and confirm, and limit overrides ([#354](https://github.com/thordin9/apotheke/pull/354))
 
 ## [3.59.0] - 2026-11-20
