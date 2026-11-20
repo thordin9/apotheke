@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **ops:** an operator console shell, a typed client and a local preview for the fleet and the installations list
+
 ### Maintenance
 
 - **ci:** the merged edge dry run also requires the `AUTOFILL` service binding (`apotheke-autofill#HostedAutofill`) ([#334](https://github.com/thordin9/apotheke/pull/334))
