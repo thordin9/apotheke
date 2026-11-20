@@ -83,3 +83,34 @@ export async function resolveOpsInstallation(db: ControlDb | undefined, ref: unk
 	if (row.status !== "provisioning" && row.status !== "active") return { ok: false, code: "not_startable" };
 	return { doName: row.do_name };
 }
+
+/** The installation's own account list (bridge.ts, GET /users), read from its Installation object; no container. */
+export const OPS_USERS_URL = "http://d1.internal/users";
+
+/** One account as the console gets it: metadata only. Any other field of the answer is dropped. */
+export type OpsUser = { id: number; username: string; role: string; status: string; created_at: string | null; last_login_at: string | null };
+export type OpsUsersResult = { ok: true; users: OpsUser[] } | OpsAccountsFailure;
+
+const nullableText = (v: unknown): v is string | null => v === null || typeof v === "string";
+
+/** The allowlisted fields of one account, or null when a field is missing or of the wrong type. */
+export function opsUser(u: unknown): OpsUser | null {
+	if (u === null || typeof u !== "object") return null;
+	const { id, username, role, status, created_at, last_login_at } = u as Record<string, unknown>;
+	if (!Number.isSafeInteger(id) || typeof username !== "string" || typeof role !== "string" || typeof status !== "string") return null;
+	if (!nullableText(created_at) || !nullableText(last_login_at)) return null;
+	return { id: id as number, username, role, status, created_at, last_login_at };
+}
+
+/** The bridge's answer as a typed result. A failure keeps only a short code from its body (read_failed, unbound). */
+export async function opsUsersResult(res: Response): Promise<OpsUsersResult> {
+	const body = (await res.json().catch(() => null)) as { ok?: unknown; code?: unknown; users?: unknown } | null;
+	if (res.status !== 200) {
+		const code = typeof body?.code === "string" && /^[a-z_]{1,32}$/.test(body.code) ? body.code : `http_${res.status}`;
+		return { ok: false, code, status: res.status };
+	}
+	if (body === null || body.ok !== true || !Array.isArray(body.users)) return { ok: false, code: "bad_answer", status: 200 };
+	const users = body.users.map(opsUser);
+	if (users.some((u) => u === null)) return { ok: false, code: "bad_answer", status: 200 };
+	return { ok: true, users: users as OpsUser[] };
+}
