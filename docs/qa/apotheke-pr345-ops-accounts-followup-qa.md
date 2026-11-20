@@ -1,9 +1,9 @@
 # QA: apotheke #345, ops accounts method, body-size, path and hosted-off tests (#338 follow-up)
 
 - PR: https://github.com/thordin9/apotheke/pull/345 (Coder), base `main`. The #338 follow-up for L-2351, N-2352 and N-2353. Test and docs only; no CHANGELOG bullet (none is required: `test`/`docs` do not cut a release).
-- Reviewed head: `695cb8ba7d08598a37ae004c84a4c32723288706` (2 commits, the last of `83928a6e` then `695cb8ba`). 0 behind and 2 ahead of main `2750b4ad` (v3.55.0). `mergeable_state` is clean.
+- Reviewed head: `5ba943ed9b6ac7e486670ca8c26d6c3d76b6314d`, 0 behind main `58eab93e` (v3.56.0, after #339). Full test gate at `695cb8ba` (commits `83928a6e`, `695cb8ba`); since then the first QA doc commit `411806d8` and the catch-up merge `5ba943ed`.
 - Gate: a full test gate on a test-and-docs-only diff. Diff read against main, the touched class and the full sqlite suite, 5 mutants independent of Coder's M1–M6, docs against the code, `check-commits`, `check-links` and gitleaks. No `app/`, `modules/` or `edge/` source changed, so this is not a security re-gate of #338.
-- CI on `695cb8ba`, all green: CI 44750468627 and CodeQL 44750461532. 21 checks pass, 0 skipped, 0 failed. Deploy edge did not run, because no edge paths changed.
+- CI on `695cb8ba`, all green (CI on `5ba943ed` is checked at the hash check): CI 44750468627 and CodeQL 44750461532. 21 checks pass, 0 skipped, 0 failed. Deploy edge did not run, because no edge paths changed.
 - Reviewed 2026-11-20, 16:26 to 16:41 (UTC+2). Reviewer: Apotheke QA 2
 
 ## Checklist
@@ -16,17 +16,18 @@
 - [x] Mutants, all killed and restored (`cmp` and `git diff --quiet` on `OpsAccountsEndpoint.php` and `Services.php`): QA1 change 405 to 404 (killed by the GET 405 assertions); QA2 drop the `Allow` header (killed by `Allow: POST`); QA3 raise `MAX_BODY` from 4096 to 8192 (killed: the 4097-byte body became 200 instead of 401); QA4 accept a trailing `/` via `rtrim` (killed: `…/claim/` became 200); QA5 factory ignores env and is always hosted (killed: `APOTHEKE_HOSTED=0` still applied). These are not Coder's M1–M6.
 - [x] Commits `83928a6e` (69 characters) and `695cb8ba` (67) are Conventional, and `check-commits` is ok. The PR title plus " (#345)" is 76 characters; see L-2354. `check-links`: 402 links, 0 broken. gitleaks 8.30.1 with the repo config: 0 findings in the 2 PR commits.
 - [x] Coder's reported docblock nit is not in the tree. The class docblock already says the path is not found "(404, or 421 from the host list)", unchanged from main, and the new tests do not say "the usual 404". Not recorded.
+- [x] Merge `5ba943ed`: parents exactly `[411806d8, 58eab93e]`. `git merge-tree` has no conflicts and its tree is identical to the head tree. The main...head numstat equals `2750b4ad...411806d8` (3 files: `docs/operator-console.md`, this doc, `OpsAccountsHttpTest.php`). The `operator-console.md` change from `411806d8` to `5ba943ed` is exactly #339's change on main. `CHANGELOG.md` and `VERSION` are byte-identical to main `58eab93e`.
 
 ## Findings
 
 - **L-2351 (closed):** the three hardening cases now have tests, as above. Mutants that change the 405 status, drop `Allow`, raise the cap or accept a trailing slash are all killed.
 - **N-2352 (closed):** the factory is tested with hosted off and on, as above.
 - **N-2353 (closed):** the docs now name the 405 code and `Allow: POST`, the 4 KiB cap giving 401, the exact path, and the 421 on `ops.internal` when self-hosted.
-- **L-2354:** the PR title plus " (#345)" is 76 characters, over the 72 limit. Retitle before squash, for example "test(auth): cover ops accounts method, size, path and hosted off" (71 characters with " (#345)").
+- **L-2354 (closed):** the PR title plus " (#345)" was 76 characters, over the 72 limit. The PR is now titled "test(auth): cover ops accounts method, size, path and hosted off" (71 characters with " (#345)").
 - L-2350 (replay nonce in the ±300 s window) stays a residual from #338; it is not in this PR's scope.
 
-0 High, 0 Medium, 1 Low (L-2354) and 0 Nits open from this PR; L-2351, N-2352 and N-2353 are closed (next free id: 2355).
+0 High, 0 Medium, 0 Low and 0 Nits open from this PR; L-2351, N-2352, N-2353 and L-2354 are closed (next free id: 2355).
 
 ## Verdict
 
-**PASS** at `695cb8ba`, 0 behind main `2750b4ad` (v3.55.0). This doc lands byte-exact as the last commit ("docs(qa): add QA 2 review for #345"), followed by the hash check and green CI on that head. The current title is not a valid squash subject (76 characters with " (#345)"). After a retitle, squash as "test(auth): cover ops accounts method, size, path and hosted off" (71 characters with " (#345)").
+**PASS** at `5ba943ed`, 0 behind main `58eab93e` (v3.56.0). This reissued doc replaces the copy from `411806d8` and lands byte-exact as the last commit ("docs(qa): add QA 2 review for #345"), followed by the hash check and green CI on that head. Squash as "test(auth): cover ops accounts method, size, path and hosted off" (71 characters with " (#345)"); `test` cuts no release.
