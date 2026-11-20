@@ -4,6 +4,6 @@
   "type": "module",
   "description": "Optional headless mobile checks (dev only, not shipped)",
   "devDependencies": {
-    "puppeteer-core": "^25.16.0"
+    "puppeteer-core": "^25.17.0"
   }
 }
