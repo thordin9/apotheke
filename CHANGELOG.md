@@ -12,6 +12,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **ops:** the operator console shows the read-only overview, installations, plans, subscriptions, jobs and audit ([#350](https://github.com/thordin9/apotheke/pull/350))
 
+### Fixed
+
+- **auth:** the hosted admin reset matches session records on the account's own uid field only ([#000](https://github.com/thordin9/apotheke/pull/000))
+
 ## [3.59.0] - 2026-11-20
 
 ### Added

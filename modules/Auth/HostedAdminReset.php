@@ -56,12 +56,15 @@ final class HostedAdminReset
             if ($this->observe !== null) {
                 ($this->observe)('in-unit');
             }
-            // Session rows store the account as uid|i:<id>; in the payload. Match that exact field so a neighbouring
-            // id (1 vs 11) is not treated as the same account. Sessions are deleted first, while the admin rows remain.
+            // Session rows store the account as uid|i:<id>; in the payload. Match that exact field, opening the payload
+            // or after a ';' or '}' boundary, so a neighbouring id (1 vs 11) or another key ending in uid is not treated
+            // as the same account. Sessions are deleted first, while the admin rows remain.
             $uow->write(
                 "DELETE FROM sessions WHERE EXISTS ("
-                . "SELECT 1 FROM users WHERE role = 'admin'"
-                . " AND sessions.data LIKE '%uid|i:' || CAST(id AS TEXT) || ';%')",
+                . "SELECT 1 FROM users WHERE role = 'admin' AND ("
+                . "sessions.data LIKE 'uid|i:' || CAST(id AS TEXT) || ';%'"
+                . " OR sessions.data LIKE '%;uid|i:' || CAST(id AS TEXT) || ';%'"
+                . " OR sessions.data LIKE '%}uid|i:' || CAST(id AS TEXT) || ';%'))",
                 [],
                 'reset hosted admin sessions',
             );

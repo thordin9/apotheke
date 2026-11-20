@@ -7,7 +7,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.58.0). The 2.6.x line has security support from `old`
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.59.0). The 2.6.x line has security support from `old`
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
@@ -96,7 +96,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- Control-plane `limit_overrides` and the `/limits` merge (branch `feat/limit-overrides`, [#344](https://github.com/thordin9/apotheke/pull/344)): a live per-installation override (raise or lower) is applied in the shared plan-limits SQL used by `/limits` and the 30-second route cache; a non-integer hard value, a malformed or expired `expires_at`, and `primary` are ignored, and the `/limits` body shape is unchanged.
+- Hosted admin reset session match (branch `fix/admin-reset-session-match`): session records are matched on the uid field itself.
 - `check-dist` and its tests fail fast when `frontend/dist` is missing, with a note to run `npm ci` and `npm run build` in `frontend/`.
 - `RestoreFenceTest` checks a waiting fence claim by outcome, not wall-clock bounds.
 - E1 (#300, ready for review): the edge deploy applies `edge/migrations/control/` to D1 `apotheke-api` before `wrangler deploy`. Schema SQL is on main (#299). Awaiting *Account > D1 > Edit* on the existing deploy token before merge.

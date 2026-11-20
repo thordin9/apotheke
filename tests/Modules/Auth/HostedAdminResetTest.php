@@ -190,11 +190,11 @@ final class HostedAdminResetTest extends CIUnitTestCase
     }
 
     /** @return string the sessions.id key (SHA-256 of $sid) */
-    private function putSession(string $sid, int $userId): string
+    private function putSession(string $sid, int $userId, ?string $data = null): string
     {
         $this->assertNotNull($this->database);
         $key = hash('sha256', $sid);
-        $data = 'uid|i:' . $userId . ';auth_epoch|s:16:"0123456789abcdef";last_activity|i:1760000000;';
+        $data ??= 'uid|i:' . $userId . ';auth_epoch|s:16:"0123456789abcdef";last_activity|i:1760000000;';
         $this->database->db->query(
             'INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?)',
             [$key, $data, 2000000000, '', 0],
@@ -243,6 +243,29 @@ final class HostedAdminResetTest extends CIUnitTestCase
         $this->reset($batch)->run();
         $this->assertNull($this->claimRow(), 'a leftover claim is still removed when no admin remains');
         $this->assertEqualsCanonicalizing([$look, $other], $this->sessionKeys());
+    }
+
+    #[DataProvider('modes')]
+    public function testSessionMatchIsAnchoredOnTheUidKey(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $users = new UserRepository($this->database->db);
+        $boss = $users->create('boss', 'x', 'admin', 'active', '2026-01-01 00:00:00');
+        $users->create('looker', 'x', 'viewer', 'active', '2026-01-01 00:00:00');
+        $tail = 'last_activity|i:1760000000;';
+        $first = $this->putSession('sess-frst-aaaaaaaaaaaa', $boss);
+        $later = $this->putSession('sess-latr-aaaaaaaaaaaa', $boss, 'csrf|s:4:"tok1";uid|i:' . $boss . ';' . $tail);
+        $afterArray = $this->putSession('sess-arry-aaaaaaaaaaaa', $boss, 'flash|a:0:{}uid|i:' . $boss . ';' . $tail);
+        $prefixed = $this->putSession('sess-pfxd-aaaaaaaaaaaa', $boss, 'otheruid|i:' . $boss . ';' . $tail);
+        $prefixedLater = $this->putSession('sess-pfx2-aaaaaaaaaaaa', $boss, 'csrf|s:4:"tok1";otheruid|i:' . $boss . ';' . $tail);
+        $longer = $this->putSession('sess-long-aaaaaaaaaaaa', $boss, 'uid|i:' . $boss . '0;' . $tail);
+
+        $this->reset($batch)->run();
+
+        $this->assertEqualsCanonicalizing([$prefixed, $prefixedLater, $longer], $this->sessionKeys());
+        foreach ([$first, $later, $afterArray] as $gone) {
+            $this->assertNotContains($gone, $this->sessionKeys());
+        }
     }
 
     #[DataProvider('modes')]
