@@ -11,7 +11,7 @@ import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, sto
 import { AUTOFILL_HOST, handleAutofill, type AutofillEnv, type AutofillProps } from "./autofill";
 import { forwardWithLimits, isPreflight, LIMITS_HEADER, limitsEnabled, takeLimits, UsageMeter, WARNING_HEADER, withCors, type Limits } from "./limits";
 import { opsBackupRequest } from "./ops-signature";
-import { isOpsAccountsAction, opsAccountsRequest, opsAccountsResult, resolveOpsInstallation, type OpsAccountsAction, type OpsAccountsResult, type OpsClaimResult, type OpsResetResult } from "./ops-accounts";
+import { isOpsAccountsAction, opsAccountsRequest, opsAccountsResult, opsUsersResult, OPS_USERS_URL, resolveOpsInstallation, type OpsAccountsAction, type OpsAccountsResult, type OpsClaimResult, type OpsResetResult, type OpsUsersResult } from "./ops-accounts";
 
 export { Installation } from "./installation";
 
@@ -422,13 +422,31 @@ function toContainer(request: Request): Request {
  *  the operator Worker's service binding only (added later with E6-1): this Worker has no route or binding for it. The
  *  installation is read from the control plane (DB); primary, unknown installations and any not provisioning or active
  *  are refused before its container object is called. */
-export class Ops extends WorkerEntrypoint<Env & D1Env> {
+export class Ops extends WorkerEntrypoint<Env & D1Env & R2Env & InstallationEnv> {
 	async claimCreate(installation: string): Promise<OpsClaimResult> {
 		return (await opsAccountsFor(this.env, installation, "claim")) as OpsClaimResult;
 	}
 
 	async resetAdmins(installation: string): Promise<OpsResetResult> {
 		return (await opsAccountsFor(this.env, installation, "reset-admins")) as OpsResetResult;
+	}
+
+	/** The installation's accounts, metadata only (bridge.ts GET /users), from its Installation object's database: the
+	 *  container is not started. Refused like claimCreate (primary, unknown, not provisioning or active). Without the
+	 *  storage bindings: unbound. */
+	async listUsers(installation: string): Promise<OpsUsersResult> {
+		const found = await resolveOpsInstallation(this.env.DB, installation);
+		if (!("doName" in found)) return found;
+		const ns = this.env.INSTALLATION;
+		if (!ns || !storageSelected(this.env)) return { ok: false, code: "unbound" };
+		let res: Response;
+		try {
+			res = await installationStub(ns, found.doName).fetch(new Request(OPS_USERS_URL));
+		} catch (e) {
+			console.error("ops users read failed", e instanceof Error ? e.name : "error");
+			return { ok: false, code: "unreachable" };
+		}
+		return opsUsersResult(res);
 	}
 }
 
