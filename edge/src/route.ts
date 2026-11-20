@@ -4,7 +4,7 @@
 import { INSTALLATION_NAME } from "./installation";
 import { PLAN_LIMITS_JSON_SQL, parseLimits, type Limits } from "./limits";
 
-/** limits is set only for a lookup made with limits (LIMITS_ENABLED): the plan_limits of the installation's subscription. */
+/** limits is set only for a lookup made with limits (LIMITS_ENABLED): the plan limits of the installation's subscription, plus live overrides. */
 export type Route = { doName: string; status: string; limits?: Limits };
 type RouteDb = { prepare(sql: string): { bind(...v: unknown[]): { first<T>(): Promise<T | null> } } };
 
@@ -15,7 +15,7 @@ export const FAILURE_TTL_MS = 5_000;
 /** At most this many hosts are cached per isolate: expired entries go first, then the oldest. */
 export const ROUTE_CACHE_MAX = 1000;
 const ROUTE_SQL = "SELECT i.do_name AS doName, i.status AS status FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE r.host = ?";
-// The same row plus the plan's hard limits ({"key": [soft, hard]}; '{}' without a subscription or limit rows).
+// The same row plus the plan's hard limits, with live overrides ({"key": [soft, hard]}; '{}' without a subscription or limit rows).
 const ROUTE_LIMITS_SQL = `SELECT i.do_name AS doName, i.status AS status, ${PLAN_LIMITS_JSON_SQL} AS limits`
 	+ " FROM installation_routes r JOIN installations i ON i.id = r.installation_id WHERE r.host = ?";
 const cache = new Map<string, { route: Route | null; until: number }>();
@@ -39,7 +39,7 @@ function remember(key: string, route: Route | null, now: number, ttl = TTL_MS): 
 }
 
 /** The route for a host: a row from installation_routes (a hit or a miss is cached in the isolate for 30 s, a failed
- *  lookup for 5 s), else primary. With withLimits the row also carries its plan limits, cached with it. */
+ *  lookup for 5 s), else primary. With withLimits the row also carries its plan limits (and live overrides), cached with it. */
 export async function routeFor(host: string, db: RouteDb | undefined, now = Date.now(), withLimits = false): Promise<Route> {
 	if (!db) return FALLBACK;
 	const key = normalizeHost(host);

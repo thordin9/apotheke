@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 const { default: publicWorker, ApothekeContainer, R2Outbound, Installation } = await import('../src/index.ts');
 const { clearRouteCache, routeFor } = await import('../src/route.ts');
-const { CORS_EXPOSE, Counter, FLUSH_MS, LIMITS_HEADER, WARNING_HEADER, UsageMeter, isPreflight, limitsEnabled, parseLimits, period, withCors } = await import('../src/limits.ts');
+const { CORS_EXPOSE, Counter, FLUSH_MS, LIMITS_HEADER, WARNING_HEADER, UsageMeter, isPreflight, limitsEnabled, parseLimits, period, withCors, PLAN_LIMITS_JSON_SQL } = await import('../src/limits.ts');
 const { RECOUNT_BEFORE_REFUSAL_MS, RECOUNT_MS } = await import('../src/installation.ts');
 const { doStorage } = await import(new URL('./do-storage.mjs', import.meta.url).href);
 
@@ -90,6 +90,96 @@ test('E5: the route carries the plan limits from the subscription, soft 80% of h
   assert.deepEqual(await routeFor('b.example.test', db, 1000), { doName: 'tenant-b', status: 'active' });
   assert.doesNotMatch(db.queries.at(-1), /plan_limits/);
   assert.deepEqual(parseLimits('not json'), {});
+});
+
+test('a live override raises hard and clears soft in the shared SQL; an expired row is ignored', async () => {
+  clearRouteCache();
+  const db = controlDb();
+  const rowSql = `SELECT ${PLAN_LIMITS_JSON_SQL} AS limits FROM installations i WHERE i.do_name = ?`;
+  const raw = (name) => {
+    const v = db.raw.prepare(rowSql).get(name);
+    return v && v.limits != null ? JSON.parse(v.limits) : null;
+  };
+  assert.deepEqual(raw('tenant-b').import_file_bytes, [null, 1572864]);
+  db.raw.exec(`INSERT INTO limit_overrides (installation_id, limit_key, hard_value, expires_at, created_by) VALUES
+    ('b', 'import_file_bytes', 3145728, NULL, 'ops@example.test'),
+    ('b', 'requests_month', 99, '2000-01-01T00:00:00Z', 'ops@example.test');`);
+  const merged = raw('tenant-b');
+  // Live: soft is NULL so parseLimits defaults to 80% of the new hard. Expired: plan values stay.
+  assert.deepEqual(merged.import_file_bytes, [null, 3145728]);
+  assert.deepEqual(merged.requests_month, [null, 10]);
+  const route = await routeFor('b.example.test', db, 1000, true);
+  assert.deepEqual(route.limits.import_file_bytes, { soft: 3145728 * 0.8, hard: 3145728 });
+  assert.deepEqual(route.limits.requests_month, { soft: 8, hard: 10 });
+  // A key with no plan hard value is not introduced.
+  db.raw.exec(`INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('b', 'users', 50, 'ops@example.test')`);
+  assert.equal('users' in raw('tenant-b'), false);
+  assert.equal('users' in (await routeFor('b.example.test', db, 1000, true)).limits, false);
+});
+
+test('a zero override lowers the plan cap; a non-integer row is ignored so the plan cap stays', async () => {
+  clearRouteCache();
+  const db = controlDb();
+  const rowSql = `SELECT ${PLAN_LIMITS_JSON_SQL} AS limits FROM installations i WHERE i.do_name = ?`;
+  const raw = (name) => {
+    const v = db.raw.prepare(rowSql).get(name);
+    return v && v.limits != null ? JSON.parse(v.limits) : null;
+  };
+  db.raw.exec(`INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('b', 'import_file_bytes', 0, 'ops@example.test')`);
+  assert.deepEqual(raw('tenant-b').import_file_bytes, [null, 0]);
+  assert.deepEqual((await routeFor('b.example.test', db, 1000, true)).limits.import_file_bytes, { soft: 0, hard: 0 });
+  db.raw.exec(`PRAGMA ignore_check_constraints = ON;
+    UPDATE limit_overrides SET hard_value = 'not-an-int' WHERE installation_id = 'b' AND limit_key = 'import_file_bytes';
+    PRAGMA ignore_check_constraints = OFF;`);
+  clearRouteCache();
+  assert.deepEqual(raw('tenant-b').import_file_bytes, [null, 1572864]);
+  assert.deepEqual((await routeFor('b.example.test', db, 1000, true)).limits.import_file_bytes, { soft: 1572864 * 0.8, hard: 1572864 });
+});
+
+test('a malformed expires_at is treated as expired; NULL expiry stays live', async () => {
+  clearRouteCache();
+  const db = controlDb();
+  const rowSql = `SELECT ${PLAN_LIMITS_JSON_SQL} AS limits FROM installations i WHERE i.do_name = ?`;
+  const raw = (name) => {
+    const v = db.raw.prepare(rowSql).get(name);
+    return v && v.limits != null ? JSON.parse(v.limits) : null;
+  };
+  db.raw.exec(`PRAGMA ignore_check_constraints = ON;
+    INSERT INTO limit_overrides (installation_id, limit_key, hard_value, expires_at, created_by) VALUES
+      ('b', 'import_file_bytes', 3145728, 'not-a-date', 'ops@example.test'),
+      ('b', 'requests_month', 99, NULL, 'ops@example.test');
+    PRAGMA ignore_check_constraints = OFF;`);
+  const merged = raw('tenant-b');
+  assert.deepEqual(merged.import_file_bytes, [null, 1572864]);
+  assert.deepEqual(merged.requests_month, [null, 99]);
+  const route = await routeFor('b.example.test', db, 1000, true);
+  assert.deepEqual(route.limits.import_file_bytes, { soft: 1572864 * 0.8, hard: 1572864 });
+  assert.deepEqual(route.limits.requests_month, { soft: 99 * 0.8, hard: 99 });
+});
+
+test('LIMITS_ENABLED off does not consult overrides; primary does not apply them', async () => {
+  clearRouteCache();
+  const db = controlDb();
+  db.raw.exec(`INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES
+    ('b', 'import_file_bytes', 1, 'ops@example.test');
+    UPDATE subscriptions SET plan_id = 'tiny' WHERE installation_id = 'primary';
+    INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES
+    ('primary', 'import_file_bytes', 1, 'ops@example.test');`);
+  const off = worker(db, OFF);
+  const body = 'x'.repeat(2 * MB);
+  const { res, req } = await off.go('https://b.example.test/api/v1/import', { method: 'POST', body });
+  assert.equal(await res.text(), 'app');
+  assert.equal(off.seen[0].req, req);
+  assert.doesNotMatch(db.queries.join(), /plan_limits|limit_overrides/);
+  clearRouteCache();
+  const on = worker(db, ON);
+  const primary = await on.go('https://api.services.getapotheke.com/api/v1/import', { method: 'POST', body });
+  assert.equal(await primary.res.text(), 'app');
+  assert.equal(on.seen[0].n, 'primary');
+  // Tenant is limited by the raised-or-plan path; primary is not, even with a tight override row.
+  const rawPrimary = db.raw.prepare(`SELECT ${PLAN_LIMITS_JSON_SQL} AS limits FROM installations i WHERE i.do_name = 'primary'`).get();
+  const parsed = parseLimits(rawPrimary.limits);
+  assert.deepEqual(parsed.import_file_bytes, { soft: 1572864 * 0.8, hard: 1572864 });
 });
 
 test('E5: LIMITS_ENABLED off forwards the very same request, with no limits lookup or header, whatever the plan', async () => {

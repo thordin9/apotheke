@@ -10,6 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
+- **edge:** a live `limit_overrides` row can override (raise or lower) that installation's plan limit in `/limits` and the route cache ([#344](https://github.com/thordin9/apotheke/pull/344))
 - **edge:** the operator console's per-installation users read, account metadata only ([#351](https://github.com/thordin9/apotheke/pull/351))
 
 ## [3.58.0] - 2026-11-20
