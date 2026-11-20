@@ -17,6 +17,10 @@ vendor/
 node_modules/
 frontend/node_modules/
 frontend/dist/
+ops/console/node_modules/
+ops/console/dist/
+ops/console/test-results/
+ops/console/playwright-report/
 /tests/visual/report/
 /tests/visual/results/
 writable/cache/*
