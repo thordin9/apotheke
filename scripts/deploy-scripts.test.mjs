@@ -894,6 +894,8 @@ test("deploy-edge.yml: the PR check dry-runs apotheke-ops with dummy values and 
 	const step = yml.slice(at, yml.indexOf("\n      - ", at + 10));
 	assert.ok(!step.includes("secrets."), "no secret in the PR dry run");
 	assert.match(step, /APOTHEKE_D1_DATABASE_ID: 00000000-0000-4000-8000-000000000000\n/);
+	// Quoted, or YAML reads the all-zero audience as the number 0.
+	assert.match(step, /OPS_ACCESS_AUD: '0{64}'\n/);
 	assert.match(step, /node scripts\/ops-deploy-config\.mjs edge\/ops\/wrangler\.jsonc\n/);
 	assert.match(step, /node scripts\/cf-worker-guard\.mjs apotheke-ops edge\/ops\/wrangler\.jsonc -- --dry-run\n/);
 	for (const want of ["env.DB (apotheke-api)", "env.OPS (apotheke-api#Ops)", "env.AUTOFILL (apotheke-autofill#HostedAutofill)", "'env.ASSETS'", 'env.OPS_WRITES_ENABLED ("0")', 'env.OPS_PROVISIONING ("0")', 'env.LIMITS_ENABLED ("0")']) {
