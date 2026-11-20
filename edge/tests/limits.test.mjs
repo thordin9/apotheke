@@ -817,3 +817,26 @@ test('E5: an answer the app sends before a Content-Length mismatch is seen is pa
     assert.equal(res.status, 400, length);
   }
 });
+
+test('E6-1 (N-2294): autofill limits round the soft value up: hard 3 with soft 2.4 sends 3 and 3', async () => {
+  const { autofillRequest, LIMIT_HEADER, SOFT_HEADER } = await import('../src/autofill.ts');
+  const req = autofillRequest(new Request('http://autofill.internal/v1/suggest', { method: 'POST', body: '{}' }), 'tenant-b', { soft: 2.4, hard: 3 });
+  assert.equal(req.headers.get(LIMIT_HEADER), '3');
+  assert.equal(req.headers.get(SOFT_HEADER), '3');
+});
+
+test('E6-1: apotheke-api never answers /api/ops/*: the request goes to the installation like any other path', async () => {
+  for (const vars of [ON, OFF]) {
+    clearRouteCache();
+    const w = worker(controlDb(), vars);
+    const { res } = await w.go('https://b.example.test/api/ops/v1/config');
+    assert.equal(await res.text(), 'app');
+    assert.deepEqual(w.seen.map((s) => [s.n, new URL(s.req.url).pathname]), [['tenant-b', '/api/ops/v1/config']]);
+    clearRouteCache();
+    const unknown = worker(controlDb(), vars);
+    const other = await unknown.go('https://nobody.example.test/api/ops/v1/config');
+    const text = await other.res.text();
+    assert.ok(!text.includes('provisioning_enabled') && !text.includes('limits_enabled'), text);
+    assert.ok(unknown.seen.every((s) => s.n !== 'tenant-b' && new URL(s.req.url).pathname === '/api/ops/v1/config'), 'routed as any other host');
+  }
+});

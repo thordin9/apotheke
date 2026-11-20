@@ -73,6 +73,13 @@ jobs:
         run: |
           npx --no-install wrangler types --check --config wrangler.jsonc
           npx --no-install tsc --noEmit
+      # The operator console Worker apotheke-ops (edge/ops): types and typecheck only. It is not deployed from here;
+      # its tests run in the deploy tooling tests step (edge/tests/ops-worker.test.mjs, loaded by r2.test.mjs).
+      - name: Types and typecheck (apotheke-ops)
+        working-directory: edge/ops
+        run: |
+          npx --no-install wrangler types --check --config wrangler.jsonc
+          npx --no-install tsc --noEmit -p .
       - name: wrangler deploy --dry-run (builds the container image; no token, nothing pushed)
         working-directory: edge
         env:
