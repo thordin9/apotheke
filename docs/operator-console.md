@@ -322,6 +322,28 @@ start creates the account `admin` from it exactly as on a self-hosted install, s
 admin there, and `accounts:claim-create` refuses. `APOTHEKE_INSTALLATION` alone changes nothing. Without `APOTHEKE_HOSTED`, a missing `APP_PASSWORD` on a new
 install still stops the start as before ([Deployment and operations](deployment-and-operations.md)).
 
+## Claim and admin reset from the operator console
+
+The apotheke-api Worker exports a named entrypoint `Ops` (`edge/src/index.ts`, `edge/src/ops-accounts.ts`) for the
+operator Worker's service binding. It has no route, and this Worker declares no binding to it; the operator Worker
+binds it later (E6-1).
+
+- **`claimCreate(installation)`** and **`resetAdmins(installation)`** take the installation's id or `do_name`. The
+  installation is read from `installations` in `DB`. `primary` is refused before the lookup and again by its row;
+  an unknown name, a name that is one installation's id and another's `do_name`, and an installation that is not
+  `provisioning` or `active` are refused before its container object is called.
+- The container object (`ApothekeContainer.opsAccounts`) refuses `primary` and an unnamed object before any network
+  call, starts the container only as a public request would, checks the status again when it is already running, and
+  sends `POST /internal/accounts/claim` or `/internal/accounts/reset-admins` to `ops.internal` on the container's port,
+  body `{}`, signed like the backup request below with the installation's own `APP_KEY`.
+- **Results:** `{ok:true, token, expires_at}` for a claim, `{ok:true}` for a reset, otherwise `{ok:false, code,
+  status?}`. Codes: `active_admin_exists` (409 on a claim), `unauthorized` (401), `not_hosted` (404),
+  `accounts_failed` (500), `not_configured` (503 or no `DB`), `http_<status>` for any other status, `bad_answer` for a
+  200 of the wrong shape, `bad_action` (an action other than `claim` or `reset-admins`), `refused`,
+  `unknown_installation`, `ambiguous_installation`, `not_startable`, `bad_app_key`, `unavailable` (the container did
+  not start) and `unreachable` (the request did not finish). The claim token is only in the result: it is not logged
+  and not put in an error.
+
 ## Backup for a lifecycle job
 
 Export and soft delete lifecycle jobs (operator console E4) need the app's own backup, once per job. With
@@ -406,3 +428,25 @@ Deferred, and not in E6: `POST /installations/:id/users/:uid/disable`, `POST /in
 The local preview in `ops/console` answers only `GET /config`, `GET /overview`, `GET /installations` and
 `GET /installations/:id`, with made-up rows, and can answer 401, 503 and 410 so the error screens can be checked.
 That preview is not part of the production build.
+
+## First-admin claim and admin reset for the hosting side
+
+With `APOTHEKE_HOSTED`, the container also answers `POST /internal/accounts/claim` and
+`POST /internal/accounts/reset-admins` on the host `ops.internal` only, so the operator console can get a hosted
+installation a first admin without a shell in the container. They are reached and refused exactly like
+`/internal/backup` (see [Backup for a lifecycle job](#backup-for-a-lifecycle-job)): no forwarding headers, the same
+`X-Apotheke-Ops-Signature` over `POST`, the request's own path, `t` and the body (any body up to 4 KiB, for example
+`{}`; a larger one is refused with 401), accepted within 300 seconds. A signature for one path is not valid for
+another. The path must match exactly: with a query string or a trailing `/` it is not this endpoint. Such a
+request, and any request on `ops.internal` when self-hosted (where neither exists), gets the host list's 421, as an
+unknown host does.
+
+- **`/internal/accounts/claim`** does what `accounts:claim-create` does: 200
+  `{"ok":true,"token":…,"expires_at":"YYYY-MM-DD HH:MM:SS UTC"}`, and any earlier claim stops working. The link is
+  `https://<host>/claim#<token>`. The token is only in this answer: it is not stored (only its SHA-256 is) or
+  logged. While an active `admin` exists: 409 `active_admin_exists`, and nothing changes.
+- **`/internal/accounts/reset-admins`** does what `accounts:hosted-reset-admins` does (removes admin accounts, their
+  session records and any claim; other accounts stay): 200 `{"ok":true}`, also when there was nothing to remove.
+
+Other errors are `{"ok":false,"code":…}`: 401 `unauthorized`, 405 `method_not_allowed` (with `Allow: POST`),
+500 `accounts_failed`, 503 `not_configured`.
