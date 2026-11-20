@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS limit_overrides (
     'requests_month', 'container_hours_month', 'sleep_after_ms', 'import_file_bytes', 'photos_per_item')),
   hard_value INTEGER NOT NULL CHECK (typeof(hard_value) = 'integer' AND hard_value >= 0),
   reason TEXT,
-  expires_at TEXT,
+  expires_at TEXT CHECK (expires_at IS NULL OR (typeof(expires_at) = 'text' AND expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z')),
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
   PRIMARY KEY (installation_id, limit_key)

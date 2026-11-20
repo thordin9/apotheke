@@ -129,6 +129,18 @@ test('GET /limits applies a zero override and ignores a non-integer hard_value',
   assert.deepEqual((await read(outbound('tenant-a'), '/limits'))[1].limits.items, { soft: 40, hard: 50 });
 });
 
+test('GET /limits treats a malformed expires_at as expired and keeps a NULL expiry live', async () => {
+  const { control, outbound } = setup();
+  control.raw.exec(`PRAGMA ignore_check_constraints = ON;
+    INSERT INTO limit_overrides (installation_id, limit_key, hard_value, expires_at, created_by) VALUES
+      ('a', 'items', 80, 'not-a-date', 'ops@example.test'),
+      ('a', 'users', 20, NULL, 'ops@example.test');
+    PRAGMA ignore_check_constraints = OFF;`);
+  const limits = (await read(outbound('tenant-a'), '/limits'))[1].limits;
+  assert.deepEqual(limits.items, { soft: 40, hard: 50 });
+  assert.deepEqual(limits.users, { soft: 20 * 0.8, hard: 20 });
+});
+
 test('a query string or another host on d1.internal cannot pick another installation', async () => {
   const { outbound } = setup();
   const r = await outbound('tenant-b').fetch(new Request('http://d1.internal/limits?doName=tenant-a&installation=a'));

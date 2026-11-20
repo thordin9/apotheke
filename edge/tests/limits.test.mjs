@@ -136,6 +136,27 @@ test('a zero override lowers the plan cap; a non-integer row is ignored so the p
   assert.deepEqual((await routeFor('b.example.test', db, 1000, true)).limits.import_file_bytes, { soft: 1572864 * 0.8, hard: 1572864 });
 });
 
+test('a malformed expires_at is treated as expired; NULL expiry stays live', async () => {
+  clearRouteCache();
+  const db = controlDb();
+  const rowSql = `SELECT ${PLAN_LIMITS_JSON_SQL} AS limits FROM installations i WHERE i.do_name = ?`;
+  const raw = (name) => {
+    const v = db.raw.prepare(rowSql).get(name);
+    return v && v.limits != null ? JSON.parse(v.limits) : null;
+  };
+  db.raw.exec(`PRAGMA ignore_check_constraints = ON;
+    INSERT INTO limit_overrides (installation_id, limit_key, hard_value, expires_at, created_by) VALUES
+      ('b', 'import_file_bytes', 3145728, 'not-a-date', 'ops@example.test'),
+      ('b', 'requests_month', 99, NULL, 'ops@example.test');
+    PRAGMA ignore_check_constraints = OFF;`);
+  const merged = raw('tenant-b');
+  assert.deepEqual(merged.import_file_bytes, [null, 1572864]);
+  assert.deepEqual(merged.requests_month, [null, 99]);
+  const route = await routeFor('b.example.test', db, 1000, true);
+  assert.deepEqual(route.limits.import_file_bytes, { soft: 1572864 * 0.8, hard: 1572864 });
+  assert.deepEqual(route.limits.requests_month, { soft: 99 * 0.8, hard: 99 });
+});
+
 test('LIMITS_ENABLED off does not consult overrides; primary does not apply them', async () => {
   clearRouteCache();
   const db = controlDb();
