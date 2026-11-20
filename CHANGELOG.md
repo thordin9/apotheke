@@ -11,6 +11,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Added
 
 - **ops:** the operator console shows the read-only overview, installations, plans, subscriptions, jobs and audit ([#350](https://github.com/thordin9/apotheke/pull/350))
+- **edge:** a live `limit_overrides` row can override (raise or lower) that installation's plan limit in `/limits` and the route cache ([#344](https://github.com/thordin9/apotheke/pull/344))
 
 ## [3.58.0] - 2026-11-20
 
