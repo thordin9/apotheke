@@ -507,9 +507,9 @@ Not served yet; the shapes may still change.
 Deferred, and not in E6: `POST /installations/:id/users/:uid/disable`, `POST /installations/:id/users/:uid/reset-link`,
 `POST /installations/:id/overrides` and `POST /jobs/:id/retry`.
 
-The local preview in `ops/console` answers only `GET /config`, `GET /overview`, `GET /installations` and
-`GET /installations/:id`, with made-up rows, and can answer 401, 503 and 410 so the error screens can be checked.
-That preview is not part of the production build.
+The local preview in `ops/console` answers the reads above with made-up rows (`primary.example.test`, never a
+real host), and can answer 401, 503 and 410 so the error screens can be checked. It is not part of the production
+build. `GET /installations/:id/users` stays planned, so the users screen does not call it.
 
 ## First-admin claim and admin reset for the hosting side
 

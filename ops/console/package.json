@@ -8,8 +8,9 @@
   },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 4181 --strictPort",
+    "preview": "vite preview --host 127.0.0.1 --port 4181 --strictPort",
     "build": "tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types --test src/api/client.test.ts preview/mock-api.test.ts",
+    "test": "node --experimental-strip-types --test src/api/client.test.ts src/format.test.ts preview/mock-api.test.ts",
     "test:bundle": "node --experimental-strip-types --test scripts/bundle-has-no-mock.test.ts",
     "e2e": "playwright test"
   },
