@@ -52,7 +52,7 @@ async function route(request: Request, env: Env, deps: Deps, requestId: string):
 	if (!access.ok) return failure(access.code === "access_unavailable" ? 503 : access.code === "forbidden" ? 403 : 401, access.code);
 	if (WRITES.has(method) && !csrfOk(request)) return failure(403, "csrf");
 	const path = new URL(request.url).pathname;
-	if (path === API_PREFIX || path.startsWith(API_PREFIX + "/")) return handleApi(request, env, { email: access.email, requestId });
+	if (path === API_PREFIX || path.startsWith(API_PREFIX + "/")) return handleApi(request, env, { email: access.email, requestId }, deps.now());
 	if (path === "/api" || path.startsWith("/api/")) return failure(404, "not_found");
 	if (method !== "GET" && method !== "HEAD") return failure(405, "method_not_allowed");
 	if (!env.ASSETS) return failure(404, "not_found");
