@@ -322,6 +322,27 @@ start creates the account `admin` from it exactly as on a self-hosted install, s
 admin there, and `accounts:claim-create` refuses. `APOTHEKE_INSTALLATION` alone changes nothing. Without `APOTHEKE_HOSTED`, a missing `APP_PASSWORD` on a new
 install still stops the start as before ([Deployment and operations](deployment-and-operations.md)).
 
+## Claim and admin reset from the operator console
+
+The apotheke-api Worker exports a named entrypoint `Ops` (`edge/src/index.ts`, `edge/src/ops-accounts.ts`) for the
+operator Worker's service binding. It has no route, and this Worker declares no binding to it; the operator Worker
+binds it later (E6-1).
+
+- **`claimCreate(installation)`** and **`resetAdmins(installation)`** take the installation's id or `do_name`. The
+  installation is read from `installations` in `DB`. `primary` is refused before the lookup and again by its row;
+  an unknown name, a name that is one installation's id and another's `do_name`, and an installation that is not
+  `provisioning` or `active` are refused before its container object is called.
+- The container object (`ApothekeContainer.opsAccounts`) refuses `primary` and an unnamed object before any network
+  call, starts the container only as a public request would, checks the status again when it is already running, and
+  sends `POST /internal/accounts/claim` or `/internal/accounts/reset-admins` to `ops.internal` on the container's port,
+  body `{}`, signed like the backup request below with the installation's own `APP_KEY`.
+- **Results:** `{ok:true, token, expires_at}` for a claim, `{ok:true}` for a reset, otherwise `{ok:false, code,
+  status?}`. Codes: `active_admin_exists` (409 on a claim), `unauthorized` (401), `not_hosted` (404),
+  `accounts_failed` (500), `not_configured` (503 or no `DB`), `http_<status>` for any other status, `bad_answer` for a
+  200 of the wrong shape, `refused`, `unknown_installation`, `ambiguous_installation`, `not_startable`, `bad_app_key`,
+  `unavailable` (the container did not start) and `unreachable` (the request did not finish). The claim token is only
+  in the result: it is not logged and not put in an error.
+
 ## Backup for a lifecycle job
 
 Export and soft delete lifecycle jobs (operator console E4) need the app's own backup, once per job. With
