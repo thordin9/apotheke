@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** write endpoints for the operator console: plan limits, subscription plan and status, lifecycle job create and confirm, and limit overrides ([#354](https://github.com/thordin9/apotheke/pull/354))
+
 ## [3.59.0] - 2026-11-20
 
 ### Added
