@@ -1301,6 +1301,20 @@ class Services extends BaseService
             static fn (): \Apotheke\Backup\OpsBackups => static::opsBackups(), new \Apotheke\Core\Libraries\Clock());
     }
 
+    /** POST /internal/accounts/{claim,reset-admins} on ops.internal (Auth, operator console): off unless APOTHEKE_HOSTED. */
+    public static function opsAccountsEndpoint(bool $getShared = true): \Apotheke\Auth\OpsAccountsEndpoint
+    {
+        if ($getShared) {
+            return static::getSharedInstance('opsAccountsEndpoint');
+        }
+        $appKey = getenv('APP_KEY');
+
+        return new \Apotheke\Auth\OpsAccountsEndpoint(static::apothekeConfig()->values()['hosted'] === true,
+            \Apotheke\Core\Security\OpsSignature::fromAppKey(is_string($appKey) ? $appKey : null),
+            static fn (): \Apotheke\Auth\FirstAdminClaim => static::firstAdminClaim(false),
+            static fn (): \Apotheke\Auth\HostedAdminReset => static::hostedAdminReset(false), new \Apotheke\Core\Libraries\Clock());
+    }
+
     /** One stored backup per lifecycle job (Backup, operator console C2). */
     public static function opsBackups(bool $getShared = true): \Apotheke\Backup\OpsBackups
     {
