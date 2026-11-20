@@ -813,7 +813,7 @@ const OPS_ENV = {
 	APOTHEKE_D1_DATABASE_ID: "00000000-0000-4000-8000-000000000000",
 	OPS_ACCESS_TEAM_DOMAIN: "Example-Team.cloudflareaccess.com",
 	OPS_ACCESS_AUD: "0".repeat(64),
-	OPS_ALLOWED_EMAILS: " Thordin9@webapp.gr , ",
+	OPS_ALLOWED_EMAILS: " Ops@Example.invalid , ",
 };
 function opsConfig(env, edit = (t) => t) {
 	const dir = mkdtempSync(join(tmpdir(), "ops-cfg-"));
@@ -834,7 +834,7 @@ test("ops-deploy-config: adds the D1 id and the Access vars, keeps every flag an
 	assert.deepEqual(c.vars, {
 		ACCESS_TEAM_DOMAIN: "example-team.cloudflareaccess.com",
 		ACCESS_AUD: OPS_ENV.OPS_ACCESS_AUD,
-		OPS_ALLOWED_EMAILS: "thordin9@webapp.gr",
+		OPS_ALLOWED_EMAILS: "ops@example.invalid",
 		OPS_WRITES_ENABLED: "0",
 		OPS_PROVISIONING: "0",
 		LIMITS_ENABLED: "0",
@@ -845,7 +845,7 @@ test("ops-deploy-config: adds the D1 id and the Access vars, keeps every flag an
 	]);
 	assert.deepEqual(c.triggers, { crons: [] });
 	for (const k of ["routes", "route", "account_id", "workflows"]) assert.equal(c[k], undefined, k);
-	for (const v of [OPS_ENV.APOTHEKE_D1_DATABASE_ID, OPS_ENV.OPS_ACCESS_AUD, "thordin9", "example-team"]) assert.ok(!r.stdout.includes(v), "no value printed");
+	for (const v of [OPS_ENV.APOTHEKE_D1_DATABASE_ID, OPS_ENV.OPS_ACCESS_AUD, "ops@example", "example-team"]) assert.ok(!r.stdout.includes(v), "no value printed");
 });
 
 test("ops-deploy-config: refuses missing or malformed values and a committed id, Access value or flag other than 0", () => {

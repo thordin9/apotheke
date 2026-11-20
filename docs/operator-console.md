@@ -402,7 +402,7 @@ Every request, the console's files included, goes through the Worker's script (`
    are empty in `edge/ops/wrangler.jsonc`; the deploy sets them.
 2. `OPTIONS` is 405. No answer carries CORS headers.
 3. The Access token (the `Cf-Access-Jwt-Assertion` header, or the `CF_Authorization` cookie when the header is
-   missing) must be RS256-signed by one of the team's keys (read from
+   missing or empty) must be RS256-signed by one of the team's keys (read from
    `https://<team>/cdn-cgi/access/certs` and kept for five minutes; a token with an unknown key reads them again, at
    most every 30 seconds), with issuer `https://<team>`, the configured audience, and an `exp` in the future;
    `nbf` and `iat`, when present, may be up to 60 seconds in the future (clock skew); `exp` has no skew. Otherwise 401
@@ -536,7 +536,7 @@ apotheke-ops edge/ops` (the Worker guard, then `wrangler deploy`).
 | `DB`'s `database_id` | secret `APOTHEKE_D1_DATABASE_ID` (environment `deploy-edge`) | the same secret apotheke-api's deploy uses |
 | `ACCESS_TEAM_DOMAIN` | variable `OPS_ACCESS_TEAM_DOMAIN` | `<team>.cloudflareaccess.com`; not a secret |
 | `ACCESS_AUD` | variable `OPS_ACCESS_AUD` | the Access application's audience tag; not a secret |
-| `OPS_ALLOWED_EMAILS` | variable `OPS_ALLOWED_EMAILS` | comma-separated; `thordin9@webapp.gr` for the first deploy |
+| `OPS_ALLOWED_EMAILS` | variable `OPS_ALLOWED_EMAILS` | comma-separated; `<operator email>` for the first deploy |
 
 It refuses (and nothing is deployed) when a value is missing or malformed, when the committed config already has a
 `database_id` or Access values, or when `OPS_PROVISIONING`, `LIMITS_ENABLED` or `OPS_WRITES_ENABLED` is not `"0"`.
@@ -555,17 +555,17 @@ can start from this Worker.
 Each step below needs Stathis's approval and is done by him, in this order:
 
 1. **Access application** (Zero Trust): a self-hosted application for `console.getapotheke.com` (the host is a
-   placeholder until then), policy *allow* for the email `thordin9@webapp.gr`, login with the one-time PIN, session
+   placeholder until then), policy *allow* for the email `<operator email>`, login with the one-time PIN, session
    8 hours. Note its audience tag.
 2. **Variables** of the `deploy-edge` environment: `OPS_ACCESS_TEAM_DOMAIN`, `OPS_ACCESS_AUD` and `OPS_ALLOWED_EMAILS`
-   (`thordin9@webapp.gr`). `APOTHEKE_D1_DATABASE_ID` is already there. No new secret.
+   (`<operator email>`). `APOTHEKE_D1_DATABASE_ID` is already there. No new secret.
 3. **First deploy**: set the repository variable `OPS_DEPLOY_ENABLED` to `1`, then a manual run of Deploy edge on
    `main` (or the next release), approved in the `deploy-edge` review. The Worker answers nothing until it has a
    host.
 4. **Route**: attach `console.getapotheke.com` to `apotheke-ops` as a custom domain in the dashboard (Workers &
    Pages, apotheke-ops, Domains & Routes), only after the Access application covers that host. Not in
    `edge/ops/wrangler.jsonc`: CI never adds a route.
-5. Check: without an Access session the host shows the Access login; signed in as `thordin9@webapp.gr`,
+5. Check: without an Access session the host shows the Access login; signed in as `<operator email>`,
    `GET /api/ops/v1/config` answers `"writes_enabled":false`; any other email is 403 `forbidden`.
 
 Writes (`OPS_WRITES_ENABLED` `"1"`), provisioning and limits stay off; each is a reviewed change to

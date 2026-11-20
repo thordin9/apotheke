@@ -735,9 +735,9 @@ test('D1 ops: a valid token whose email is not on OPS_ALLOWED_EMAILS is 403 forb
       assertNoStore(r.res);
     }
   }
-  const only = setup({ vars: { ...VARS, OPS_ALLOWED_EMAILS: 'thordin9@webapp.gr' } });
+  const only = setup({ vars: { ...VARS, OPS_ALLOWED_EMAILS: 'ops@example.invalid' } });
   assert.equal((await only.go('/api/ops/v1/config')).status, 403, 'operator@example.test is not on the list');
-  assert.equal((await only.go('/api/ops/v1/config', { token: await jwt({ email: 'Thordin9@WebApp.gr' }) })).status, 200, 'case-insensitive');
+  assert.equal((await only.go('/api/ops/v1/config', { token: await jwt({ email: 'Ops@Example.INVALID' }) })).status, 200, 'case-insensitive');
   assert.deepEqual([...allowedEmails(' a@x.test,,B@x.test ')], ['a@x.test', 'b@x.test']);
   assert.equal(allowedEmails(undefined).size, 0);
 });
