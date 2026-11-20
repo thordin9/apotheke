@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** a live `limit_overrides` row can override (raise or lower) that installation's plan limit in `/limits` and the route cache ([#344](https://github.com/thordin9/apotheke/pull/344))
+
 ### Maintenance
 
 - **edge:** deploy wiring for the operator console Worker `apotheke-ops`: a PR dry run, and a deploy job that stays off until `OPS_DEPLOY_ENABLED` is 1; the console ships read-only (`OPS_WRITES_ENABLED` "0") and only for the emails in `OPS_ALLOWED_EMAILS` ([#352](https://github.com/thordin9/apotheke/pull/352))
