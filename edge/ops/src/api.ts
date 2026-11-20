@@ -31,7 +31,7 @@ export type ConsoleUser = {
 	last_login_at: string | null;
 };
 
-export type ApiEnv = { DB?: AuditDb; OPS?: unknown; OPS_PROVISIONING?: string; LIMITS_ENABLED?: string };
+export type ApiEnv = { DB?: AuditDb; OPS?: unknown; OPS_PROVISIONING?: string; LIMITS_ENABLED?: string; OPS_WRITES_ENABLED?: string };
 export type Operator = { email: string; requestId: string };
 
 export function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
@@ -223,7 +223,12 @@ export async function handleApi(request: Request, env: ApiEnv, op: Operator, now
 	const method = request.method.toUpperCase();
 	if (path === "/config") {
 		if (method !== "GET" && method !== "HEAD") return withAllow("GET, HEAD");
-		return json(200, { ok: true, provisioning_enabled: env.OPS_PROVISIONING === "1", limits_enabled: env.LIMITS_ENABLED === "1" });
+		return json(200, {
+			ok: true,
+			provisioning_enabled: env.OPS_PROVISIONING === "1",
+			limits_enabled: env.LIMITS_ENABLED === "1",
+			writes_enabled: env.OPS_WRITES_ENABLED === "1",
+		});
 	}
 	const read = readRoute(path);
 	if (read) {

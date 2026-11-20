@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-const ALLOWLIST = new Set(["getapotheke-app", "apotheke-api"]);
+const ALLOWLIST = new Set(["getapotheke-app", "apotheke-api", "apotheke-ops"]);
 // Never deployed from this repository; named so a mistake reads clearly in the log.
 const DENYLIST = new Set(["apotheke-autofill", "flaremo"]);
 
