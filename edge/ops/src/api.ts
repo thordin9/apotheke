@@ -2,6 +2,7 @@
 // index.ts) and a write has already passed the CSRF check. Errors are {ok:false, code} with 401, 403, 404, 409, 410,
 // 422 or 503 (405 for a known path with another method).
 import { audited, type AuditDb } from "./audit";
+import { readRoute, runRead } from "./reads";
 
 export const API_PREFIX = "/api/ops/v1";
 /** The largest request body an action reads. */
@@ -43,14 +44,26 @@ function edgeFailure(result: OpsFailure): Response {
 	return failure(503, "unavailable", { detail: typeof result.code === "string" ? result.code.slice(0, 64) : "unknown" });
 }
 
-/** The request's JSON object body, at most MAX_BODY_BYTES, or null. */
+/** The request's JSON object body, at most MAX_BODY_BYTES, or null. A declared Content-Length over the cap is not
+ *  read at all; without one, reading stops as soon as more than MAX_BODY_BYTES have arrived. */
 async function readBody(request: Request): Promise<Record<string, unknown> | null> {
-	const declared = Number(request.headers.get("Content-Length") ?? "0");
-	if (declared > MAX_BODY_BYTES) return null;
-	const bytes = new Uint8Array(await request.arrayBuffer());
-	if (bytes.byteLength > MAX_BODY_BYTES) return null;
+	const declared = request.headers.get("Content-Length");
+	if (declared !== null && !(Number(declared) <= MAX_BODY_BYTES)) return null;
+	const bytes = new Uint8Array(MAX_BODY_BYTES);
+	let length = 0;
+	const reader = request.body?.getReader();
+	while (reader) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		if (length + value.byteLength > MAX_BODY_BYTES) {
+			await reader.cancel().catch(() => {});
+			return null;
+		}
+		bytes.set(value, length);
+		length += value.byteLength;
+	}
 	try {
-		const v = JSON.parse(new TextDecoder().decode(bytes));
+		const v = JSON.parse(new TextDecoder().decode(bytes.subarray(0, length)));
 		return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 	} catch {
 		return null;
@@ -128,13 +141,20 @@ async function installationAction(action: Action, request: Request, env: ApiEnv,
 
 const ACTION_PATH = /^\/installations\/([^/]+)\/(claim|admin-reset)$/;
 
-/** A request under API_PREFIX. */
-export async function handleApi(request: Request, env: ApiEnv, op: Operator): Promise<Response> {
-	const path = new URL(request.url).pathname.slice(API_PREFIX.length);
+/** A request under API_PREFIX. nowMs is the clock for the reads (subscriptions due, the usage period). */
+export async function handleApi(request: Request, env: ApiEnv, op: Operator, nowMs: number = Date.now()): Promise<Response> {
+	const url = new URL(request.url);
+	const path = url.pathname.slice(API_PREFIX.length);
 	const method = request.method.toUpperCase();
 	if (path === "/config") {
 		if (method !== "GET" && method !== "HEAD") return withAllow("GET, HEAD");
 		return json(200, { ok: true, provisioning_enabled: env.OPS_PROVISIONING === "1", limits_enabled: env.LIMITS_ENABLED === "1" });
+	}
+	const read = readRoute(path);
+	if (read) {
+		if (method !== "GET" && method !== "HEAD") return withAllow("GET, HEAD");
+		if (!env.DB) return failure(503, "not_configured");
+		return runRead(read, env.DB, url.searchParams, nowMs);
 	}
 	const m = ACTION_PATH.exec(path);
 	if (m) {
