@@ -1,6 +1,6 @@
 // Cloudflare Access for apotheke-ops: every request needs a valid Access token, checked here against the team's
 // signing keys (https://<team>.cloudflareaccess.com/cdn-cgi/access/certs). The token is the Cf-Access-Jwt-Assertion
-// header, or the CF_Authorization cookie when the header is missing. Fails closed: no configuration, an empty
+// header, or the CF_Authorization cookie when the header is missing or empty. Fails closed: no configuration, an empty
 // OPS_ALLOWED_EMAILS, no token, an unknown key, a bad signature, another issuer or audience, an expired token, or an
 // email that is not on OPS_ALLOWED_EMAILS is never an operator.
 
@@ -38,10 +38,11 @@ export function accessConfig(env: AccessEnv): AccessConfig | null {
 	return { team, aud, emails };
 }
 
-/** The Access token: the header, else the CF_Authorization cookie, else "". */
+/** The Access token: a non-empty header, else the CF_Authorization cookie, else "". An empty or blank header falls
+ *  through to the cookie, which is verified the same way. */
 export function accessToken(request: Request): string {
-	const header = request.headers.get(ACCESS_JWT_HEADER);
-	if (header !== null) return header;
+	const header = (request.headers.get(ACCESS_JWT_HEADER) ?? "").trim();
+	if (header !== "") return header;
 	for (const part of (request.headers.get("Cookie") ?? "").split(";")) {
 		const eq = part.indexOf("=");
 		if (eq > 0 && part.slice(0, eq).trim() === ACCESS_COOKIE) return part.slice(eq + 1).trim();

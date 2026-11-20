@@ -742,7 +742,7 @@ test('D1 ops: a valid token whose email is not on OPS_ALLOWED_EMAILS is 403 forb
   assert.equal(allowedEmails(undefined).size, 0);
 });
 
-test('D1 ops: the CF_Authorization cookie is used when the header is missing; the header wins when both are sent', async () => {
+test('D1 ops: the CF_Authorization cookie is used when the header is missing or empty; a non-empty header wins', async () => {
   const t = setup();
   const good = await jwt();
   const viaCookie = await t.go('/api/ops/v1/config', { token: null, headers: { Cookie: `other=1; CF_Authorization=${good}; x=y` } });
@@ -751,6 +751,14 @@ test('D1 ops: the CF_Authorization cookie is used when the header is missing; th
   assert.deepEqual([badCookie.status, badCookie.json], [401, { ok: false, code: 'unauthorized' }]);
   const headerWins = await t.go('/api/ops/v1/config', { token: 'not-a-jwt', headers: { Cookie: `CF_Authorization=${good}` } });
   assert.equal(headerWins.status, 401);
+  // N-2521: an empty (or blank) header falls through to the cookie; with no cookie it still fails closed.
+  for (const blank of ['', '   ']) {
+    assert.equal((await t.go('/api/ops/v1/config', { token: blank, headers: { Cookie: `CF_Authorization=${good}` } })).status, 200, `header ${JSON.stringify(blank)} + cookie`);
+    const none = await t.go('/api/ops/v1/config', { token: blank });
+    assert.deepEqual([none.status, none.json], [401, { ok: false, code: 'unauthorized' }], `header ${JSON.stringify(blank)} alone`);
+    const badCookie2 = await t.go('/api/ops/v1/config', { token: blank, headers: { Cookie: `CF_Authorization=${await jwt({ iss: 'https://other.cloudflareaccess.com' })}` } });
+    assert.equal(badCookie2.status, 401, `header ${JSON.stringify(blank)} + bad cookie`);
+  }
   const lookalike = await t.go('/api/ops/v1/config', { token: null, headers: { Cookie: `XCF_Authorization=${good}` } });
   assert.equal(lookalike.status, 401);
   assert.equal(accessToken(new Request(ORIGIN)), '');
