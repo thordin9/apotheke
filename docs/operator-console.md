@@ -356,3 +356,21 @@ not this endpoint and gets the usual 404. Self-hosted, it doesn't exist.
   in pages without one.
 - **Left-over parts:** parts under `backups/<id>/` with no manifest a day after the backup's id time (a backup that
   stopped) are deleted when the next backup is stored. A folder with a manifest is never touched by this.
+
+## First-admin claim and admin reset for the hosting side
+
+With `APOTHEKE_HOSTED`, the container also answers `POST /internal/accounts/claim` and
+`POST /internal/accounts/reset-admins` on the host `ops.internal` only, so the operator console can get a hosted
+installation a first admin without a shell in the container. They are reached and refused exactly like
+`/internal/backup` (see [Backup for a lifecycle job](#backup-for-a-lifecycle-job)): no forwarding headers, the same
+`X-Apotheke-Ops-Signature` over `POST`, the request's own path, `t` and the body (any body up to 4 KiB, for example
+`{}`), accepted within 300 seconds. A signature for one path is not valid for another. Self-hosted, neither exists.
+
+- **`/internal/accounts/claim`** does what `accounts:claim-create` does: 200
+  `{"ok":true,"token":…,"expires_at":"YYYY-MM-DD HH:MM:SS UTC"}`, and any earlier claim stops working. The link is
+  `https://<host>/claim#<token>`. The token is only in this answer: it is not stored (only its SHA-256 is) or
+  logged. While an active `admin` exists: 409 `active_admin_exists`, and nothing changes.
+- **`/internal/accounts/reset-admins`** does what `accounts:hosted-reset-admins` does (removes admin accounts, their
+  session records and any claim; other accounts stay): 200 `{"ok":true}`, also when there was nothing to remove.
+
+Other errors are `{"ok":false,"code":…}`: 401 `unauthorized`, 405, 500 `accounts_failed`, 503 `not_configured`.
