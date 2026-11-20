@@ -80,11 +80,11 @@ final class HostedDisabledUsersTest extends CIUnitTestCase
     }
 
     /** @return string the sessions.id key */
-    private function putSession(string $sid, int $userId): string
+    private function putSession(string $sid, int $userId, ?string $data = null): string
     {
         $this->assertNotNull($this->database);
         $key = hash('sha256', $sid);
-        $data = 'uid|i:' . $userId . ';auth_epoch|s:16:"0123456789abcdef";last_activity|i:1760000000;';
+        $data ??= 'uid|i:' . $userId . ';auth_epoch|s:16:"0123456789abcdef";last_activity|i:1760000000;';
         $this->database->db->query(
             'INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?)',
             [$key, $data, 2000000000, '', 0],
@@ -144,6 +144,27 @@ final class HostedDisabledUsersTest extends CIUnitTestCase
 
         $disabled->disable($viewer);
         $this->assertTrue($this->flagged($viewer), 'a second disable stays disabled');
+    }
+
+    #[DataProvider('modes')]
+    public function testSessionMatchIsAnchoredOnTheUidKey(string $driver, bool $batch): void
+    {
+        $users = $this->open($driver);
+        $viewer = $users->create('looker', 'x', 'viewer', 'active', '2026-01-01 00:00:00');
+        $tail = 'last_activity|i:1760000000;';
+        $first = $this->putSession('sess-frst-aaaaaaaaaaaa', $viewer);
+        $later = $this->putSession('sess-latr-aaaaaaaaaaaa', $viewer, 'csrf|s:4:"tok1";uid|i:' . $viewer . ';' . $tail);
+        $afterArray = $this->putSession('sess-arry-aaaaaaaaaaaa', $viewer, 'flash|a:0:{}uid|i:' . $viewer . ';' . $tail);
+        $prefixed = $this->putSession('sess-pfxd-aaaaaaaaaaaa', $viewer, 'otheruid|i:' . $viewer . ';' . $tail);
+        $prefixedLater = $this->putSession('sess-pfx2-aaaaaaaaaaaa', $viewer, 'csrf|s:4:"tok1";otheruid|i:' . $viewer . ';' . $tail);
+        $longer = $this->putSession('sess-long-aaaaaaaaaaaa', $viewer, 'uid|i:' . $viewer . '0;' . $tail);
+
+        $this->subject(true, $batch)->disable($viewer);
+
+        $this->assertEqualsCanonicalizing([$prefixed, $prefixedLater, $longer], $this->sessionKeys());
+        foreach ([$first, $later, $afterArray] as $gone) {
+            $this->assertNotContains($gone, $this->sessionKeys());
+        }
     }
 
     #[DataProvider('modes')]
