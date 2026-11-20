@@ -805,3 +805,100 @@ test("deploy-edge.yml: the deploy job applies control-plane D1 migrations before
 	assert.match(check, /APOTHEKE_D1_DATABASE_ID: 00000000-0000-4000-8000-000000000000\n/);
 	assert.ok(!/secrets\.CLOUDFLARE_ACCOUNT_ID|secrets\.APOTHEKE_D1_DATABASE_ID|vars\.CLOUDFLARE_ACCOUNT_ID|vars\.APOTHEKE_D1_DATABASE_ID/.test(check), "the check job does not read the real identifiers");
 });
+
+// D1: apotheke-ops deploy wiring. The guard allows it; scripts/ops-deploy-config.mjs adds the D1 id and the Access vars
+// on a copy of the real edge/ops/wrangler.jsonc, refuses missing or malformed values and any flag other than "0", and
+// prints no value.
+const OPS_ENV = {
+	APOTHEKE_D1_DATABASE_ID: "00000000-0000-4000-8000-000000000000",
+	OPS_ACCESS_TEAM_DOMAIN: "Example-Team.cloudflareaccess.com",
+	OPS_ACCESS_AUD: "0".repeat(64),
+	OPS_ALLOWED_EMAILS: " Thordin9@webapp.gr , ",
+};
+function opsConfig(env, edit = (t) => t) {
+	const dir = mkdtempSync(join(tmpdir(), "ops-cfg-"));
+	const cfg = join(dir, "wrangler.jsonc");
+	writeFileSync(cfg, edit(readFileSync(join(root, "edge/ops/wrangler.jsonc"), "utf8")));
+	const r = run("node", [join(root, "scripts/ops-deploy-config.mjs"), cfg], { env: { PATH: process.env.PATH, ...env } });
+	const out = existsSync(cfg) ? readFileSync(cfg, "utf8") : "";
+	rmSync(dir, { recursive: true, force: true });
+	return { ...r, out };
+}
+
+test("ops-deploy-config: adds the D1 id and the Access vars, keeps every flag and binding, prints no value", () => {
+	const r = opsConfig(OPS_ENV);
+	assert.equal(r.status, 0, r.stdout);
+	const c = JSON.parse(r.out);
+	assert.equal(c.name, "apotheke-ops");
+	assert.deepEqual(c.d1_databases, [{ binding: "DB", database_name: "apotheke-api", migrations_dir: "../migrations/control", database_id: OPS_ENV.APOTHEKE_D1_DATABASE_ID }]);
+	assert.deepEqual(c.vars, {
+		ACCESS_TEAM_DOMAIN: "example-team.cloudflareaccess.com",
+		ACCESS_AUD: OPS_ENV.OPS_ACCESS_AUD,
+		OPS_ALLOWED_EMAILS: "thordin9@webapp.gr",
+		OPS_WRITES_ENABLED: "0",
+		OPS_PROVISIONING: "0",
+		LIMITS_ENABLED: "0",
+	});
+	assert.deepEqual(c.services, [
+		{ binding: "OPS", service: "apotheke-api", entrypoint: "Ops" },
+		{ binding: "AUTOFILL", service: "apotheke-autofill", entrypoint: "HostedAutofill" },
+	]);
+	assert.deepEqual(c.triggers, { crons: [] });
+	for (const k of ["routes", "route", "account_id", "workflows"]) assert.equal(c[k], undefined, k);
+	for (const v of [OPS_ENV.APOTHEKE_D1_DATABASE_ID, OPS_ENV.OPS_ACCESS_AUD, "thordin9", "example-team"]) assert.ok(!r.stdout.includes(v), "no value printed");
+});
+
+test("ops-deploy-config: refuses missing or malformed values and a committed id, Access value or flag other than 0", () => {
+	const cases = [
+		[{ ...OPS_ENV, APOTHEKE_D1_DATABASE_ID: "" }, (t) => t, /APOTHEKE_D1_DATABASE_ID/],
+		[{ ...OPS_ENV, APOTHEKE_D1_DATABASE_ID: "not-a-uuid" }, (t) => t, /APOTHEKE_D1_DATABASE_ID/],
+		[{ ...OPS_ENV, OPS_ACCESS_TEAM_DOMAIN: "" }, (t) => t, /OPS_ACCESS_TEAM_DOMAIN/],
+		[{ ...OPS_ENV, OPS_ACCESS_TEAM_DOMAIN: "evil.example.com" }, (t) => t, /OPS_ACCESS_TEAM_DOMAIN/],
+		[{ ...OPS_ENV, OPS_ACCESS_AUD: "" }, (t) => t, /OPS_ACCESS_AUD/],
+		[{ ...OPS_ENV, OPS_ACCESS_AUD: "x y" }, (t) => t, /OPS_ACCESS_AUD/],
+		[{ ...OPS_ENV, OPS_ALLOWED_EMAILS: " , " }, (t) => t, /OPS_ALLOWED_EMAILS is empty/],
+		[{ ...OPS_ENV, OPS_ALLOWED_EMAILS: "a@x.test,not-an-email" }, (t) => t, /not an email/],
+		[OPS_ENV, (t) => t.replace('"OPS_WRITES_ENABLED": "0"', '"OPS_WRITES_ENABLED": "1"'), /OPS_WRITES_ENABLED "0"/],
+		[OPS_ENV, (t) => t.replace('"OPS_PROVISIONING": "0"', '"OPS_PROVISIONING": "1"'), /OPS_PROVISIONING "0"/],
+		[OPS_ENV, (t) => t.replace('"LIMITS_ENABLED": "0"', '"LIMITS_ENABLED": "1"'), /LIMITS_ENABLED "0"/],
+		[OPS_ENV, (t) => t.replace('"ACCESS_AUD": ""', '"ACCESS_AUD": "abc"'), /ship ACCESS_AUD empty/],
+		[OPS_ENV, (t) => t.replace('"database_name": "apotheke-api",', '"database_name": "apotheke-api", "database_id": "x",'), /already has a database_id/],
+		[OPS_ENV, (t) => t.replace('"name": "apotheke-ops"', '"name": "apotheke-api"'), /not the apotheke-ops config/],
+	];
+	for (const [env, edit, msg] of cases) {
+		const r = opsConfig(env, edit);
+		assert.equal(r.status, 1, `${msg}: ${r.stdout}`);
+		assert.match(r.stdout, msg);
+		assert.match(r.stdout, /nothing was deployed/);
+	}
+});
+
+test("guard: apotheke-ops is allowlisted, and the real edge/ops/wrangler.jsonc passes it", () => {
+	const r = guard("apotheke-ops", join(root, "edge/ops/wrangler.jsonc"), "--", "--dry-run");
+	assert.equal(r.status, 0, r.stdout);
+	assert.match(r.stdout, /deploying "apotheke-ops"/);
+	const { top, dir } = workerDir("apotheke-ops", '"routes": [{ "pattern": "console.getapotheke.com", "custom_domain": true }],');
+	try {
+		const bad = guard("apotheke-ops", join(dir, "wrangler.jsonc"));
+		assert.equal(bad.status, 1);
+		assert.match(bad.stdout, /has "routes"/);
+	} finally {
+		rmSync(top, { recursive: true, force: true });
+	}
+});
+
+test("deploy-edge.yml: the PR check dry-runs apotheke-ops with dummy values and pins DB, OPS, AUTOFILL and ASSETS", () => {
+	const yml = readFileSync(join(root, ".github/workflows/deploy-edge.yml"), "utf8");
+	const at = yml.indexOf("      - name: apotheke-ops dry run");
+	assert.ok(at > 0);
+	const step = yml.slice(at, yml.indexOf("\n      - ", at + 10));
+	assert.ok(!step.includes("secrets."), "no secret in the PR dry run");
+	assert.match(step, /APOTHEKE_D1_DATABASE_ID: 00000000-0000-4000-8000-000000000000\n/);
+	assert.match(step, /node scripts\/ops-deploy-config\.mjs edge\/ops\/wrangler\.jsonc\n/);
+	assert.match(step, /node scripts\/cf-worker-guard\.mjs apotheke-ops edge\/ops\/wrangler\.jsonc -- --dry-run\n/);
+	for (const want of ["env.DB (apotheke-api)", "env.OPS (apotheke-api#Ops)", "env.AUTOFILL (apotheke-autofill#HostedAutofill)", "'env.ASSETS'", 'env.OPS_WRITES_ENABLED ("0")', 'env.OPS_PROVISIONING ("0")', 'env.LIMITS_ENABLED ("0")']) {
+		assert.ok(step.includes(want), want);
+	}
+	assert.ok(yml.indexOf("      - name: Build the operator console") < at, "the console is built before the dry run");
+	assert.ok(at < yml.indexOf("      - name: Merged storage config dry run"), "before the step that rewrites edge/wrangler.jsonc");
+});

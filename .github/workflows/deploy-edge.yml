@@ -14,6 +14,11 @@ name: Deploy edge
 # edge/migrations/control/ (`wrangler d1 migrations apply apotheke-api --remote`), deploys, then checks /healthz. The
 # pull request checks dry-run both the default config and the merged one (with a dummy D1 id, no secret).
 # Flip checklist: docs/deployment-and-operations.md#p4-edge-storage-flip-checklist.
+# The operator console Worker apotheke-ops (edge/ops, its files from ops/console/dist): the pull request checks build
+# the console and dry-run the Worker with its deploy config (dummy D1 id and Access values, no secret). The deploy-ops
+# job deploys it only while the repository variable OPS_DEPLOY_ENABLED is exactly 1 (off by default, so merging deploys
+# nothing), after apotheke-api's deploy, in the same deploy-edge environment. No route: the host is attached outside CI.
+# Console checklist: docs/operator-console.md#deploying-the-console.
 on:
   pull_request:
     paths:
@@ -24,7 +29,9 @@ on:
       - 'scripts/cf-worker-guard.mjs'
       - 'scripts/cf-deploy.sh'
       - 'scripts/edge-storage-config.mjs'
+      - 'scripts/ops-deploy-config.mjs'
       - 'scripts/deploy-scripts.test.mjs'
+      - 'ops/console/**'
       - '.github/workflows/deploy-edge.yml'
   # A published GitHub Release (release.yml creates it with the release App's token, for tag vX.Y.Z). Not `push: tags`:
   # the tag points at the "chore(release): … [skip ci]" commit, and [skip ci] would suppress a tag-push run.
@@ -73,13 +80,53 @@ jobs:
         run: |
           npx --no-install wrangler types --check --config wrangler.jsonc
           npx --no-install tsc --noEmit
-      # The operator console Worker apotheke-ops (edge/ops): types and typecheck only. It is not deployed from here;
-      # its tests run in the deploy tooling tests step (edge/tests/ops-worker.test.mjs, loaded by r2.test.mjs).
+      # The operator console Worker apotheke-ops (edge/ops): types, typecheck, the console build and a dry run. Its
+      # tests run in the deploy tooling tests step (edge/tests/ops-worker.test.mjs, loaded by r2.test.mjs).
       - name: Types and typecheck (apotheke-ops)
         working-directory: edge/ops
         run: |
           npx --no-install wrangler types --check --config wrangler.jsonc
           npx --no-install tsc --noEmit -p .
+      # The ASSETS binding serves ops/console/dist, so it must exist before the dry run. Without ops/console a
+      # one-file placeholder stands in (the dry run only needs the directory); the deploy job never uses one.
+      - name: Build the operator console (ops/console/dist for ASSETS)
+        shell: bash
+        run: |
+          if [ ! -f ops/console/package.json ]; then
+            echo "::notice title=No operator console::ops/console is missing; the apotheke-ops dry run uses a placeholder dist."
+            mkdir -p ops/console/dist
+            printf '<!doctype html><title>placeholder</title>\n' > ops/console/dist/index.html
+            exit 0
+          fi
+          cd ops/console
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+          npm run test:bundle
+      # The deploy job's own config step, with a dummy D1 id and dummy Access values (no secret, no variable), then the
+      # guard and `wrangler deploy --dry-run`. The bindings and the off flags are checked in wrangler's binding list.
+      # The edited edge/ops/wrangler.jsonc is restored afterwards.
+      - name: apotheke-ops dry run (dummy D1 id and Access values; no token, nothing deployed)
+        env:
+          APOTHEKE_D1_DATABASE_ID: 00000000-0000-4000-8000-000000000000
+          OPS_ACCESS_TEAM_DOMAIN: example-team.cloudflareaccess.com
+          OPS_ACCESS_AUD: 0000000000000000000000000000000000000000000000000000000000000000
+          OPS_ALLOWED_EMAILS: ops@example.invalid
+          WRANGLER_SEND_METRICS: 'false'
+        shell: bash
+        run: |
+          node scripts/ops-deploy-config.mjs edge/ops/wrangler.jsonc
+          node scripts/cf-worker-guard.mjs apotheke-ops edge/ops/wrangler.jsonc -- --dry-run
+          log="$RUNNER_TEMP/ops-dry-run.log"
+          (cd edge/ops && npx --no-install wrangler deploy --dry-run --config wrangler.jsonc --outdir "$RUNNER_TEMP/ops-bundle") 2>&1 | tee "$log"
+          sed -i 's/\x1b\[[0-9;]*m//g' "$log"
+          for want in 'env.DB (apotheke-api)' 'env.OPS (apotheke-api#Ops)' 'env.AUTOFILL (apotheke-autofill#HostedAutofill)' \
+            'env.ASSETS' 'env.OPS_WRITES_ENABLED ("0")' 'env.OPS_PROVISIONING ("0")' 'env.LIMITS_ENABLED ("0")'; do
+            if ! grep -qF "$want" "$log"; then
+              echo "::error title=apotheke-ops dry run::the dry run does not list $want"
+              exit 1
+            fi
+          done
+          git checkout -- edge/ops/wrangler.jsonc
       - name: wrangler deploy --dry-run (builds the container image; no token, nothing pushed)
         working-directory: edge
         env:
@@ -264,3 +311,111 @@ jobs:
           done
           echo "::error title=Smoke check failed::https://$host/healthz did not answer 200 (last: $code). Roll back: unset EDGE_STORAGE_READY, then wrangler rollback (docs/deployment-and-operations.md#p4-edge-storage-flip-checklist)."
           exit 1
+
+  # The operator console Worker apotheke-ops. Off by default: skipped (before the deploy-edge environment gate, so no
+  # review is requested) unless the repository variable OPS_DEPLOY_ENABLED is exactly 1; the in-job gate below stays.
+  # Same refs as apotheke-api's deploy, and after it (skipped is fine, failed stops this job). No route, no custom
+  # domain and no secret: the host and the Access application are set up outside CI (docs/operator-console.md).
+  deploy-ops:
+    name: Deploy apotheke-ops
+    needs: [check, deploy]
+    if: >-
+      vars.OPS_DEPLOY_ENABLED == '1' && !cancelled() &&
+      needs.check.result == 'success' && needs.deploy.result != 'failure' && (
+      (github.event_name == 'release' && !github.event.release.prerelease &&
+        startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: deploy-edge
+    concurrency:
+      group: deploy-edge
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Tag is vX.Y.Z with a published full release (a release or a manual run on a tag)
+        env:
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          case "$REF" in
+            refs/heads/main) exit 0 ;;
+            refs/tags/*) ;;
+            *) echo "::error title=Not a release ref::Deploys run only on main or a vX.Y.Z tag."; exit 1 ;;
+          esac
+          if ! [[ "${REF#refs/tags/}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error title=Not a release tag::Deploys run only for tags vX.Y.Z (numbers only)."
+            exit 1
+          fi
+          tag="${REF#refs/tags/}"
+          if ! state="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '"draft=\(.draft) prerelease=\(.prerelease)"')"; then
+            echo "::error title=No published release::No published GitHub Release for $tag (missing or a draft); nothing was deployed."
+            exit 1
+          fi
+          if [ "$state" != "draft=false prerelease=false" ]; then
+            echo "::error title=Not a full release::The release for $tag is a draft or a pre-release ($state); nothing was deployed."
+            exit 1
+          fi
+      - name: Mask the account id and check for the token
+        id: token
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          APOTHEKE_D1_DATABASE_ID: ${{ secrets.APOTHEKE_D1_DATABASE_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then echo "::add-mask::$CLOUDFLARE_ACCOUNT_ID"; fi
+          if [ -n "$APOTHEKE_D1_DATABASE_ID" ]; then echo "::add-mask::$APOTHEKE_D1_DATABASE_ID"; fi
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "set=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Deploy skipped::The deploy-edge environment has no CLOUDFLARE_API_TOKEN secret; nothing was deployed."
+          else
+            echo "set=true" >> "$GITHUB_OUTPUT"
+          fi
+      # Second check of the job's `if:`, before any checkout or wrangler call, in case that condition is ever changed.
+      - name: Console gate (repository variable OPS_DEPLOY_ENABLED)
+        if: steps.token.outputs.set == 'true'
+        env:
+          OPS_DEPLOY_ENABLED: ${{ vars.OPS_DEPLOY_ENABLED }}
+        run: |
+          if [ "$OPS_DEPLOY_ENABLED" != "1" ]; then
+            echo "::error title=Console deploy not enabled::apotheke-ops is deployed only while the repository variable OPS_DEPLOY_ENABLED is 1 (docs/operator-console.md#deploying-the-console)."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.token.outputs.set == 'true'
+        with:
+          persist-credentials: false
+      # zizmor cache-poisoning is a false positive (N-1437): no package-manager cache is saved or restored.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 # zizmor: ignore[cache-poisoning]
+        if: steps.token.outputs.set == 'true'
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Install the Worker tooling (edge/)
+        if: steps.token.outputs.set == 'true'
+        working-directory: edge
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      # No placeholder here: a deploy needs the real console.
+      - name: Build the operator console (ops/console/dist for ASSETS)
+        if: steps.token.outputs.set == 'true'
+        working-directory: ops/console
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm run build && npm run test:bundle
+      # The D1 id (secret) and the Access vars (environment variables, not secrets) on this runner's checkout only.
+      # Refuses if a value is missing or malformed, or if OPS_PROVISIONING, LIMITS_ENABLED or OPS_WRITES_ENABLED is not "0".
+      - name: Deploy config (D1 id and Access vars)
+        if: steps.token.outputs.set == 'true'
+        env:
+          APOTHEKE_D1_DATABASE_ID: ${{ secrets.APOTHEKE_D1_DATABASE_ID }}
+          OPS_ACCESS_TEAM_DOMAIN: ${{ vars.OPS_ACCESS_TEAM_DOMAIN }}
+          OPS_ACCESS_AUD: ${{ vars.OPS_ACCESS_AUD }}
+          OPS_ALLOWED_EMAILS: ${{ vars.OPS_ALLOWED_EMAILS }}
+        run: node scripts/ops-deploy-config.mjs edge/ops/wrangler.jsonc
+      - name: Deploy (Worker guard, then wrangler deploy of apotheke-ops only)
+        if: steps.token.outputs.set == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bash scripts/cf-deploy.sh apotheke-ops edge/ops
