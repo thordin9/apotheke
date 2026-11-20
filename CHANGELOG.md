@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **frontend:** the landing, privacy, 404 and app shell are lighter and tighter, with a paper header in the light theme
+
 ## [3.59.0] - 2026-11-20
 
 ### Added
