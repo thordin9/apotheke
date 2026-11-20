@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **auth:** hosted installations answer signed `ops.internal` requests for a first-admin claim and an admin reset ([#338](https://github.com/thordin9/apotheke/pull/338))
+
 ## [3.54.0] - 2026-11-20
 
 ### Added
