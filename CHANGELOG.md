@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** `Ops` entrypoint on apotheke-api to create a first-admin claim or reset the admins of a hosted installation through its container ([#339](https://github.com/thordin9/apotheke/pull/339))
+
 ### Maintenance
 
 - **ci:** the merged edge dry run also requires the `AUTOFILL` service binding (`apotheke-autofill#HostedAutofill`) ([#334](https://github.com/thordin9/apotheke/pull/334))
