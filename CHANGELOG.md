@@ -1,3 +1,11 @@
+# Changelog
+
+All notable changes to Apotheke are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
+Release sections are written by `scripts/release.php` when a pull request is merged to `main`
+(see [docs/releasing.md](docs/releasing.md)); the version lives in `VERSION`.
+Releases before 2.6.0 are summarised once per minor version; their full notes are in git history.
+
 ## [Unreleased]
 
 ### Added
