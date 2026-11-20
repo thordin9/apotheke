@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
-- **ops:** an operator console shell, a typed client and a local preview for the fleet and the installations list
+- **ops:** an operator console shell, a typed client and a local preview for the fleet and the installations list ([#337](https://github.com/thordin9/apotheke/pull/337))
 
 ### Maintenance
 
