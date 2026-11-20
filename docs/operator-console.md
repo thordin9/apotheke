@@ -339,9 +339,10 @@ binds it later (E6-1).
 - **Results:** `{ok:true, token, expires_at}` for a claim, `{ok:true}` for a reset, otherwise `{ok:false, code,
   status?}`. Codes: `active_admin_exists` (409 on a claim), `unauthorized` (401), `not_hosted` (404),
   `accounts_failed` (500), `not_configured` (503 or no `DB`), `http_<status>` for any other status, `bad_answer` for a
-  200 of the wrong shape, `refused`, `unknown_installation`, `ambiguous_installation`, `not_startable`, `bad_app_key`,
-  `unavailable` (the container did not start) and `unreachable` (the request did not finish). The claim token is only
-  in the result: it is not logged and not put in an error.
+  200 of the wrong shape, `bad_action` (an action other than `claim` or `reset-admins`), `refused`,
+  `unknown_installation`, `ambiguous_installation`, `not_startable`, `bad_app_key`, `unavailable` (the container did
+  not start) and `unreachable` (the request did not finish). The claim token is only in the result: it is not logged
+  and not put in an error.
 
 ## Backup for a lifecycle job
 

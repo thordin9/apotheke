@@ -44,7 +44,7 @@ function controlDb(rows = [{ id: 'b', do_name: 'tenant-b', status: 'active' }]) 
     all: async () => { queries.push(sql); return { results: db.prepare(sql).all(...v).map((r) => ({ ...r })) }; },
     first: async () => { queries.push(sql); const r = db.prepare(sql).get(...v); return r ? { ...r } : null; },
   });
-  return { queries, prepare: (sql) => ({ bind: (...v) => bound(sql, v) }) };
+  return { raw: db, queries, prepare: (sql) => ({ bind: (...v) => bound(sql, v) }) };
 }
 
 /** A container object with a fake container. answer(req) is the accounts endpoint's response. */
@@ -71,7 +71,7 @@ function box(name, { status = 'active', running = true, answer, db } = {}) {
   const env = { APP_PASSWORD: 'placeholder', APP_KEY: MASTER, ALLOWED_HOSTS: 'api.example.test', STORAGE: {}, INSTALLATION: {}, DB: db ?? controlDb([{ id: 'b', do_name: doName, status }]) };
   const b = new ApothekeContainer(ctx, env);
   if (running) b.ready = true;
-  return { b, container, requests: () => requests.filter((q) => new URL(q.url).pathname !== '/healthz') };
+  return { b, container, db: env.DB, requests: () => requests.filter((q) => new URL(q.url).pathname !== '/healthz') };
 }
 
 test('PR0b: the accounts request uses the shared ops signature (vector) over its own path and body', async () => {
@@ -163,6 +163,39 @@ test('PR0b: opsAccounts acts only on a provisioning or active installation, also
   bad.b.env.APP_KEY = 'not-a-key';
   assert.deepEqual(await bad.b.opsAccounts('claim'), { ok: false, code: 'bad_app_key' });
   assert.equal(bad.requests().length, 0);
+});
+
+test('PR0b: opsAccounts waits for a backup start in flight and re-checks the status before sending', async () => {
+  /** A backup start in flight (opsStart set, readying pending); finish() completes it with the container up. */
+  const inFlight = () => {
+    const x = box('tenant-b', { status: 'active', running: false });
+    let finish;
+    x.b.readying = new Promise((resolve) => { finish = () => { x.container.running = true; x.b.ready = true; x.b.readying = null; x.b.opsStart = false; resolve(0); }; });
+    x.b.opsStart = true;
+    x.b.opsOnly = true;
+    return { ...x, finish };
+  };
+  const tick = () => new Promise((r) => setImmediate(r));
+  for (const status of ['suspended', 'deleting']) {
+    const { b, container, db, requests, finish } = inFlight();
+    const pending = b.opsAccounts('claim');
+    await tick();
+    assert.equal(requests().length, 0, `${status}: nothing is sent while the backup start is in flight`);
+    db.raw.prepare('UPDATE installations SET status = ? WHERE do_name = ?').run(status, 'tenant-b');
+    finish();
+    assert.deepEqual(await pending, { ok: false, code: 'not_startable' }, status);
+    assert.equal(requests().length, 0, `${status}: no request to ops.internal`);
+    assert.equal(container.starts, 0, `${status}: the container is not started again`);
+  }
+  const { b, container, requests, finish } = inFlight();
+  const pending = b.opsAccounts('claim');
+  await tick();
+  assert.equal(requests().length, 0, 'active: nothing is sent before the backup start finishes');
+  finish();
+  assert.deepEqual(await pending, { ok: true, token: TOKEN, expires_at: EXPIRES });
+  assert.deepEqual(requests().map((q) => q.url), ['http://ops.internal/internal/accounts/claim']);
+  assert.equal(container.starts, 0, 'active: the container the backup started is reused');
+  assert.equal(b.opsOnly, false, 'active: the status check cleared the public start gate');
 });
 
 test('PR0b: the Ops entrypoint resolves the installation in the control plane and refuses primary and unknown ones', async () => {
