@@ -11,6 +11,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Added
 
 - **edge:** the `apotheke-ops` Worker for the operator console behind Cloudflare Access, with its config endpoint and the installation claim and admin reset ([#346](https://github.com/thordin9/apotheke/pull/346))
+- **edge:** a lifecycle purge also deletes the installation's autofill budget, after its storage is purged ([#347](https://github.com/thordin9/apotheke/pull/347))
 
 ## [3.56.0] - 2026-11-20
 
