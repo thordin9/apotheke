@@ -1,0 +1,44 @@
+name: Operator console
+
+# Local console preview. Not a deploy. A pull request or a push to main runs it
+# when ops/console or this workflow changes.
+on:
+  pull_request:
+    paths:
+      - 'ops/console/**'
+      - '.github/workflows/ops-console.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ops/console/**'
+      - '.github/workflows/ops-console.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-console-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Build, unit and end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Install, build, unit tests and the bundle check
+        working-directory: ops/console
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm run build && npm test && npm run test:bundle
+      - name: Install the end-to-end browser
+        working-directory: ops/console
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end
+        working-directory: ops/console
+        run: npm run e2e

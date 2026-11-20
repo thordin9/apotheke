@@ -378,3 +378,53 @@ not this endpoint and gets the usual 404. Self-hosted, it doesn't exist.
   in pages without one.
 - **Left-over parts:** parts under `backups/<id>/` with no manifest a day after the backup's id time (a backup that
   stopped) are deleted when the next backup is stored. A folder with a manifest is never touched by this.
+
+## Console API (draft, not implemented)
+
+This list is a starting draft. Coder's E6 finalises the backing API, and Coder will update this section to what
+ships. Nothing here is served yet.
+
+`apotheke-ops` serves the console and `/api/ops/v1` on its own host, behind Cloudflare Access. Calls are
+same-origin. The credential is the Access cookie. There is no app session. The console's API base defaults to
+same-origin `/api/ops/v1` (`<meta name="ops-api-base">` can set another). Responses are JSON unless a download says
+otherwise.
+
+A write (`POST` or `PUT`) sends `X-CSRF: 1`. There is no CSRF token. `csrfHeaders()` is the only place that header
+is set, so a real token can replace the fixed value later. The server answers 403 without the header, and also
+checks that `Origin` equals the ops host.
+
+The console types these failures: 401 (the Access session ended; the screen says to reload and sign in), 403 (CSRF,
+Origin, or a disallowed identity), 404, 409, 410 (the installation has been deleted), 422, 503 (the API is not
+configured, or the container cannot be reached), and a network failure.
+
+- `GET /config` returns `{provisioning_enabled, limits_enabled}`. The console reads it once at startup. On prod
+  `provisioning_enabled` is false (`OPS_PROVISIONING` is `0`).
+- `GET /overview` returns counts by status and plan, usage totals, `revenue` and `as_of`. `revenue` stays null
+  because there are no prices yet, and the screen leaves the amount blank and says that no prices are set. `as_of`
+  is the stats freshness stamp. 90-day usage fills in once the stats Cron lands.
+- `GET /installations?status=&plan=&q=`
+- `GET /installations/:id`
+- `GET /installations/:id/users` (metadata only)
+- `POST /installations/:id/claim` returns `{link, expires_at}` once, or 409 `active_admin_exists`. The console shows
+  the link once and does not store it.
+- `POST /installations/:id/admin-reset` with `{confirm_host}`. `confirm_host` must equal the host, or the answer is
+  422. Allowed only while the installation is `provisioning` or `active`.
+- `GET /plans`
+- `PUT /plans/:id/limits`
+- `GET /subscriptions?due=14d`
+- `PUT /installations/:id/subscription`
+- `GET /subscriptions/rules` is a report only. A rule with an unset value shows `not run: value not set`.
+- `GET /jobs`
+- `POST /jobs` comes back `paused` for every kind. `kind` `provision` returns 409 `provisioning_disabled` while
+  provisioning is off, which it is on prod.
+- `POST /jobs/:id/confirm`, with `confirm_host` for a purge.
+- `GET /jobs/:id/export` is a download for a finished export job (streamed, size-capped).
+- `GET /audit?installation=&action=&from=&to=`
+- `GET /audit.csv`
+
+Deferred, and not in E6: `POST /installations/:id/users/:uid/disable`, `POST /installations/:id/users/:uid/reset-link`,
+`POST /installations/:id/overrides` and `POST /jobs/:id/retry`.
+
+The local preview in `ops/console` answers only `GET /config`, `GET /overview`, `GET /installations` and
+`GET /installations/:id`, with made-up rows, and can answer 401, 503 and 410 so the error screens can be checked.
+That preview is not part of the production build.
