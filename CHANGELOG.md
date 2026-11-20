@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
-- **auth:** a hosted installation can disable or re-enable one user on the signed ops accounts channel ([#000](https://github.com/thordin9/apotheke/pull/000))
+- **auth:** a hosted installation can disable or re-enable one user on the signed ops accounts channel ([#349](https://github.com/thordin9/apotheke/pull/349))
 
 ## [3.59.0] - 2026-11-20
 
