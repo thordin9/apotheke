@@ -11,6 +11,7 @@ import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, sto
 import { AUTOFILL_HOST, handleAutofill, type AutofillEnv, type AutofillProps } from "./autofill";
 import { forwardWithLimits, isPreflight, LIMITS_HEADER, limitsEnabled, takeLimits, UsageMeter, WARNING_HEADER, withCors, type Limits } from "./limits";
 import { opsBackupRequest } from "./ops-signature";
+import { isOpsAccountsAction, opsAccountsRequest, opsAccountsResult, resolveOpsInstallation, type OpsAccountsAction, type OpsAccountsResult, type OpsClaimResult, type OpsResetResult } from "./ops-accounts";
 
 export { Installation } from "./installation";
 
@@ -252,6 +253,46 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 		}
 	}
 
+	/** Operator console (PR0b): the first-admin claim or the admin reset, through the container's port like opsBackup,
+	 *  never the public forward (POST http://ops.internal/internal/accounts/..., signed with this installation's
+	 *  APP_KEY). Refused for primary and an unnamed object before any network call. Starts the container only like a
+	 *  public request would (provisioning or active), and checks that status again when the container is already up.
+	 *  The claim token is only in the returned result: it is never logged and never put in an error. */
+	async opsAccounts(action: OpsAccountsAction): Promise<OpsAccountsResult> {
+		if (!isOpsAccountsAction(action)) return { ok: false, code: "bad_action" };
+		let doName: string;
+		try {
+			doName = lifecycleName(this.ctx.id?.name);
+		} catch {
+			return { ok: false, code: "refused" };
+		}
+		const c = this.ctx.container;
+		if (!c) return { ok: false, code: "not_startable" };
+		let req: Request;
+		try {
+			// A backup may have started this container for a suspended or deleting installation: never act on that.
+			if (this.readying && this.opsStart) await this.readying.catch(() => {});
+			// Warm: keep the storage wiring the last public request set (with its limits).
+			if (!c.running || !this.ready) await this.ensureReady();
+			await this.publicStart();
+			req = await opsAccountsRequest(await installationAppKey(doName, this.env.APP_KEY), action);
+		} catch (e) {
+			const code = permanentBackupCode(e) ?? (e instanceof Error && e.message === "installation not startable" ? "not_startable" : undefined);
+			if (code) return { ok: false, code };
+			console.error("ops accounts start failed", String(e));
+			return { ok: false, code: "unavailable" };
+		}
+		let res: Response;
+		try {
+			res = await c.getTcpPort(PORT).fetch(req, { redirect: "manual" });
+		} catch (e) {
+			this.ready = false;
+			console.error("ops accounts forward failed", String(e));
+			return { ok: false, code: "unreachable" };
+		}
+		return opsAccountsResult(action, res);
+	}
+
 	async fetch(request: Request): Promise<Response> {
 		let cold: number;
 		const taken = takeLimits(request, this.env, this.ctx.id?.name, INSTALLATION_NAME);
@@ -375,6 +416,26 @@ function toContainer(request: Request): Request {
 		init.duplex = "half";
 	}
 	return new Request(url, init);
+}
+
+/** Operator console (PR0b): the first-admin claim and the admin reset for one installation, by its id or do_name. For
+ *  the operator Worker's service binding only (added later with E6-1): this Worker has no route or binding for it. The
+ *  installation is read from the control plane (DB); primary, unknown installations and any not provisioning or active
+ *  are refused before its container object is called. */
+export class Ops extends WorkerEntrypoint<Env & D1Env> {
+	async claimCreate(installation: string): Promise<OpsClaimResult> {
+		return (await opsAccountsFor(this.env, installation, "claim")) as OpsClaimResult;
+	}
+
+	async resetAdmins(installation: string): Promise<OpsResetResult> {
+		return (await opsAccountsFor(this.env, installation, "reset-admins")) as OpsResetResult;
+	}
+}
+
+async function opsAccountsFor(env: Env & D1Env, installation: unknown, action: OpsAccountsAction): Promise<OpsAccountsResult> {
+	const found = await resolveOpsInstallation(env.DB, installation);
+	if (!("doName" in found)) return found;
+	return (await env.APOTHEKE.getByName(found.doName).opsAccounts(action)) as OpsAccountsResult;
 }
 
 export default {

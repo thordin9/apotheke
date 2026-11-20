@@ -1,8 +1,9 @@
 # Operator console: control-plane data
 
 Design note for the hosted service's operator console (managing installations, plans and limits, subscriptions,
-usage and an audit log). The Worker routes each request by host through this schema (see [Routing](#routing)); the
-console itself is not built yet.
+usage and an audit log). The Worker routes each request by host through this schema (see [Routing](#routing)). The
+console's Worker, `apotheke-ops`, is in `edge/ops/` (see [Console API](#console-api)); most of its API is not built
+yet.
 
 ## Source of truth
 
@@ -322,6 +323,28 @@ start creates the account `admin` from it exactly as on a self-hosted install, s
 admin there, and `accounts:claim-create` refuses. `APOTHEKE_INSTALLATION` alone changes nothing. Without `APOTHEKE_HOSTED`, a missing `APP_PASSWORD` on a new
 install still stops the start as before ([Deployment and operations](deployment-and-operations.md)).
 
+## Claim and admin reset from the operator console
+
+The apotheke-api Worker exports a named entrypoint `Ops` (`edge/src/index.ts`, `edge/src/ops-accounts.ts`) for the
+operator Worker's service binding. It has no route, and this Worker declares no binding to it; `apotheke-ops`
+(`edge/ops/wrangler.jsonc`) binds it as `OPS` (see [Console API](#console-api)).
+
+- **`claimCreate(installation)`** and **`resetAdmins(installation)`** take the installation's id or `do_name`. The
+  installation is read from `installations` in `DB`. `primary` is refused before the lookup and again by its row;
+  an unknown name, a name that is one installation's id and another's `do_name`, and an installation that is not
+  `provisioning` or `active` are refused before its container object is called.
+- The container object (`ApothekeContainer.opsAccounts`) refuses `primary` and an unnamed object before any network
+  call, starts the container only as a public request would, checks the status again when it is already running, and
+  sends `POST /internal/accounts/claim` or `/internal/accounts/reset-admins` to `ops.internal` on the container's port,
+  body `{}`, signed like the backup request below with the installation's own `APP_KEY`.
+- **Results:** `{ok:true, token, expires_at}` for a claim, `{ok:true}` for a reset, otherwise `{ok:false, code,
+  status?}`. Codes: `active_admin_exists` (409 on a claim), `unauthorized` (401), `not_hosted` (404),
+  `accounts_failed` (500), `not_configured` (503 or no `DB`), `http_<status>` for any other status, `bad_answer` for a
+  200 of the wrong shape, `bad_action` (an action other than `claim` or `reset-admins`), `refused`,
+  `unknown_installation`, `ambiguous_installation`, `not_startable`, `bad_app_key`, `unavailable` (the container did
+  not start) and `unreachable` (the request did not finish). The claim token is only in the result: it is not logged
+  and not put in an error.
+
 ## Backup for a lifecycle job
 
 Export and soft delete lifecycle jobs (operator console E4) need the app's own backup, once per job. With
@@ -357,36 +380,82 @@ not this endpoint and gets the usual 404. Self-hosted, it doesn't exist.
 - **Left-over parts:** parts under `backups/<id>/` with no manifest a day after the backup's id time (a backup that
   stopped) are deleted when the next backup is stored. A folder with a manifest is never touched by this.
 
-## Console API (draft, not implemented)
+## Console API
 
-This list is a starting draft. Coder's E6 finalises the backing API, and Coder will update this section to what
-ships. Nothing here is served yet.
+`apotheke-ops` (`edge/ops/`) serves the console (`ops/console`, built to `ops/console/dist` and served as Workers
+static assets) and `/api/ops/v1` on its own host, behind Cloudflare Access. It has no routes, no `workers.dev` and no
+preview URLs in this repository: the host, the Access application and the deploy are set up outside it. Its bindings
+are the control-plane D1 `DB` (the same database as apotheke-api's) and `OPS`, apotheke-api's `Ops` entrypoint (see
+[Claim and admin reset from the operator console](#claim-and-admin-reset-from-the-operator-console)); it has no R2
+binding. Calls are same-origin. The credential is the Access cookie. There is no app session. The console's API base
+defaults to same-origin `/api/ops/v1` (`<meta name="ops-api-base">` can set another). Responses are JSON unless a
+download says otherwise.
 
-`apotheke-ops` serves the console and `/api/ops/v1` on its own host, behind Cloudflare Access. Calls are
-same-origin. The credential is the Access cookie. There is no app session. The console's API base defaults to
-same-origin `/api/ops/v1` (`<meta name="ops-api-base">` can set another). Responses are JSON unless a download says
-otherwise.
+Every request, the console's files included, goes through the Worker's script (`edge/ops/src/index.ts`) in this order:
 
-A write (`POST` or `PUT`) sends `X-CSRF: 1`. There is no CSRF token. `csrfHeaders()` is the only place that header
-is set, so a real token can replace the fixed value later. The server answers 403 without the header, and also
-checks that `Origin` equals the ops host.
+1. While `ACCESS_TEAM_DOMAIN` (`<team>.cloudflareaccess.com`) or `ACCESS_AUD` (the Access application's audience) is
+   empty, every request is 503 `not_configured`. Both are empty in `edge/ops/wrangler.jsonc`.
+2. `OPTIONS` is 405. No answer carries CORS headers.
+3. The `Cf-Access-Jwt-Assertion` token must be RS256-signed by one of the team's keys (read from
+   `https://<team>/cdn-cgi/access/certs` and kept for five minutes; a token with an unknown key reads them again, at
+   most every 30 seconds), with issuer `https://<team>`, the configured audience, and an `exp` in the future;
+   otherwise 401 `unauthorized`. The operator is the token's `email` (lower case); a token without one (a service
+   token) is 403 `forbidden`. If the keys cannot be read: 503 `access_unavailable`.
+4. A write (`POST`, `PUT`, `PATCH`, `DELETE`) needs `X-CSRF: 1` and an `Origin` equal to the request's own origin
+   (scheme and host); otherwise 403 `csrf`. There is no CSRF token. In the console, `csrfHeaders()` is the only place
+   that header is set, so a real token can replace the fixed value later.
+5. `/api/ops/v1/…` goes to the API (`edge/ops/src/api.ts`); any other `/api/` path is 404 `not_found`; everything
+   else is the console's files.
 
-The console types these failures: 401 (the Access session ended; the screen says to reload and sign in), 403 (CSRF,
-Origin, or a disallowed identity), 404, 409, 410 (the installation has been deleted), 422, 503 (the API is not
-configured, or the container cannot be reached), and a network failure.
+Every answer is `Cache-Control: no-store` and carries `X-Request-Id`, which is also the `request_id` of any audit row
+it writes. Errors are `{"ok":false,"code":…}`, sometimes with a `detail`. The console types these failures: 401 (the
+Access session ended; the screen says to reload and sign in), 403 (CSRF, Origin, a disallowed identity, or
+`primary`), 404, 409, 410 (the installation has been deleted), 422, 503 (not configured, or the container cannot be
+reached), and a network failure. A known path with another method is 405 `method_not_allowed` with `Allow`.
 
-- `GET /config` returns `{provisioning_enabled, limits_enabled}`. The console reads it once at startup. On prod
-  `provisioning_enabled` is false (`OPS_PROVISIONING` is `0`).
+apotheke-api never answers `/api/ops/`: on its hosts that path is routed to the installation like any other.
+
+### Audit
+
+Every console action writes its D1 change and its `operator_audit` row (operator, action, installation,
+`before_json`, `after_json`, `request_id`) in one D1 batch, so neither is kept without the other
+(`edge/ops/src/audit.ts`). An action with no D1 change (a claim, an admin reset) writes the audit row alone, after
+the action succeeded. A claim token or link is never written to D1, an audit row or a log; the helper refuses a
+`token` or `link` key.
+
+### Implemented
+
+- `GET /config` returns `{"ok":true,"provisioning_enabled":…,"limits_enabled":…}`: `OPS_PROVISIONING` and
+  `LIMITS_ENABLED` of `apotheke-ops` equal to `"1"`. Both are `"0"` in `edge/ops/wrangler.jsonc` and on prod. The
+  console reads it once at startup.
+- `POST /installations/:id/claim` with `{"confirm_host":…}` returns `{"ok":true,"link":…,"expires_at":…}` once. The
+  link is `https://<confirm_host>/claim#<token>`, built by `apotheke-ops` from the token `claimCreate` returned. The
+  console shows the link once and does not store it. Audit action `installation.claim`, `after_json`
+  `{"host","expires_at"}`.
+- `POST /installations/:id/admin-reset` with `{"confirm_host":…}` returns `{"ok":true}`. Audit action
+  `installation.admin_reset`, `after_json` `{"host"}`.
+
+Both actions take the installation's `id` and check, in this order: `primary` 403 `primary` (before any lookup and
+again by its row); unknown 404 `not_found`; `deleted` 410 `gone`; any status other than `provisioning` or `active` 409
+`not_startable`; no host in `installation_routes` 409 `no_host`; `confirm_host` (trimmed, lower case) not one of the
+installation's hosts 422 `confirm_host`. A body that is not a JSON object of at most 4 KiB is 422 `invalid_body`. Then
+`apotheke-api`'s `Ops` entrypoint is called; its refusals are mapped: `active_admin_exists` 409
+`active_admin_exists`, `refused` 403 `primary`, `unknown_installation` 404 `not_found`, `ambiguous_installation` 409
+`ambiguous_installation`, `not_startable` 409 `not_startable`, and every other code (the container did not start or
+answer, is not hosted, gave a bad answer) 503 `unavailable` with that code as `detail`. Nothing is audited for a
+refusal. If the audit row cannot be written after a successful claim, the answer is 503 `audit_failed` and the link
+is withheld (the next claim voids it); after a reset, also 503 `audit_failed`.
+
+### Planned
+
+Not served yet; the shapes may still change.
+
 - `GET /overview` returns counts by status and plan, usage totals, `revenue` and `as_of`. `revenue` stays null
   because there are no prices yet, and the screen leaves the amount blank and says that no prices are set. `as_of`
   is the stats freshness stamp. 90-day usage fills in once the stats Cron lands.
 - `GET /installations?status=&plan=&q=`
 - `GET /installations/:id`
 - `GET /installations/:id/users` (metadata only)
-- `POST /installations/:id/claim` returns `{link, expires_at}` once, or 409 `active_admin_exists`. The console shows
-  the link once and does not store it.
-- `POST /installations/:id/admin-reset` with `{confirm_host}`. `confirm_host` must equal the host, or the answer is
-  422. Allowed only while the installation is `provisioning` or `active`.
 - `GET /plans`
 - `PUT /plans/:id/limits`
 - `GET /subscriptions?due=14d`
@@ -406,3 +475,25 @@ Deferred, and not in E6: `POST /installations/:id/users/:uid/disable`, `POST /in
 The local preview in `ops/console` answers only `GET /config`, `GET /overview`, `GET /installations` and
 `GET /installations/:id`, with made-up rows, and can answer 401, 503 and 410 so the error screens can be checked.
 That preview is not part of the production build.
+
+## First-admin claim and admin reset for the hosting side
+
+With `APOTHEKE_HOSTED`, the container also answers `POST /internal/accounts/claim` and
+`POST /internal/accounts/reset-admins` on the host `ops.internal` only, so the operator console can get a hosted
+installation a first admin without a shell in the container. They are reached and refused exactly like
+`/internal/backup` (see [Backup for a lifecycle job](#backup-for-a-lifecycle-job)): no forwarding headers, the same
+`X-Apotheke-Ops-Signature` over `POST`, the request's own path, `t` and the body (any body up to 4 KiB, for example
+`{}`; a larger one is refused with 401), accepted within 300 seconds. A signature for one path is not valid for
+another. The path must match exactly: with a query string or a trailing `/` it is not this endpoint. Such a
+request, and any request on `ops.internal` when self-hosted (where neither exists), gets the host list's 421, as an
+unknown host does.
+
+- **`/internal/accounts/claim`** does what `accounts:claim-create` does: 200
+  `{"ok":true,"token":…,"expires_at":"YYYY-MM-DD HH:MM:SS UTC"}`, and any earlier claim stops working. The link is
+  `https://<host>/claim#<token>`. The token is only in this answer: it is not stored (only its SHA-256 is) or
+  logged. While an active `admin` exists: 409 `active_admin_exists`, and nothing changes.
+- **`/internal/accounts/reset-admins`** does what `accounts:hosted-reset-admins` does (removes admin accounts, their
+  session records and any claim; other accounts stay): 200 `{"ok":true}`, also when there was nothing to remove.
+
+Other errors are `{"ok":false,"code":…}`: 401 `unauthorized`, 405 `method_not_allowed` (with `Allow: POST`),
+500 `accounts_failed`, 503 `not_configured`.
