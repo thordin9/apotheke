@@ -21,10 +21,20 @@ export function limitsEnabled(env: { LIMITS_ENABLED?: string }): boolean {
 /**
  * The plan_limits of installation i's subscription as one JSON value ({"key": [soft, hard]}; NULL without a
  * subscription or limit rows), for a query that has the installations row as i. Only rows with a hard value.
- * parseLimits() reads it.
+ * A live limit_overrides row for the same installation and key (expires_at NULL or a well-formed timestamp in the
+ * future) replaces hard with that override (raise or lower); a non-integer hard_value is ignored so the plan cap stays;
+ * a malformed expires_at is treated as expired.
+ * soft is then NULL so parseLimits() defaults it to 80% of the new hard. primary is not joined. parseLimits() reads it.
  */
-export const PLAN_LIMITS_JSON_SQL = "(SELECT json_group_object(l.limit_key, json_array(l.soft_value, l.hard_value))"
-	+ " FROM subscriptions s JOIN plan_limits l ON l.plan_id = s.plan_id WHERE s.installation_id = i.id AND l.hard_value IS NOT NULL)";
+export const PLAN_LIMITS_JSON_SQL = "(SELECT json_group_object(x.limit_key, json_array(x.soft_value, x.hard_value))"
+	+ " FROM (SELECT l.limit_key, CASE WHEN o.installation_id IS NOT NULL THEN NULL ELSE l.soft_value END AS soft_value,"
+	+ " COALESCE(o.hard_value, l.hard_value) AS hard_value"
+	+ " FROM subscriptions s JOIN plan_limits l ON l.plan_id = s.plan_id"
+	+ " LEFT JOIN limit_overrides o ON o.installation_id = i.id AND o.limit_key = l.limit_key"
+	+ " AND i.do_name <> 'primary'"
+	+ " AND typeof(o.hard_value) = 'integer'"
+	+ " AND (o.expires_at IS NULL OR (typeof(o.expires_at) = 'text' AND o.expires_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z' AND o.expires_at > strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))"
+	+ " WHERE s.installation_id = i.id AND l.hard_value IS NOT NULL) x WHERE x.hard_value IS NOT NULL)";
 
 /** plan_limits rows as PLAN_LIMITS_JSON_SQL returns them ({"key": [soft, hard]}, JSON). Soft defaults to 80% of hard. */
 export function parseLimits(raw: unknown): Limits {

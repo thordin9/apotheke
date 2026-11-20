@@ -8,6 +8,10 @@ export const ACCESS_JWT_HEADER = "Cf-Access-Jwt-Assertion";
 export const JWKS_TTL_MS = 5 * 60 * 1000;
 /** A token whose key is not in the cached set fetches the set again, at most this often. */
 export const JWKS_REFRESH_MS = 30 * 1000;
+/** A key fetch that has not answered (headers and body) by then fails. */
+export const JWKS_TIMEOUT_MS = 5 * 1000;
+/** After a failed key fetch, requests fail (503 access_unavailable) without fetching again for this long. */
+export const JWKS_FAILURE_MS = 10 * 1000;
 /** Allowed clock difference for nbf and iat. exp has none. */
 const SKEW_S = 60;
 
@@ -27,14 +31,30 @@ export function accessConfig(env: AccessEnv): AccessConfig | null {
 type Jwk = JsonWebKey & { kid?: string };
 type KeySet = { at: number; keys: Map<string, CryptoKey> };
 const keySets = new Map<string, KeySet>();
+/** When the last key fetch for a team failed. */
+const failedAt = new Map<string, number>();
 
-/** Test hook: forget the cached keys. */
+/** Test hook: forget the cached keys and failures. */
 export function clearJwksCache(): void {
 	keySets.clear();
+	failedAt.clear();
 }
 
 async function fetchKeys(team: string, fetcher: Fetch, now: number): Promise<KeySet> {
-	const res = await fetcher(`https://${team}/cdn-cgi/access/certs`, { redirect: "manual" });
+	const failed = failedAt.get(team);
+	if (failed !== undefined && now - failed < JWKS_FAILURE_MS) throw new Error("access certs failed recently");
+	try {
+		const set = await loadKeys(team, fetcher, now);
+		failedAt.delete(team);
+		return set;
+	} catch (e) {
+		failedAt.set(team, now);
+		throw e;
+	}
+}
+
+async function loadKeys(team: string, fetcher: Fetch, now: number): Promise<KeySet> {
+	const res = await fetcher(`https://${team}/cdn-cgi/access/certs`, { redirect: "manual", signal: AbortSignal.timeout(JWKS_TIMEOUT_MS) });
 	if (res.status !== 200) {
 		await res.body?.cancel();
 		throw new Error(`access certs ${res.status}`);
