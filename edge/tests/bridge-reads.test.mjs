@@ -93,6 +93,32 @@ test('GET /limits answers the plan of the object\'s own installation from the co
   assert.equal((await read(outbound('tenant-x'), '/limits'))[0], 404);
 });
 
+test('GET /limits applies a live override, ignores an expired one, and leaves other installations and primary unchanged', async () => {
+  const { control, outbound } = setup();
+  const planOnly = { ok: true, plan: 'test-plan', limits: { items: { soft: 40, hard: 50 }, users: { soft: 3 * 0.8, hard: 3 } } };
+  control.raw.exec(`INSERT INTO installations (id, do_name, r2_prefix, status) VALUES ('d', 'tenant-d', 'installations/tenant-d/', 'active');
+    INSERT INTO subscriptions (installation_id, plan_id, status) VALUES ('d', 'test-plan', 'active');
+    INSERT INTO limit_overrides (installation_id, limit_key, hard_value, expires_at, created_by) VALUES
+      ('a', 'items', 80, NULL, 'ops@example.test'),
+      ('a', 'users', 99, '2000-01-01T00:00:00Z', 'ops@example.test'),
+      ('a', 'photos', 100, NULL, 'ops@example.test');
+    UPDATE subscriptions SET plan_id = 'test-plan' WHERE installation_id = 'primary';
+    INSERT INTO limit_overrides (installation_id, limit_key, hard_value, expires_at, created_by)
+      VALUES ('primary', 'items', 1, NULL, 'ops@example.test');`);
+  const [status, body] = await read(outbound('tenant-a'), '/limits');
+  assert.equal(status, 200);
+  assert.deepEqual(body, { ok: true, plan: 'test-plan', limits: { items: { soft: 80 * 0.8, hard: 80 }, users: { soft: 3 * 0.8, hard: 3 } } });
+  assert.equal(Object.keys(body.limits).sort().join(), 'items,users');
+  assert.deepEqual(Object.keys(body).sort(), ['limits', 'ok', 'plan']);
+  assert.deepEqual(Object.keys(body.limits.items).sort(), ['hard', 'soft']);
+  // Another installation on the same plan is unaffected, as is primary (overrides are not consulted for it).
+  assert.deepEqual(await read(outbound('tenant-d'), '/limits'), [200, planOnly]);
+  assert.deepEqual(await read(outbound('primary'), '/limits'), [200, planOnly]);
+  // A future expiry is still live.
+  control.raw.exec(`UPDATE limit_overrides SET expires_at = '2099-01-01T00:00:00Z', hard_value = 20 WHERE installation_id = 'a' AND limit_key = 'users'`);
+  assert.deepEqual((await read(outbound('tenant-a'), '/limits'))[1].limits.users, { soft: 20 * 0.8, hard: 20 });
+});
+
 test('a query string or another host on d1.internal cannot pick another installation', async () => {
   const { outbound } = setup();
   const r = await outbound('tenant-b').fetch(new Request('http://d1.internal/limits?doName=tenant-a&installation=a'));

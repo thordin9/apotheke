@@ -88,8 +88,10 @@ The Worker enforces four plan limits for installations other than `primary` (`ed
 from `plan_limits` rows of the installation's subscription plan, which the console edits; no tier is built in. A key
 without a row, or with no `hard_value`, is no limit, and an installation without a subscription has none. When
 `soft_value` is empty the soft value is 80% of the hard one. The limits are read with the route in the same query and
-cached with it (30 seconds per isolate). There is no `limit_overrides` table yet; temporary raises come with the
-console API.
+cached with it (30 seconds per isolate). A live `limit_overrides` row for the same installation and key
+(`expires_at` empty or in the future) raises that key's hard value; the soft value is then 80% of the new hard.
+Expired rows are ignored and do not add a key the plan does not already cap. `primary` is not given overrides, and
+when limits are off the route lookup does not read them. The console API that grants or withdraws a row is separate.
 
 | Limit (`limit_key`) | Where | Soft | Hard |
 |---|---|---|---|
