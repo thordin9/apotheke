@@ -14,7 +14,7 @@ test.describe('branding', () => {
     await expect(page.locator('link[rel=icon][type="image/svg+xml"]')).toHaveCount(1);
     await expect(page.locator('link[rel=icon][href="/favicon.ico"]')).toHaveCount(1);
     const man = await (await page.request.get('/manifest.webmanifest')).json();
-    expect(man.theme_color).toBe('#C8502D');
+    expect(man.theme_color).toBe('#fdfcfa');
     expect(man.icons.some((i: { purpose?: string }) => i.purpose === 'maskable')).toBe(true);
   });
 });
