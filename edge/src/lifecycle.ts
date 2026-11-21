@@ -52,6 +52,12 @@ export interface RouteCache {
 	purge(hosts: string[]): Promise<void>;
 }
 
+/** The installation's monthly budget in the autofill service (its HostedAutofill entrypoint). Deleting is idempotent:
+ *  an installation that never had a budget, or a second call, deletes 0 records. */
+export interface AutofillBudget {
+	delete(doName: string): Promise<{ deleted: number }>;
+}
+
 export type LifecycleDeps = {
 	db: D1Database;
 	bucket: R2Bucket;
@@ -60,6 +66,7 @@ export type LifecycleDeps = {
 	container: ContainerOps;
 	claim: FirstAdminClaim;
 	routeCache: RouteCache;
+	autofill: AutofillBudget;
 };
 
 /** A refusal or a conflict: never retried (NonRetryableError), the job fails at once. code is stored on the failed job;
@@ -340,6 +347,16 @@ export const steps = {
 		await d.installation.purge(t.doName);
 		await d.container.purge(t.doName);
 	},
+	/** Deletes the installation's autofill budget. Runs after purge.storage: the installation has been deleting since
+	 *  its soft delete and its container is gone, so no autofill call can count again afterwards. The count is recorded
+	 *  on the job, so running the step again does not call the service again. */
+	purgeAutofill(d: LifecycleDeps, jobId: string): Promise<{ count: number }> {
+		return paged(d, jobId, "purge.autofill", async (t) => {
+			const { deleted } = await d.autofill.delete(t.doName);
+			console.log("purge: autofill budget deleted", JSON.stringify({ job: jobId, deleted }));
+			return deleted;
+		});
+	},
 	/** Tombstone: the row, its name and its prefix stay, so the DO names are never reused. */
 	async purgeStatus(d: LifecycleDeps, jobId: string): Promise<void> {
 		const { j, t } = await begin(d.db, jobId, "purge.status", ["deleting", "deleted"]);
@@ -400,6 +417,7 @@ export async function runJob(d: LifecycleDeps, jobId: string, step: Runner): Pro
 				for (let i = 0; (await step.do(`purge.uploads.${i}`, () => steps.purgeUploads(d, jobId, i))).count > 0; i++);
 				for (let i = 0; (await step.do(`purge.objects.${i}`, () => steps.purgeObjects(d, jobId, i))).count > 0; i++);
 				await one("purge.storage", steps.purgeStorage);
+				await one("purge.autofill", steps.purgeAutofill);
 				await one("purge.status", steps.purgeStatus);
 				break;
 		}
