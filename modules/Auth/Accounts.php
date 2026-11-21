@@ -30,6 +30,7 @@ final class Accounts
         private readonly RoleRepository $roles,
         private readonly Clock $clock,
         private readonly SignInPace $pace = new SignInPace(),
+        private readonly ?HostedDisabledUsers $disabled = null,
     ) {
     }
 
@@ -119,6 +120,9 @@ final class Accounts
     {
         if ($user['status'] !== 'active') {
             throw new UserError('Your account is waiting for an admin’s approval.', 403);
+        }
+        if ($this->disabled?->isDisabled($user['id'])) {
+            throw new UserError(HostedDisabledUsers::MESSAGE, 403);
         }
         $this->users->touchLastLogin($user['id'], $this->clock->now());
     }
