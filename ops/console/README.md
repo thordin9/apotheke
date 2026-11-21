@@ -1,8 +1,8 @@
 # Operator console
 
-Local preview of the hosted operator console. It is not deployed, it is not built into `frontend/dist`, and it is not served on getapotheke.com or api.services.getapotheke.com.
+Local preview of the hosted operator console. This preview is not deployed, it is not built into `frontend/dist`, and it is not served on getapotheke.com or api.services.getapotheke.com.
 
-`apotheke-ops` will serve this console and `/api/ops/v1` on its own host, behind Cloudflare Access. Calls are same-origin. The credential is the Access cookie. There is no app session.
+`apotheke-ops` serves the console and `/api/ops/v1` at `console.getapotheke.com`, behind Cloudflare Access. Calls are same-origin. The credential is the Access cookie. There is no app session.
 
 ## Preview
 

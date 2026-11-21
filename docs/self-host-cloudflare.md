@@ -55,7 +55,7 @@ front end on `www.example.com` and the API on `api.example.com` in the examples.
 * **Your account id.** In the Cloudflare dashboard it is shown on the account home and on *Workers & Pages* (Account
   details). Keep it in the environment as `CLOUDFLARE_ACCOUNT_ID`; it is not a secret, but don't commit it.
 * **Node.js 22 or later and npm** (`edge/package.json` asks for Node 22+; the project's CI uses 22).
-* **wrangler 4.156.0**, the version `edge/package.json` pins. Don't install it globally: `npm ci --ignore-scripts` in
+* **wrangler 4.164.0**, the version `edge/package.json` pins. Don't install it globally: `npm ci --ignore-scripts` in
   `edge/` installs that exact version, and `npx --no-install wrangler` uses it (also from `edge/app/`).
 * **Docker, running**, for the API only: `wrangler deploy` builds the container image from `Dockerfile.frankenphp`
   with your local Docker and pushes it to your account's registry. The image must run on `linux/amd64`
@@ -303,7 +303,7 @@ your local config changes. A deploy without storage bindings still keeps no data
 
 The deploy workflows in `.github/workflows/` (`deploy-frontend.yml`, `deploy-edge.yml`), `scripts/cf-deploy.sh` and
 the Worker guard `scripts/cf-worker-guard.mjs` are for the project's own account only. The guard refuses any Worker
-name but the project's two (and `--name`, `--env`, `--route` or `--domain` arguments, and routes in the config), so
+name but the project's three (`getapotheke-app`, `apotheke-api` and `apotheke-ops`) (and `--name`, `--env`, `--route` or `--domain` arguments, and routes in the config), so
 they fail on purpose for your names. Deploy by hand with `wrangler` as above, or write your own workflow in your
 fork with your own token, account id and names. Don't change the guard to make the project's workflows deploy
 elsewhere.
