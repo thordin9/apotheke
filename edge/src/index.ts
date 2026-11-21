@@ -11,6 +11,8 @@ import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, sto
 import { AUTOFILL_HOST, handleAutofill, type AutofillEnv, type AutofillProps } from "./autofill";
 import { forwardWithLimits, isPreflight, LIMITS_HEADER, limitsEnabled, takeLimits, UsageMeter, WARNING_HEADER, withCors, type Limits } from "./limits";
 import { opsBackupRequest } from "./ops-signature";
+// The lifecycle Workflow, declared in storage.jsonc (apotheke-lifecycle); started only from apotheke-ops.
+export { LifecycleWorkflow } from "./lifecycle-workflow";
 import { isOpsAccountsAction, opsAccountsRequest, opsAccountsResult, opsUsersResult, OPS_USERS_URL, resolveOpsInstallation, type OpsAccountsAction, type OpsAccountsResult, type OpsClaimResult, type OpsResetResult, type OpsUsersResult } from "./ops-accounts";
 
 export { Installation } from "./installation";

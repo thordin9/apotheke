@@ -1,6 +1,7 @@
-// The Workflow that runs lifecycle jobs (src/lifecycle.ts). It is not part of the apotheke-api Worker: index.ts does not
-// export it and wrangler.jsonc has no workflow, cron or binding for it. The operator Worker (apotheke-ops) deploys it
-// later with the bindings below. An instance is created per confirmed job, with the job id as the instance id.
+// The Workflow that runs lifecycle jobs (src/lifecycle.ts), hosted by apotheke-api: index.ts exports it and
+// storage.jsonc declares it (apotheke-lifecycle), so it has apotheke-api's own bindings below. apotheke-ops starts an
+// instance per confirmed job through its LIFECYCLE binding (script_name apotheke-api), with the job id as the instance
+// id. Before any step, preflight() refuses unless OPS_WRITES_ENABLED is "1", and refuses primary.
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { AUTOFILL_HOST } from "./autofill";
 import type { ApothekeContainer } from "./index";
@@ -14,10 +15,26 @@ export type LifecycleEnv = {
 	APOTHEKE: DurableObjectNamespace<ApothekeContainer>;
 	/** The autofill service's HostedAutofill entrypoint, as on apotheke-api (src/autofill.ts). */
 	AUTOFILL?: Fetcher;
+	/** "1" lets the Workflow act; anything else refuses every instance (edge/wrangler.jsonc ships "0"). */
+	OPS_WRITES_ENABLED?: string;
 };
+
+/** Runs before any step, also when an instance resumes: OPS_WRITES_ENABLED must be exactly "1", and the job's
+ *  installation is refused as primary by its id and again by its installations row. Reads only: a refusal fails the
+ *  instance (NonRetryableError) with nothing changed, so the job keeps its state. */
+export async function preflight(env: LifecycleEnv, jobId: string): Promise<void> {
+	if (env.OPS_WRITES_ENABLED !== "1") throw new LifecycleError("writes_disabled");
+	const job = await env.DB.prepare("SELECT installation_id FROM lifecycle_jobs WHERE id = ?").bind(jobId).first<{ installation_id: string }>();
+	if (!job) throw new LifecycleError("job_not_found");
+	if (job.installation_id === INSTALLATION_NAME) throw new LifecycleError("refused");
+	const row = await env.DB.prepare("SELECT id, do_name FROM installations WHERE id = ?").bind(job.installation_id).first<{ id: string; do_name: string }>();
+	if (!row) throw new LifecycleError("not_found");
+	if (row.id === INSTALLATION_NAME || row.do_name === INSTALLATION_NAME) throw new LifecycleError("refused");
+}
 
 export class LifecycleWorkflow extends WorkflowEntrypoint<LifecycleEnv, { jobId: string }> {
 	async run(event: Readonly<WorkflowEvent<{ jobId: string }>>, step: WorkflowStep): Promise<void> {
+		await preflight(this.env, event.payload.jobId);
 		await runJob(lifecycleDeps(this.env), event.payload.jobId, step);
 	}
 }

@@ -365,7 +365,9 @@ test('E6-1 ops: wrangler.jsonc ships with no routes, no workers.dev or preview U
     { binding: 'AUTOFILL', service: 'apotheke-autofill', entrypoint: 'HostedAutofill' },
   ]);
   assert.deepEqual(config.triggers, { crons: [] }, 'no Cron Trigger');
-  for (const k of ['workflows', 'queues', 'custom_domains']) assert.equal(config[k], undefined, k);
+  for (const k of ['queues', 'custom_domains', 'r2_buckets', 'durable_objects', 'migrations']) assert.equal(config[k], undefined, k);
+  // The lifecycle Workflow is apotheke-api's: only its binding here.
+  assert.deepEqual(config.workflows, [{ name: 'apotheke-lifecycle', binding: 'LIFECYCLE', class_name: 'LifecycleWorkflow', script_name: 'apotheke-api' }]);
   assert.equal(config.assets.directory, '../../ops/console/dist');
   assert.equal(config.assets.binding, 'ASSETS');
   const storage = readFileSync(new URL('../storage.jsonc', import.meta.url), 'utf8');

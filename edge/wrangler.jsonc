@@ -52,7 +52,10 @@
 		"APOTHEKE_PHP_WORKER": "1",
 		// Plan limits for installations other than primary (operator console E5, docs/operator-console.md). "0" turns all
 		// enforcement off and forwards every request as before; primary is never limited.
-		"LIMITS_ENABLED": "0"
+		"LIMITS_ENABLED": "0",
+		// The lifecycle Workflow (LifecycleWorkflow, declared in edge/storage.jsonc) acts only while this is exactly "1",
+		// as apotheke-ops's var of the same name. "0" on prod. Read by the Workflow only; the container never sees it.
+		"OPS_WRITES_ENABLED": "0"
 	},
 	// Secrets: set on the Worker with `wrangler secret put` (locally .dev.vars, git-ignored). Names only.
 	"secrets": { "required": ["APP_PASSWORD", "APP_KEY"] }

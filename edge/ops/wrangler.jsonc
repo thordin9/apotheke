@@ -25,15 +25,17 @@
 	"d1_databases": [{ "binding": "DB", "database_name": "apotheke-api", "migrations_dir": "../migrations/control" }],
 	// apotheke-api's named entrypoint Ops (edge/src/index.ts): claimCreate, resetAdmins and listUsers(installation).
 	// The only way from this Worker to an installation.
-	// AUTOFILL: the autofill Worker's HostedAutofill entrypoint, as on apotheke-api. This Worker is the host of the
-	// lifecycle Workflow (edge/src/lifecycle-workflow.ts), whose purge.autofill step needs it; without it a purge waits
-	// as autofill_not_configured.
+	// AUTOFILL: the autofill Worker's HostedAutofill entrypoint, as on apotheke-api. Unused by purges: the lifecycle
+	// Workflow runs on apotheke-api, whose own AUTOFILL binding serves its purge.autofill step.
 	"services": [
 		{ "binding": "OPS", "service": "apotheke-api", "entrypoint": "Ops" },
 		{ "binding": "AUTOFILL", "service": "apotheke-autofill", "entrypoint": "HostedAutofill" }
 	],
-	// Paused: no Cron Trigger (an empty list also removes any cron left on the Worker). The lifecycle Workflow is not
-	// declared yet, so no job can start from this Worker (docs/operator-console.md#deploying-the-console).
+	// LIFECYCLE: the lifecycle Workflow (edge/src/lifecycle-workflow.ts), hosted on apotheke-api (edge/storage.jsonc), with its own DB, R2, Durable Objects and AUTOFILL. No R2 or Durable
+	// Object binding here. POST /jobs/:id/confirm starts an instance through LIFECYCLE; both Workers' writes flags must
+	// be enabled by a reviewed change before a job can act (docs/operator-console.md#deploying-the-console).
+	"workflows": [{ "name": "apotheke-lifecycle", "binding": "LIFECYCLE", "class_name": "LifecycleWorkflow", "script_name": "apotheke-api" }],
+	// Paused: no Cron Trigger (an empty list also removes any cron left on the Worker).
 	"triggers": { "crons": [] },
 	"vars": {
 		// Cloudflare Access: the team domain (<team>.cloudflareaccess.com) and the application's audience tag. Set where

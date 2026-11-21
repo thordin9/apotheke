@@ -232,6 +232,15 @@ document does not change the setting.
 
 Provision, suspend, resume, export, soft delete and purge are jobs in `lifecycle_jobs` (migration `0003`), run step by
 step by `LifecycleWorkflow` (`edge/src/lifecycle-workflow.ts`) over the step functions in `edge/src/lifecycle.ts`.
+The Workflow is hosted by `apotheke-api`, declared as `apotheke-lifecycle` in `edge/storage.jsonc` and exported from
+`edge/src/index.ts`. The operator Worker binds it as `LIFECYCLE` with `script_name: "apotheke-api"`.
+
+Before any step runs (also when an instance resumes), the Workflow entry checks apotheke-api's own
+`OPS_WRITES_ENABLED`: anything but exactly `"1"` fails terminally as `writes_disabled`, without reading or changing
+the job or calling any binding. With writes enabled, it reads the job and refuses installation id `primary`, then
+reads the installation and refuses a row whose id or `do_name` is `primary`. These read-only refusals happen before
+`runJob` and any `step.do`; they leave the job's state unchanged. Every lifecycle step still re-checks its target.
+Both Workers ship `OPS_WRITES_ENABLED: "0"`; enabling the console's flag alone cannot let the Workflow act.
 
 - **Created paused.** A job has an `idempotency_key` of `<kind>:<installation_id>:<nonce>` (the nonce comes from the
   console form), so the same request twice returns the same job. It starts in state `paused` and runs only after an
@@ -272,7 +281,8 @@ Workflow step has turned the error into a plain Error. The backup endpoint answe
 which the container object sets for installations other than `primary` (see
 [Hosted installation env](#hosted-installation-env)). Routes are cached only
 inside each `apotheke-api` isolate for at most 30 seconds, so there is no shared cache to purge yet. The Workflow is
-deployed with the operator Worker (D1), not with `apotheke-api`, whose configuration is unchanged.
+deployed with `apotheke-api`'s storage config; it uses that Worker's existing DB, R2, Durable Object and AUTOFILL
+bindings, not the operator Worker's. No credentials move to the operator Worker.
 
 A purge takes one Workflow step per page of up to 1,000 keys (plus one per 100 unfinished uploads). The Workflow's
 step limit per instance therefore caps one purge at about 10 million objects (about 1 million on the Free plan's
@@ -295,7 +305,8 @@ autofill call can count again after the budget is deleted. `primary` is refused 
   count fails it as `bad_autofill_answer`.
 
 The step is not skipped without the binding: a purge only finishes once the budget is gone. The Workflow's
-environment therefore needs the `AUTOFILL` binding when it is deployed with the operator Worker.
+environment uses apotheke-api's existing `AUTOFILL` binding (`apotheke-autofill#HostedAutofill`). The `AUTOFILL`
+binding left on `apotheke-ops` is unused for purges.
 
 ## Hosted installations
 
@@ -416,8 +427,9 @@ preview URLs in this repository: the host and the Access application are set up 
 until it is switched on (see [Deploying the console](#deploying-the-console)). Its bindings are the control-plane D1
 `DB` (the same database as apotheke-api's), `OPS`, apotheke-api's `Ops` entrypoint (see
 [Claim and admin reset from the operator console](#claim-and-admin-reset-from-the-operator-console)), `AUTOFILL`, the
-autofill Worker's `HostedAutofill` entrypoint (for the lifecycle Workflow's `purge.autofill` step), and `ASSETS`; it
-has no R2 binding. Calls are same-origin. The credential is the Access cookie. There is no app session. The console's API base
+autofill Worker's `HostedAutofill` entrypoint (left in place, unused for purges), `LIFECYCLE`, the `apotheke-lifecycle`
+Workflow hosted by apotheke-api, and `ASSETS`; it has no R2 or Durable Object bindings. The Workflow's `purge.autofill`
+step uses apotheke-api's own existing `AUTOFILL` binding. Calls are same-origin. The credential is the Access cookie. There is no app session. The console's API base
 defaults to same-origin `/api/ops/v1` (`<meta name="ops-api-base">` can set another). Responses are JSON unless a
 download says otherwise.
 
@@ -576,9 +588,9 @@ installation, `before_json`, `after_json`, `request_id`) are one D1 batch: a fai
   Confirming a `queued` job again starts its instance if it did not start (an existing instance is fine); `running`,
   `done` and `failed` are 409 `not_paused` with the state as `detail`. If the instance cannot be created: 503
   `workflow_unavailable`, and the job stays `queued`. A `provision` job is 403 `provisioning_disabled` while
-  provisioning is off. **The Workflow is not bound to `apotheke-ops` yet** (binding `LIFECYCLE`, the
-  `LifecycleWorkflow` of `edge/src/lifecycle-workflow.ts`): until it is, confirm answers 503 `not_configured`
-  before reading or changing anything, so no job can start from the console.
+  provisioning is off. `LIFECYCLE` binds apotheke-api's `LifecycleWorkflow`; without the binding, confirm answers
+  503 `not_configured` before reading or changing anything. The Workflow independently refuses to act unless
+  apotheke-api's `OPS_WRITES_ENABLED` is exactly `"1"` (see [Lifecycle jobs](#lifecycle-jobs)).
 - `PUT /installations/:id/limits/:key` with `{"hard_value","reason","expires_at"}` grants or replaces the
   installation's `limit_overrides` row for `key`: `hard_value` a non-negative integer, `reason` at most 200
   characters or null, `expires_at` a future `YYYY-MM-DDTHH:MM:SSZ` or null (never expires). The override may only
@@ -630,14 +642,22 @@ apotheke-ops edge/ops` (the Worker guard, then `wrangler deploy`).
 It refuses (and nothing is deployed) when a value is missing or malformed, when the committed config already has a
 `database_id` or Access values, or when `OPS_PROVISIONING`, `LIMITS_ENABLED` or `OPS_WRITES_ENABLED` is not `"0"`.
 Pull requests run the same script with dummy values, the Worker guard, and `wrangler deploy --dry-run`, and check the
-bindings `DB` (apotheke-api), `OPS` (`apotheke-api#Ops`), `AUTOFILL` (`apotheke-autofill#HostedAutofill`) and
-`ASSETS`, and the three flags at `"0"`.
+bindings `DB` (apotheke-api), `OPS` (`apotheke-api#Ops`), `AUTOFILL` (`apotheke-autofill#HostedAutofill`),
+`LIFECYCLE` (`LifecycleWorkflow`, defined in apotheke-api) and `ASSETS`, and the three flags at `"0"`.
 
-The config has no route and no custom domain (the Worker guard refuses both), no Cron Trigger (`triggers.crons` is
-empty) and no Workflow yet. The lifecycle Workflow (`edge/src/lifecycle-workflow.ts`) is hosted by this Worker, which
-already binds `AUTOFILL` for it; declaring it also needs the cross-script `APOTHEKE` and `INSTALLATION` Durable Object
-bindings, `STORAGE`, and a class that this Worker's typecheck accepts, and comes in a later change. Until then no job
-can start from this Worker.
+The config has no route and no custom domain (the Worker guard refuses both), and no Cron Trigger (`triggers.crons`
+is empty). The lifecycle Workflow runs on `apotheke-api`: `edge/storage.jsonc` declares `apotheke-lifecycle`, merged
+by `scripts/edge-storage-config.mjs` only with the storage bindings. Ops has only the cross-script `LIFECYCLE`
+binding, no R2 or Durable Object bindings and no import of apotheke-api's code. Its `AUTOFILL` binding is left unused
+for purges; the Workflow uses apotheke-api's own binding. The Workflow's jurisdiction is not set or changed here.
+
+**DevOps deployment:** deploy `apotheke-api` with the merged storage config first (the existing D1, EU R2 and both
+Durable Object bindings, plus its existing AUTOFILL), then `apotheke-ops`. The existing Deploy edge job order does
+this, behind its environment approval. The first deploy declares the `apotheke-lifecycle` Workflow on apotheke-api;
+the ops deploy binds it by `script_name`. No new secret, DO migration or data migration is needed. DevOps must
+perform the approved deploy; this config change does not deploy anything itself. Both Workers' writes flags remain
+`"0"`, so jobs cannot be started from the console and even a directly started Workflow refuses without side effects.
+Enabling them is a separate reviewed change; do not start a prod job as a deploy check.
 
 ### Going live
 

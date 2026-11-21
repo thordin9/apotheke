@@ -120,7 +120,7 @@ jobs:
           (cd edge/ops && npx --no-install wrangler deploy --dry-run --config wrangler.jsonc --outdir "$RUNNER_TEMP/ops-bundle") 2>&1 | tee "$log"
           sed -i 's/\x1b\[[0-9;]*m//g' "$log"
           for want in 'env.DB (apotheke-api)' 'env.OPS (apotheke-api#Ops)' 'env.AUTOFILL (apotheke-autofill#HostedAutofill)' \
-            'env.ASSETS' 'env.OPS_WRITES_ENABLED ("0")' 'env.OPS_PROVISIONING ("0")' 'env.LIMITS_ENABLED ("0")'; do
+            'env.LIFECYCLE (LifecycleWorkflow (defined in apotheke-api))' 'env.ASSETS' 'env.OPS_WRITES_ENABLED ("0")' 'env.OPS_PROVISIONING ("0")' 'env.LIMITS_ENABLED ("0")'; do
             if ! grep -qF "$want" "$log"; then
               echo "::error title=apotheke-ops dry run::the dry run does not list $want"
               exit 1
@@ -149,6 +149,7 @@ jobs:
           sed -i 's/\x1b\[[0-9;]*m//g' "$log"
           for want in 'env.APOTHEKE (ApothekeContainer)' 'env.INSTALLATION (Installation)' 'env.DB (apotheke-api)' \
             'env.STORAGE (apotheke-api-storage (eu))' 'env.AUTOFILL (apotheke-autofill#HostedAutofill)' \
+            'env.LIFECYCLE (LifecycleWorkflow)' 'env.OPS_WRITES_ENABLED ("0")' \
             'env.CORS_ALLOWED_ORIGINS ("https://getapotheke.com")' \
             'env.ALLOWED_HOSTS ("api.services.getapotheke.com")'; do
             if ! grep -qF "$want" "$log"; then

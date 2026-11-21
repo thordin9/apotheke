@@ -295,10 +295,13 @@ for (const file of ["deploy-frontend.yml", "deploy-edge.yml"]) {
 	});
 }
 
-// edge/src/index.ts imports cloudflare:workers, which Node lacks: resolve it to stub DurableObject / WorkerEntrypoint.
+// edge/src/index.ts imports cloudflare:workers and (through the lifecycle Workflow) cloudflare:workflows, which Node
+// lacks: resolve them to stubs.
 const STUB =
 	"export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }" +
-	"export class WorkerEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }";
+	"export class WorkerEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }" +
+	"export class WorkflowEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }";
+const WORKFLOWS_STUB = "export class NonRetryableError extends Error {}";
 register(
 	"data:text/javascript," +
 		encodeURIComponent(
@@ -307,6 +310,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 export async function resolve(s, c, next) {
   if (s === "cloudflare:workers") return { url: "data:text/javascript,${encodeURIComponent(STUB)}", shortCircuit: true };
+  if (s === "cloudflare:workflows") return { url: "data:text/javascript,${encodeURIComponent(WORKFLOWS_STUB)}", shortCircuit: true };
   if (s.startsWith("./") && !s.endsWith(".ts") && c.parentURL) {
     const base = fileURLToPath(new URL(".", c.parentURL));
     const candidate = base + s.slice(2) + ".ts";
@@ -317,7 +321,7 @@ export async function resolve(s, c, next) {
 		),
 );
 
-test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEEP_AFTER_MS and LIMITS_ENABLED", async () => {
+test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEEP_AFTER_MS and the two flags", async () => {
 	const { ApothekeContainer } = await import(join(root, "edge/src/index.ts"));
 	// edge/wrangler.jsonc has only whole-line comments.
 	const text = readFileSync(join(root, "edge/wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, "");
@@ -358,11 +362,13 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	};
 	const obj = new ApothekeContainer(ctx, { ...vars, APP_PASSWORD: "placeholder", APP_KEY: "placeholder" });
 	assert.equal((await obj.fetch(new Request("https://api.example.test/healthz"))).status, 200);
-	// LIMITS_ENABLED is read by the Worker only (E5 limits); PHP never sees it.
-	const { SLEEP_AFTER_MS, LIMITS_ENABLED, ...forwarded } = vars;
+	// LIMITS_ENABLED (E5 limits) and OPS_WRITES_ENABLED (the lifecycle Workflow) are read by the Worker only; PHP never
+	// sees them.
+	const { SLEEP_AFTER_MS, LIMITS_ENABLED, OPS_WRITES_ENABLED, ...forwarded } = vars;
 	assert.equal(LIMITS_ENABLED, "0");
+	assert.equal(OPS_WRITES_ENABLED, "0");
 	for (const [k, v] of Object.entries(forwarded)) assert.equal(started.env[k], v, k);
-	// Wrangler vars (except SLEEP_AFTER_MS and LIMITS_ENABLED) plus TRUST_PROXY and APOTHEKE_EDGE_CLIENT_IP, set in code.
+	// Wrangler vars (except SLEEP_AFTER_MS, LIMITS_ENABLED and OPS_WRITES_ENABLED) plus TRUST_PROXY and APOTHEKE_EDGE_CLIENT_IP, set in code.
 	assert.deepEqual(Object.keys(started.env).sort(), [
 		"ALLOWED_HOSTS",
 		"APOTHEKE_EDGE_CLIENT_IP",
@@ -606,6 +612,8 @@ test("edge-storage-config: D1 DB, R2 STORAGE (eu) and the Installation Durable O
 			{ tag: "v1", new_sqlite_classes: ["ApothekeContainer"] },
 			{ tag: "v2", new_sqlite_classes: ["Installation"] },
 		]);
+		assert.deepEqual(c.workflows, [{ name: "apotheke-lifecycle", binding: "LIFECYCLE", class_name: "LifecycleWorkflow" }]);
+		assert.equal(c.vars.OPS_WRITES_ENABLED, "0");
 		assert.equal(c.name, "apotheke-api");
 		assert.equal(c.containers.length, 1);
 		// hosted mode: no COOKIE_DOMAIN for the container (ADR-002, decision 5, #203); the other vars stay
@@ -668,6 +676,8 @@ test("deploy-edge.yml: the check job dry-runs the merged storage config with a d
 	assert.match(step, /wrangler deploy --dry-run --config wrangler\.jsonc/);
 	assert.match(step, /env\.CORS_ALLOWED_ORIGINS \("https:\/\/getapotheke\.com"\)/);
 	assert.match(step, /env\.AUTOFILL \(apotheke-autofill#HostedAutofill\)/);
+	assert.match(step, /'env\.LIFECYCLE \(LifecycleWorkflow\)'/);
+	assert.match(step, /'env\.OPS_WRITES_ENABLED \("0"\)'/);
 	assert.match(step, /env\.COOKIE_DOMAIN/);
 	assert.equal(/- name: /.test(step.slice(1)), false, "it is the last step of the check job");
 	// the dummy id is a UUID the merge accepts
@@ -680,6 +690,18 @@ test("deploy-edge.yml: the check job dry-runs the merged storage config with a d
 test("edge-storage-config: unknown keys in storage.jsonc are refused", () => {
 	refused(UUID, { storage: { ...STORAGE(), kv_namespaces: [{ binding: "KV", id: "x" }] } }, /unknown key "kv_namespaces"/);
 	refused(UUID, { storage: { ...STORAGE(), vars: { X: "1" } } }, /unknown key "vars"/);
+	// A workflow is hosted here: no script_name (or any other key), and its binding name is not taken.
+	for (const extra of [{ script_name: "apotheke-ops" }, { schedules: ["* * * * *"] }]) {
+		const storage = STORAGE();
+		storage.workflows = [{ ...storage.workflows[0], ...extra }];
+		refused(UUID, { storage }, /each workflow needs exactly binding, name and class_name/);
+	}
+	const wf = STORAGE();
+	wf.workflows = [{ ...wf.workflows[0], binding: "STORAGE" }];
+	refused(UUID, { storage: wf }, /binding name "STORAGE" is already used/);
+	const twice = DEFAULT_CONFIG();
+	twice.workflows = [];
+	refused(UUID, { config: twice }, /already has "workflows"/);
 	const storage = STORAGE();
 	storage.durable_objects = { ...storage.durable_objects, migrations: [] };
 	refused(UUID, { storage }, /unknown key "durable_objects\.migrations"/);
@@ -844,7 +866,9 @@ test("ops-deploy-config: adds the D1 id and the Access vars, keeps every flag an
 		{ binding: "AUTOFILL", service: "apotheke-autofill", entrypoint: "HostedAutofill" },
 	]);
 	assert.deepEqual(c.triggers, { crons: [] });
-	for (const k of ["routes", "route", "account_id", "workflows"]) assert.equal(c[k], undefined, k);
+	// The lifecycle Workflow runs on apotheke-api: here only its binding, and no R2 or Durable Object binding.
+	assert.deepEqual(c.workflows, [{ name: "apotheke-lifecycle", binding: "LIFECYCLE", class_name: "LifecycleWorkflow", script_name: "apotheke-api" }]);
+	for (const k of ["routes", "route", "account_id", "r2_buckets", "durable_objects", "migrations"]) assert.equal(c[k], undefined, k);
 	for (const v of [OPS_ENV.APOTHEKE_D1_DATABASE_ID, OPS_ENV.OPS_ACCESS_AUD, "ops@example", "example-team"]) assert.ok(!r.stdout.includes(v), "no value printed");
 });
 
@@ -887,7 +911,7 @@ test("guard: apotheke-ops is allowlisted, and the real edge/ops/wrangler.jsonc p
 	}
 });
 
-test("deploy-edge.yml: the PR check dry-runs apotheke-ops with dummy values and pins DB, OPS, AUTOFILL and ASSETS", () => {
+test("deploy-edge.yml: the PR check dry-runs apotheke-ops with dummy values and pins DB, OPS, AUTOFILL, LIFECYCLE and ASSETS", () => {
 	const yml = readFileSync(join(root, ".github/workflows/deploy-edge.yml"), "utf8");
 	const at = yml.indexOf("      - name: apotheke-ops dry run");
 	assert.ok(at > 0);
@@ -898,7 +922,7 @@ test("deploy-edge.yml: the PR check dry-runs apotheke-ops with dummy values and 
 	assert.match(step, /OPS_ACCESS_AUD: '0{64}'\n/);
 	assert.match(step, /node scripts\/ops-deploy-config\.mjs edge\/ops\/wrangler\.jsonc\n/);
 	assert.match(step, /node scripts\/cf-worker-guard\.mjs apotheke-ops edge\/ops\/wrangler\.jsonc -- --dry-run\n/);
-	for (const want of ["env.DB (apotheke-api)", "env.OPS (apotheke-api#Ops)", "env.AUTOFILL (apotheke-autofill#HostedAutofill)", "'env.ASSETS'", 'env.OPS_WRITES_ENABLED ("0")', 'env.OPS_PROVISIONING ("0")', 'env.LIMITS_ENABLED ("0")']) {
+	for (const want of ["env.DB (apotheke-api)", "env.OPS (apotheke-api#Ops)", "env.AUTOFILL (apotheke-autofill#HostedAutofill)", "'env.LIFECYCLE (LifecycleWorkflow (defined in apotheke-api))'", "'env.ASSETS'", 'env.OPS_WRITES_ENABLED ("0")', 'env.OPS_PROVISIONING ("0")', 'env.LIMITS_ENABLED ("0")']) {
 		assert.ok(step.includes(want), want);
 	}
 	assert.ok(yml.indexOf("      - name: Build the operator console") < at, "the console is built before the dry run");
