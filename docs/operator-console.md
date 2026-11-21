@@ -308,6 +308,31 @@ The step is not skipped without the binding: a purge only finishes once the budg
 environment uses apotheke-api's existing `AUTOFILL` binding (`apotheke-autofill#HostedAutofill`). The `AUTOFILL`
 binding left on `apotheke-ops` is unused for purges.
 
+### Stuck jobs and recovery
+
+The two `OPS_WRITES_ENABLED` flags (apotheke-ops and apotheke-api) are separate, so a job can get stuck when they
+disagree. The console has no endpoint to cancel a job, mark it failed or restart its Workflow instance.
+
+- **Queued, instance errored.** This happens when apotheke-ops has `"1"` and apotheke-api has `"0"`. Confirm sets the
+  job `queued` and creates the instance (its id is the job id). The preflight refuses it as `writes_disabled` before
+  any step, so the instance ends in an error and the job stays `queued`. Confirming again does not help: the
+  instance already exists, so confirm answers 200 without running anything.
+- **Running, instance errored.** This happens when apotheke-api's flag goes to `"0"` while a job runs. The preflight
+  runs again whenever the instance resumes, so a version of apotheke-api deployed with `"0"` refuses the instance. The
+  job stays `running`, with its step and any recorded purge page counts, and confirm answers 409 `not_paused`.
+
+**Recovery.**
+1. Deploy apotheke-api with `OPS_WRITES_ENABLED` `"1"` (a reviewed change) and keep apotheke-ops at `"1"`.
+2. Restart that job's instance on Cloudflare, in the dashboard or with
+   `wrangler workflows instances restart apotheke-lifecycle <job id>`. A restart runs the instance again from the
+   beginning.
+3. Check the job. A queued job moves to `running` at the first step, and a running one carries on. Every step
+   checks the state it would create, so steps that already ran change nothing more.
+
+Without a restart, the only other option is a new job for the same installation. It may be refused by its status
+checks, depending on how far the stuck job got. The stuck job stays `queued` or `running` unless its row is edited
+in D1 by hand, which nothing in the console or the API does.
+
 ## Hosted installations
 
 `APOTHEKE_HOSTED=1` in the container's environment marks a hosted installation. Without it the app behaves exactly as
