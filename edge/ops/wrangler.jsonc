@@ -1,8 +1,11 @@
 // Apotheke operator console: the Worker `apotheke-ops` serves the console (ops/console/dist, Workers static assets)
 // and its API /api/ops/v1 on its own host, behind Cloudflare Access (docs/operator-console.md#console-api).
-// Not deployed from this repository yet: no routes or custom domains (the host is configured outside this file), no
-// workers.dev or preview URLs, no account id, no resource ids and no secrets. Every request, the console's files
-// included, goes through src/index.ts first, so the Access check also covers the static assets.
+// Deployed by the deploy-ops job of .github/workflows/deploy-edge.yml, only while the repository variable
+// OPS_DEPLOY_ENABLED is "1" (off by default). No routes or custom domains (the host, console.getapotheke.com, is
+// attached outside CI once the Access application exists), no workers.dev or preview URLs, no account id, no resource
+// ids and no secrets: scripts/ops-deploy-config.mjs adds the D1 id and the three Access vars on the runner only.
+// Every request, the console's files included, goes through src/index.ts first, so the Access check also covers the
+// static assets.
 {
 	"$schema": "../node_modules/wrangler/config-schema.json",
 	"name": "apotheke-ops",
@@ -20,14 +23,29 @@
 	// The control-plane D1 of apotheke-api (edge/storage.jsonc): same binding name and database. The id is added where
 	// the Worker is deployed, like apotheke-api's.
 	"d1_databases": [{ "binding": "DB", "database_name": "apotheke-api", "migrations_dir": "../migrations/control" }],
-	// apotheke-api's named entrypoint Ops (edge/src/index.ts): claimCreate(installation) and resetAdmins(installation).
+	// apotheke-api's named entrypoint Ops (edge/src/index.ts): claimCreate, resetAdmins and listUsers(installation).
 	// The only way from this Worker to an installation.
-	"services": [{ "binding": "OPS", "service": "apotheke-api", "entrypoint": "Ops" }],
+	// AUTOFILL: the autofill Worker's HostedAutofill entrypoint, as on apotheke-api. This Worker is the host of the
+	// lifecycle Workflow (edge/src/lifecycle-workflow.ts), whose purge.autofill step needs it; without it a purge waits
+	// as autofill_not_configured.
+	"services": [
+		{ "binding": "OPS", "service": "apotheke-api", "entrypoint": "Ops" },
+		{ "binding": "AUTOFILL", "service": "apotheke-autofill", "entrypoint": "HostedAutofill" }
+	],
+	// Paused: no Cron Trigger (an empty list also removes any cron left on the Worker). The lifecycle Workflow is not
+	// declared yet, so no job can start from this Worker (docs/operator-console.md#deploying-the-console).
+	"triggers": { "crons": [] },
 	"vars": {
 		// Cloudflare Access: the team domain (<team>.cloudflareaccess.com) and the application's audience tag. Set where
 		// the Worker is deployed. While either is empty, every request gets 503 not_configured.
 		"ACCESS_TEAM_DOMAIN": "",
 		"ACCESS_AUD": "",
+		// Comma-separated emails that may use the console (case-insensitive). Set where the Worker is deployed. Empty
+		// admits no one: every request gets 503 not_configured.
+		"OPS_ALLOWED_EMAILS": "",
+		// "0": every write (POST, PUT, PATCH, DELETE) is 403 writes_disabled; the console ships read-only. "1" only
+		// for the writes that have passed QA. Reported by GET /api/ops/v1/config.
+		"OPS_WRITES_ENABLED": "0",
 		// "0": provisioning new installations is off (prod). Reported by GET /api/ops/v1/config.
 		"OPS_PROVISIONING": "0",
 		// Plan limits, as apotheke-api's LIMITS_ENABLED. "0" on prod. Reported by GET /api/ops/v1/config.

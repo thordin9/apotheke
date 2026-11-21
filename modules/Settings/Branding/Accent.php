@@ -13,14 +13,17 @@ use Apotheke\Settings\SettingsSchema;
  */
 final class Accent
 {
-    public const DEFAULT_DARK = '#8b93ff';
+    public const DEFAULT_DARK = '#b7a0e6';
+    /** The previous default. A stored copy keeps this dark shade and is not rewritten. */
+    public const INDIGO = '#4f46e5';
+    public const INDIGO_DARK = '#8b93ff';
     public const PRESETS = [
-        '#4f46e5' => 'Indigo (default)', '#C8502D' => 'Terracotta', '#6B3A1F' => 'Brown', '#0f766e' => 'Teal',
+        '#5b3b8e' => 'Plum (default)', '#4f46e5' => 'Indigo', '#C8502D' => 'Terracotta', '#6B3A1F' => 'Brown', '#0f766e' => 'Teal',
         '#15803d' => 'Green', '#2563eb' => 'Blue', '#be123c' => 'Rose', '#7c3aed' => 'Violet', '#475569' => 'Slate',
     ];
     /** Backgrounds the accent is checked against (page + cards). */
-    public const BG_LIGHT = ['#f5f5f7', '#ffffff'];
-    public const BG_DARK = ['#111113', '#1c1c20'];
+    public const BG_LIGHT = ['#fdfcfa', '#f6f4f0'];
+    public const BG_DARK = ['#0f252c', '#152e36'];
 
     /** @return array{0:float,1:float,2:float} 0–255 */
     public static function rgb(string $hex): array
@@ -88,10 +91,14 @@ final class Accent
     public static function variants(string $hex): array
     {
         $hex = strtolower($hex);
-        $isDefault = $hex === strtolower(SettingsSchema::ACCENT_DEFAULT);
         $light = self::fit($hex, self::BG_LIGHT, '#000000');
-        // The built-in indigo keeps its hand-picked dark shade (app.css).
-        $dark = $isDefault ? self::DEFAULT_DARK : self::fit($hex, self::BG_DARK, '#ffffff');
+        // Plum and the previous indigo default keep their hand-picked dark shades.
+        $picked = match ($hex) {
+            strtolower(SettingsSchema::ACCENT_DEFAULT) => self::DEFAULT_DARK,
+            self::INDIGO => self::INDIGO_DARK,
+            default => null,
+        };
+        $dark = $picked ?? self::fit($hex, self::BG_DARK, '#ffffff');
         $ink = static fn (string $c): string => self::contrast($c, '#ffffff') >= self::contrast($c, '#0b0b10') ? '#ffffff' : '#0b0b10';
         $rgba = static fn (string $c, float $a): string => 'rgba(' . implode(',', array_map('intval', self::rgb($c))) . ',' . $a . ')';
         $out = [];
@@ -106,7 +113,7 @@ final class Accent
             'light' => round(min(array_map(static fn (string $bg): float => self::contrast($hex, $bg), self::BG_LIGHT)), 2),
             'dark' => round(min(array_map(static fn (string $bg): float => self::contrast($hex, $bg), self::BG_DARK)), 2),
         ];
-        $out['adjusted'] = ['light' => $light !== $hex, 'dark' => !$isDefault && $dark !== $hex];
+        $out['adjusted'] = ['light' => $light !== $hex, 'dark' => $picked === null && $dark !== $hex];
 
         return $out;
     }

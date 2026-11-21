@@ -80,7 +80,16 @@ final class BrandingControllerTest extends CIUnitTestCase
         $this->assertSame('application/manifest+json', $r->response()->getHeaderLine('Content-Type'));
         $data = json_decode($r->response()->getBody(), true);
         $this->assertSame('Πρίζα/Box', $data['name']);
+        $this->assertSame('#fdfcfa', $data['theme_color']);
         $this->assertStringContainsString('"Πρίζα/Box"', $r->response()->getBody(), 'unescaped slashes and unicode');
+    }
+
+    public function testASavedIndigoKeepsItsOwnStylesheet(): void
+    {
+        $this->settings->store(['accent' => '#4f46e5']);
+        $body = $this->get('theme.css')->response()->getBody();
+        $this->assertStringContainsString('--accent:#4f46e5', $body);
+        $this->assertStringContainsString('--accent:#8b93ff', $body);
     }
 
     public function testFaviconFallsBackToTheBundledIcon(): void

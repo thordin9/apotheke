@@ -1,5 +1,4 @@
-// Columns from edge/migrations/control/0001_control_plane.sql, plus the limit key
-// photos_per_item and lifecycle_jobs. No secrets, keys, tokens or passwords.
+// Control-plane columns from edge/migrations/control. No secrets, keys, tokens or passwords.
 
 export type InstallationStatus = 'provisioning' | 'active' | 'suspended' | 'deleting' | 'deleted';
 
@@ -21,6 +20,8 @@ export type LifecycleJobState = 'paused' | 'queued' | 'running' | 'done' | 'fail
 
 export type LifecycleJobKind = 'provision' | 'suspend' | 'resume' | 'export' | 'delete' | 'purge';
 
+export type WriteMethod = 'POST' | 'PUT';
+
 export interface Plan {
   id: string;
   name: string;
@@ -33,6 +34,10 @@ export interface PlanLimit {
   limit_key: LimitKey;
   soft_value: number | null;
   hard_value: number | null;
+}
+
+export interface PlanWithLimits extends Plan {
+  limits: PlanLimit[];
 }
 
 export interface Installation {
@@ -98,6 +103,7 @@ export interface LifecycleJob {
 }
 
 export interface OpsConfig {
+  ok: true;
   provisioning_enabled: boolean;
   limits_enabled: boolean;
 }
@@ -113,37 +119,126 @@ export interface PlanCount {
   count: number;
 }
 
+export interface SubscriptionCount {
+  status: SubscriptionStatus;
+  count: number;
+}
+
+export interface JobStateCount {
+  state: 'paused' | 'queued' | 'running';
+  count: number;
+}
+
 export interface UsageTotal {
   metric: string;
   value: number;
 }
 
 export interface Overview {
-  revenue: number | null;
-  as_of: string;
+  ok: true;
+  revenue: null;
+  as_of: string | null;
   installations_by_status: StatusCount[];
   installations_by_plan: PlanCount[];
+  subscriptions_by_status: SubscriptionCount[];
+  open_jobs_by_state: JobStateCount[];
+  usage_period: string;
   usage_totals: UsageTotal[];
 }
 
 export interface InstallationSummary {
   installation: Installation;
   routes: InstallationRoute[];
-  subscription: Subscription;
-  plan: Plan;
+  subscription: Subscription | null;
+  plan: Plan | null;
+  primary: boolean;
 }
 
 export interface InstallationList {
+  ok: true;
   installations: InstallationSummary[];
+  next_cursor: string | null;
 }
 
 export interface InstallationDetail extends InstallationSummary {
+  ok: true;
   limits: PlanLimit[];
   usage: UsageCounter[];
+  jobs: LifecycleJob[];
+  audit: OperatorAudit[];
 }
 
-export interface InstallationQuery {
+export interface PlanList {
+  ok: true;
+  plans: PlanWithLimits[];
+}
+
+export interface DueSubscription extends Subscription {
+  plan_name: string | null;
+  due_at: string;
+  hosts: string[];
+  overdue: boolean;
+}
+
+export interface SubscriptionDueList {
+  ok: true;
+  due_days: number;
+  now: string;
+  subscriptions: DueSubscription[];
+  truncated: boolean;
+}
+
+export interface JobList {
+  ok: true;
+  jobs: LifecycleJob[];
+  next_cursor: string | null;
+}
+
+export interface AuditList {
+  ok: true;
+  audit: OperatorAudit[];
+  next_cursor: string | null;
+}
+
+export interface InstallationUser {
+  id: number;
+  username: string;
+  display_name: string | null;
+  roles: string[];
+  active: boolean;
+  status: string;
+  created_at: string | null;
+  last_login_at: string | null;
+}
+
+export interface InstallationUserList {
+  ok: true;
+  installation: string;
+  users: InstallationUser[];
+  next_cursor: null;
+}
+
+export interface PageQuery {
+  limit?: string;
+  cursor?: string;
+}
+
+export interface InstallationQuery extends PageQuery {
   status?: string;
   plan?: string;
   q?: string;
+}
+
+export interface JobQuery extends PageQuery {
+  kind?: string;
+  state?: string;
+  installation?: string;
+}
+
+export interface AuditQuery extends PageQuery {
+  installation?: string;
+  operator?: string;
+  action?: string;
+  from?: string;
+  to?: string;
 }
