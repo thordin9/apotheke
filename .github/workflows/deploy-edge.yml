@@ -103,7 +103,7 @@ jobs:
           npm run build
           npm run test:bundle
       # The deploy job's own config step, with a dummy D1 id and dummy Access values (no secret, no variable), then the
-      # guard and `wrangler deploy --dry-run`. The bindings and the off flags are checked in wrangler's binding list.
+      # guard and `wrangler deploy --dry-run`. The bindings and the flags (writes on, provisioning and limits off) are checked in wrangler's binding list.
       # The edited edge/ops/wrangler.jsonc is restored afterwards.
       - name: apotheke-ops dry run (dummy D1 id and Access values; no token, nothing deployed)
         env:
@@ -119,8 +119,8 @@ jobs:
           log="$RUNNER_TEMP/ops-dry-run.log"
           (cd edge/ops && npx --no-install wrangler deploy --dry-run --config wrangler.jsonc --outdir "$RUNNER_TEMP/ops-bundle") 2>&1 | tee "$log"
           sed -i 's/\x1b\[[0-9;]*m//g' "$log"
-          for want in 'env.DB (apotheke-api)' 'env.OPS (apotheke-api#Ops)' 'env.AUTOFILL (apotheke-autofill#HostedAutofill)' \
-            'env.LIFECYCLE (LifecycleWorkflow (defined in apotheke-api))' 'env.ASSETS' 'env.OPS_WRITES_ENABLED ("0")' 'env.OPS_PROVISIONING ("0")' 'env.LIMITS_ENABLED ("0")'; do
+          for want in 'env.DB (apotheke-api)' 'env.OPS (apotheke-api#Ops)' \
+            'env.LIFECYCLE (LifecycleWorkflow (defined in apotheke-api))' 'env.ASSETS' 'env.OPS_WRITES_ENABLED ("1")' 'env.OPS_PROVISIONING ("0")' 'env.LIMITS_ENABLED ("0")'; do
             if ! grep -qF "$want" "$log"; then
               echo "::error title=apotheke-ops dry run::the dry run does not list $want"
               exit 1
@@ -149,7 +149,7 @@ jobs:
           sed -i 's/\x1b\[[0-9;]*m//g' "$log"
           for want in 'env.APOTHEKE (ApothekeContainer)' 'env.INSTALLATION (Installation)' 'env.DB (apotheke-api)' \
             'env.STORAGE (apotheke-api-storage (eu))' 'env.AUTOFILL (apotheke-autofill#HostedAutofill)' \
-            'env.LIFECYCLE (LifecycleWorkflow)' 'env.OPS_WRITES_ENABLED ("0")' \
+            'env.LIFECYCLE (LifecycleWorkflow)' 'env.OPS_WRITES_ENABLED ("1")' \
             'env.CORS_ALLOWED_ORIGINS ("https://getapotheke.com")' \
             'env.ALLOWED_HOSTS ("api.services.getapotheke.com")'; do
             if ! grep -qF "$want" "$log"; then
@@ -405,7 +405,8 @@ jobs:
         working-directory: ops/console
         run: npm ci --ignore-scripts --no-audit --no-fund && npm run build && npm run test:bundle
       # The D1 id (secret) and the Access vars (environment variables, not secrets) on this runner's checkout only.
-      # Refuses if a value is missing or malformed, or if OPS_PROVISIONING, LIMITS_ENABLED or OPS_WRITES_ENABLED is not "0".
+      # Refuses if a value is missing or malformed, if OPS_PROVISIONING or LIMITS_ENABLED is not "0", or if
+      # OPS_WRITES_ENABLED is neither "0" nor "1".
       - name: Deploy config (D1 id and Access vars)
         if: steps.token.outputs.set == 'true'
         env:

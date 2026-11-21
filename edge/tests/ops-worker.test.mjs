@@ -352,17 +352,16 @@ test('E6-1 ops: the audit helper refuses a token or a link in before or after', 
   assert.doesNotThrow(() => auditStatement(db, { ...base, after: { host: 'b.example.test' } }));
 });
 
-test('E6-1 ops: wrangler.jsonc ships with no routes, no workers.dev or preview URLs, no cron, Access unset, and every flag off', () => {
+test('E6-1 ops: wrangler.jsonc ships with no routes, no workers.dev or preview URLs, no cron, Access unset, writes enabled, provisioning and limits off', () => {
   const text = readFileSync(new URL('../ops/wrangler.jsonc', import.meta.url), 'utf8');
   const config = JSON.parse(text.replace(/^\s*\/\/.*$/gm, '').replace(/,(\s*[}\]])/g, '$1'));
   assert.equal(config.name, 'apotheke-ops');
   assert.equal(config.workers_dev, false);
   assert.equal(config.preview_urls, false);
   for (const k of ['route', 'routes', 'account_id', 'secrets']) assert.equal(config[k], undefined, k);
-  assert.deepEqual(config.vars, { ACCESS_TEAM_DOMAIN: '', ACCESS_AUD: '', OPS_ALLOWED_EMAILS: '', OPS_WRITES_ENABLED: '0', OPS_PROVISIONING: '0', LIMITS_ENABLED: '0' });
+  assert.deepEqual(config.vars, { ACCESS_TEAM_DOMAIN: '', ACCESS_AUD: '', OPS_ALLOWED_EMAILS: '', OPS_WRITES_ENABLED: '1', OPS_PROVISIONING: '0', LIMITS_ENABLED: '0' });
   assert.deepEqual(config.services, [
     { binding: 'OPS', service: 'apotheke-api', entrypoint: 'Ops' },
-    { binding: 'AUTOFILL', service: 'apotheke-autofill', entrypoint: 'HostedAutofill' },
   ]);
   assert.deepEqual(config.triggers, { crons: [] }, 'no Cron Trigger');
   for (const k of ['queues', 'custom_domains', 'r2_buckets', 'durable_objects', 'migrations']) assert.equal(config[k], undefined, k);
@@ -730,7 +729,7 @@ test('E6-2 ops: an installation whose row has do_name primary is refused by id o
   assert.equal((await t.go(API + '/installations')).json.installations.find((x) => x.installation.id === 'main').primary, true);
 });
 
-// D1 (deploy wiring): the allowed-emails list, the CF_Authorization cookie, and read-only by default.
+// D1 (deploy wiring): the allowed-emails list, the CF_Authorization cookie, and the writes switch.
 test('D1 ops: a valid token whose email is not on OPS_ALLOWED_EMAILS is 403 forbidden, for the API and the files', async () => {
   const t = setup();
   for (const email of ['someone@example.test', 'operator@example.test.evil', 'ops-a@example.test ']) {

@@ -6,8 +6,8 @@
 //  - the Access vars, from OPS_ACCESS_TEAM_DOMAIN, OPS_ACCESS_AUD and OPS_ALLOWED_EMAILS (variables of the deploy-edge
 //    environment; not secrets).
 // Fails, so nothing is deployed, when any value is missing or malformed, when the committed config already carries a
-// database_id or Access values, or when OPS_PROVISIONING, LIMITS_ENABLED or OPS_WRITES_ENABLED is not "0" (prod
-// stays read-only, without provisioning or limits, until a reviewed change says otherwise). Prints no value.
+// database_id or Access values, when OPS_PROVISIONING or LIMITS_ENABLED is not "0" (prod stays without provisioning
+// or limits until a reviewed change says otherwise), or when OPS_WRITES_ENABLED is neither "0" nor "1". Prints no value.
 import { readFileSync, writeFileSync } from "node:fs";
 
 function fail(msg) {
@@ -42,9 +42,10 @@ const vars = config.vars ?? {};
 for (const k of ["ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "OPS_ALLOWED_EMAILS"]) {
 	if (vars[k] !== "") fail(`${configPath} must ship ${k} empty; it is set only here`);
 }
-for (const k of ["OPS_PROVISIONING", "LIMITS_ENABLED", "OPS_WRITES_ENABLED"]) {
+for (const k of ["OPS_PROVISIONING", "LIMITS_ENABLED"]) {
 	if (vars[k] !== "0") fail(`${configPath} must keep ${k} "0" for this deploy`);
 }
+if (vars.OPS_WRITES_ENABLED !== "0" && vars.OPS_WRITES_ENABLED !== "1") fail(`${configPath} must set OPS_WRITES_ENABLED to "0" or "1"`);
 
 config.d1_databases = [{ ...dbs[0], database_id: id }];
 config.vars = { ...vars, ACCESS_TEAM_DOMAIN: team, ACCESS_AUD: aud, OPS_ALLOWED_EMAILS: emails.join(",") };

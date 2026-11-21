@@ -4,7 +4,7 @@
 //  2. OPTIONS: 405. There are no CORS headers on any answer; the console calls same-origin.
 //  3. Access: a valid Access token for this application (access.ts), else 401; 403 without an email claim or with an
 //     email that is not on OPS_ALLOWED_EMAILS. The operator is the token's email.
-//  4. A write (POST, PUT, PATCH, DELETE) is 403 writes_disabled unless OPS_WRITES_ENABLED is "1" (read-only first).
+//  4. A write (POST, PUT, PATCH, DELETE) is 403 writes_disabled unless OPS_WRITES_ENABLED is "1".
 //  5. A write needs `X-CSRF: 1` and an Origin equal to this request's origin, else 403 csrf.
 //  6. /api/ops/v1/... goes to api.ts, any other /api/ path is 404, everything else is the console's files.
 // Every answer is Cache-Control: no-store and carries X-Request-Id, which is also the audit row's request_id.
@@ -44,7 +44,7 @@ export function csrfOk(request: Request): boolean {
 	return request.headers.get("X-CSRF") === "1" && origin !== null && origin === new URL(request.url).origin;
 }
 
-/** Writes are off unless OPS_WRITES_ENABLED is exactly "1" (wrangler.jsonc ships "0"). */
+/** Writes are off unless OPS_WRITES_ENABLED is exactly "1" (wrangler.jsonc sets "1"). */
 export function writesEnabled(env: { OPS_WRITES_ENABLED?: string }): boolean {
 	return env.OPS_WRITES_ENABLED === "1";
 }
