@@ -26,6 +26,7 @@ export const PAIRS = [
   ['error', 'paper', 4.5, 'error and danger text'], ['error', 'paper-2', 4.5, 'error text on panels'], ['error-ink', 'error', 4.5, 'danger button'], ['error', 'error-soft', 4.5, 'error notice'], ['success', 'paper', 4.5, 'success text'],
   ['field-edge', 'paper', 3, 'field border'], ['field-edge', 'paper-2', 3, 'field border on panels'],
   ['focus', 'paper', 3, 'focus ring'], ['focus', 'paper-2', 3, 'focus ring on panels'], ['focus', 'paper-3', 3, 'focus ring on wells'],
+  ['focus', '--color-header', 3, 'focus ring on the header'],
   ['accent', 'paper-3', 3, 'progress and wake bar on track'],
   ['brand:primary-ink', 'brand:primary', 4.5, 'text on brand primary'],
   ['brand:secondary-ink', 'brand:secondary', 4.5, 'text on brand secondary (orange)'],

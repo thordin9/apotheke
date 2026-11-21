@@ -22,7 +22,7 @@ function navFor(filename) {
         return '<li><a class="nav-quiet" href="/">Home</a></li>';
     }
     return [
-        `<li><a class="btn btn-primary" href="${appBase}">Open the app</a></li>`,
+        `<li><a class="btn btn-primary btn-s" href="${appBase}">Open the app</a></li>`,
         `<li><a class="nav-quiet" href="${appBase}sign-in">Sign in</a></li>`,
     ].join('\n        ');
 }
