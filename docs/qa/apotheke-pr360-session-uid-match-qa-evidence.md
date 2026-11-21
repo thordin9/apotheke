@@ -37,3 +37,7 @@ Mutations of `SessionUidMatch.php`, filter `testSessionMatchIsAnchoredOnTheUidKe
 Not waited on. Pass: Analyze (actions), Analyze (javascript-typescript), CodeQL, Conventional Commits, D1, DI, both Compose jobs, Headless mobile, Lint, Secret scan, deptrac, upgrade sqlite, upgrade pgsql. Pending: both Docker builds, PHP sqlite, PHP pgsql, visual shards 1–3.
 
 Stopped with `pg_ctl -D` the recorded data dir `-w stop` and removed that directory.
+
+## Merge-only read at 5074d34b
+
+Read from `/workspace/coder2-artifacts/uid-session-match-4.bundle` (sha256 `7644e63ca28f22b55424f9b9e716c16c241657fa86507a47be7d17ed80aa2ef4`), which lists `refs/heads/refactor/uid-session-match` at `5074d34b0f4204e59983cf683df2faffc80ef8b2`. Merge parents `4338c2fd` and `98135012a5115a07eb7d57745495e2de3112cc5a` (main, `#343`). Behind count 0. `4338c2fd` is an ancestor, and there is no non-merge commit after it. The normalised diff of `7f457a73` against its merge base equals `origin/main..5074d34b`, excluding CHANGELOG.md, docs/qa and docs/HANDOFF.md. CHANGELOG, README and VERSION have no diff against main. The hand-off diff is the v3.67.0 release line and the `#360` line. Main's `4f28784d..98135012` touched only `edge/` and `docs/qa/apotheke-pr343-wrangler-4164-qa.md`.
