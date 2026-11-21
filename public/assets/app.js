@@ -989,7 +989,8 @@
       const warn = [];
       for (const [m, [bgs, to, soft]] of Object.entries(modes)) {
         const raw = Math.min(...bgs.map(b => ratio(v.toLowerCase(), b)));
-        const c = m === 'dark' && v === '#4F46E5' ? '#8b93ff' : fit(v.toLowerCase(), bgs, to);
+        const picked = { '#5B3B8E': '#b7a0e6', '#4F46E5': '#8b93ff' };
+        const c = m === 'dark' && picked[v] ? picked[v] : fit(v.toLowerCase(), bgs, to);
         const ink = ratio(c, '#ffffff') >= ratio(c, '#0b0b10') ? '#ffffff' : '#0b0b10';
         const pane = $('#pv-' + m);
         pane.style.setProperty('--accent', c);
@@ -997,7 +998,7 @@
         pane.style.setProperty('--accent-soft', 'rgba(' + rgb(c).join(',') + ',' + soft + ')');
         const r = Math.min(...bgs.map(b => ratio(c, b)));
         $('.pv-ratio', pane).textContent = r.toFixed(2) + ':1 ' + (r >= 4.5 ? '✓ AA' : '✗');
-        if (c !== v.toLowerCase() && v !== '#4F46E5') warn.push(v + ' is ' + raw.toFixed(2) + ':1 on the ' + m + ' background (WCAG AA needs 4.5:1) – ' + m[0].toUpperCase() + m.slice(1) + ' mode uses ' + c + ' instead.');
+        if (c !== v.toLowerCase() && !picked[v]) warn.push(v + ' is ' + raw.toFixed(2) + ':1 on the ' + m + ' background (WCAG AA needs 4.5:1) – ' + m[0].toUpperCase() + m.slice(1) + ' mode uses ' + c + ' instead.');
       }
       const ul = $('#accent-warn');
       ul.textContent = '';

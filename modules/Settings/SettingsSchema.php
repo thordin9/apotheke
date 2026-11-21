@@ -39,7 +39,7 @@ final class SettingsSchema
         'system'     => ['System', 'Database and storage (read-only)', 'sliders'],
     ];
 
-    public const ACCENT_DEFAULT = '#4f46e5';
+    public const ACCENT_DEFAULT = '#5b3b8e';
     public const MONEY_FORMATS = ['en' => '1,234.56', 'de' => '1.234,56', 'fr' => '1 234,56', 'ch' => '1’234.56', 'plain' => '1234.56'];
     public const DATE_FORMATS = ['Y-m-d' => '2026-06-15', 'd.m.Y' => '15.06.2026', 'd/m/Y' => '15/06/2026', 'm/d/Y' => '06/15/2026', 'j M Y' => '15 Jun 2026'];
     public const TIME_FORMATS = ['H:i' => '14:30', 'g:i A' => '2:30 PM'];
