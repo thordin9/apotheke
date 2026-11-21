@@ -3,6 +3,7 @@
 import type {
   Installation,
   InstallationRoute,
+  InstallationUser,
   LifecycleJob,
   OperatorAudit,
   Plan,
@@ -27,7 +28,7 @@ export const limits: PlanLimit[] = [
 
 export const installations: Installation[] = [
   row('primary', 'active', 'primary@example.test'),
-  row('north', 'active', 'north@example.test'),
+  row('north', 'active', '<img src=x onerror=alert(1)>'),
   row('south', 'suspended', 'south@example.test'),
   row('west', 'provisioning', 'west@example.test'),
 ];
@@ -35,6 +36,7 @@ export const installations: Installation[] = [
 export const routes: InstallationRoute[] = [
   { host: 'primary.example.test', installation_id: 'primary', created_at: at },
   { host: 'north.example.test', installation_id: 'north', created_at: at },
+  { host: '<b>x</b>', installation_id: 'north', created_at: at },
   { host: 'south.example.test', installation_id: 'south', created_at: at },
   { host: 'west.example.test', installation_id: 'west', created_at: at },
 ];
@@ -62,9 +64,16 @@ export const jobs: LifecycleJob[] = [
 ];
 
 export const audit: OperatorAudit[] = [
+  { ...entry('aud-mark', '2026-11-20T00:00:00Z', 'north', 'installation.note'), before_json: '<img src=x onerror=alert(1)>' },
   entry('aud-1', '2026-11-19T00:00:00Z', 'west', 'installation.claim'),
   entry('aud-2', '2026-11-18T00:00:00Z', 'south', 'installation.admin_reset'),
   entry('aud-3', '2026-11-02T00:00:00Z', 'north', 'installation.claim'),
+];
+
+export const installationUsers: (InstallationUser & { installation_id: string })[] = [
+  user('north', 1, '<b>x</b>', [], 'pending', false, '2026-11-01T10:00:00Z', null),
+  user('north', 2, 'ada', ['admin', 'reader'], 'active', true, '2026-11-01T10:00:00Z', '2026-11-19T08:30:00Z'),
+  user('west', 3, 'beau', ['admin'], 'disabled', false, '2026-11-03T10:00:00Z', null),
 ];
 
 export const NOW = '2026-11-20T12:00:00Z';
@@ -116,6 +125,29 @@ function job(id: string, installation: string, kind: LifecycleJob['kind'], state
     confirmed_at: state === 'paused' ? null : created,
     created_at: created,
     updated_at: created,
+  };
+}
+
+function user(
+  installation: string,
+  id: number,
+  username: string,
+  roles: string[],
+  status: string,
+  active: boolean,
+  created: string | null,
+  lastLogin: string | null,
+): InstallationUser & { installation_id: string } {
+  return {
+    installation_id: installation,
+    id,
+    username,
+    display_name: null,
+    roles,
+    active,
+    status,
+    created_at: created,
+    last_login_at: lastLogin,
   };
 }
 

@@ -17,7 +17,7 @@ const AUD = 'fake-aud-writes-0123456789';
 const ORIGIN = 'https://console.example.test';
 const API = '/api/ops/v1';
 const NOW = Date.UTC(2026, 10, 20, 12, 0, 0);
-const VARS = { ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, OPS_PROVISIONING: '0', LIMITS_ENABLED: '0' };
+const VARS = { ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, OPS_ALLOWED_EMAILS: 'operator@example.test', OPS_PROVISIONING: '0', LIMITS_ENABLED: '0', OPS_WRITES_ENABLED: '1' };
 const OPERATOR = 'operator@example.test';
 
 const pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);

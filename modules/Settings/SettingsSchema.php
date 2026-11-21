@@ -39,7 +39,7 @@ final class SettingsSchema
         'system'     => ['System', 'Database and storage (read-only)', 'sliders'],
     ];
 
-    public const ACCENT_DEFAULT = '#4f46e5';
+    public const ACCENT_DEFAULT = '#5b3b8e';
     public const MONEY_FORMATS = ['en' => '1,234.56', 'de' => '1.234,56', 'fr' => '1 234,56', 'ch' => '1’234.56', 'plain' => '1234.56'];
     public const DATE_FORMATS = ['Y-m-d' => '2026-06-15', 'd.m.Y' => '15.06.2026', 'd/m/Y' => '15/06/2026', 'm/d/Y' => '06/15/2026', 'j M Y' => '15 Jun 2026'];
     public const TIME_FORMATS = ['H:i' => '14:30', 'g:i A' => '2:30 PM'];
@@ -370,7 +370,16 @@ final class SettingsSchema
             $h = $h[0] . $h[0] . $h[1] . $h[1] . $h[2] . $h[2];
         }
 
-        return '#' . strtolower($h) === strtolower(self::ACCENT_DEFAULT) ? self::ACCENT_DEFAULT : '#' . strtoupper($h);
+        $lower = '#' . strtolower($h);
+        if ($lower === strtolower(self::ACCENT_DEFAULT)) {
+            return self::ACCENT_DEFAULT;
+        }
+        // The previous default stays in the spelling 2.6.x stored, so an upgrade does not rewrite the row.
+        if ($lower === '#4f46e5') {
+            return '#4f46e5';
+        }
+
+        return '#' . strtoupper($h);
     }
 
     private function url(string $label, ?string $str): string

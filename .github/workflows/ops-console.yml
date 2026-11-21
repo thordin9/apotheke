@@ -1,16 +1,20 @@
 name: Operator console
 
 # Local console preview. Not a deploy. A pull request or a push to main runs it
-# when ops/console or this workflow changes.
+# when the console, the shared tokens or fonts, or this workflow changes.
 on:
   pull_request:
     paths:
       - 'ops/console/**'
+      - 'frontend/src/styles/tokens.css'
+      - 'frontend/public/fonts/**'
       - '.github/workflows/ops-console.yml'
   push:
     branches: [main]
     paths:
       - 'ops/console/**'
+      - 'frontend/src/styles/tokens.css'
+      - 'frontend/public/fonts/**'
       - '.github/workflows/ops-console.yml'
 
 permissions:
