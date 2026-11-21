@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
-- **console:** operator console writes are enabled in production on both Workers; provisioning and plan limits stay off ([#TBD](https://github.com/thordin9/apotheke/pull/TBD))
+- **console:** operator console writes are enabled in production on both Workers; provisioning and plan limits stay off ([#362](https://github.com/thordin9/apotheke/pull/362))
 
 ### Fixed
 
