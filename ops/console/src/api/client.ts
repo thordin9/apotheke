@@ -7,16 +7,23 @@ import type {
   InstallationUserList,
   JobList,
   JobQuery,
+  LifecycleJob,
+  LifecycleJobKind,
+  LimitKey,
+  LimitOverride,
   OpsConfig,
   Overview,
+  PlanLimit,
   PlanList,
+  Subscription,
   SubscriptionDueList,
+  SubscriptionStatus,
   WriteMethod,
 } from './types.ts';
 
-// No CSRF token. Writes send this fixed header; csrfHeaders() is the only place
-// that sets it, so a real token can replace the fixed value later. The server
-// also checks that Origin equals the ops host.
+// No CSRF token. Writes, including DELETE, send this fixed header; csrfHeaders()
+// is the only place that sets it, so a real token can replace the fixed value
+// later. The server also checks that Origin equals the ops host.
 export const CSRF_HEADER = 'X-CSRF';
 
 export function csrfHeaders(): Record<string, string> {
@@ -98,6 +105,14 @@ export interface OpsClient {
   audit(query?: AuditQuery): Promise<AuditList>;
   auditExportUrl(query?: AuditQuery): string;
   write<T>(method: WriteMethod, path: string, body?: unknown): Promise<T>;
+  putPlanLimits(planId: string, limits: Record<string, { soft_value: number | null; hard_value: number | null } | null>): Promise<{ ok: true; plan_id: string; limits: PlanLimit[] }>;
+  putSubscription(id: string, body: { plan_id?: string; status?: SubscriptionStatus; trial_end?: string | null; period_end?: string | null; confirm?: boolean }): Promise<{ ok: true; subscription: Subscription }>;
+  createJob(body: { kind: LifecycleJobKind; installation_id: string; nonce: string; retention_days?: number }): Promise<{ ok: true; created: boolean; job: LifecycleJob }>;
+  confirmJob(id: string, body: { confirm_host?: string }): Promise<{ ok: true; job: LifecycleJob }>;
+  putOverride(id: string, key: LimitKey, body: { hard_value: number; reason: string | null; expires_at: string | null }): Promise<{ ok: true; override: LimitOverride }>;
+  deleteOverride(id: string, key: LimitKey): Promise<{ ok: true }>;
+  claim(id: string, body: { confirm_host: string }): Promise<{ ok: true; link: string; expires_at: string }>;
+  resetAdmin(id: string, body: { confirm_host: string }): Promise<{ ok: true }>;
 }
 
 function errorMessage(status: number, code: string, detail: string): string {
@@ -133,7 +148,7 @@ export function createClient(options: OpsClientOptions = {}): OpsClient {
   const doFetch = options.fetchImpl ?? fetch;
 
   async function request<T>(method: 'GET' | 'HEAD' | WriteMethod, path: string, body?: unknown): Promise<T> {
-    const write = method === 'POST' || method === 'PUT';
+    const write = method === 'POST' || method === 'PUT' || method === 'DELETE';
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (write) Object.assign(headers, csrfHeaders());
     if (write && body !== undefined) headers['Content-Type'] = 'application/json';
@@ -179,5 +194,13 @@ export function createClient(options: OpsClientOptions = {}): OpsClient {
     audit: (query) => request<AuditList>('GET', withQuery('/audit', query ?? {})),
     auditExportUrl: (query) => base + withQuery('/audit.csv', query ?? {}),
     write: (method, path, body) => request(method, path, body),
+    putPlanLimits: (planId, limits) => request('PUT', `/plans/${encodeURIComponent(planId)}/limits`, { limits }),
+    putSubscription: (id, body) => request('PUT', `/installations/${encodeURIComponent(id)}/subscription`, body),
+    createJob: (body) => request('POST', '/jobs', body),
+    confirmJob: (id, body) => request('POST', `/jobs/${encodeURIComponent(id)}/confirm`, body),
+    putOverride: (id, key, body) => request('PUT', `/installations/${encodeURIComponent(id)}/limits/${encodeURIComponent(key)}`, body),
+    deleteOverride: (id, key) => request('DELETE', `/installations/${encodeURIComponent(id)}/limits/${encodeURIComponent(key)}`),
+    claim: (id, body) => request('POST', `/installations/${encodeURIComponent(id)}/claim`, body),
+    resetAdmin: (id, body) => request('POST', `/installations/${encodeURIComponent(id)}/admin-reset`, body),
   };
 }

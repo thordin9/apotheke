@@ -27,6 +27,21 @@ import {
   writeControl,
   writesNote,
 } from './render/view.ts';
+import {
+  claimButton,
+  confirmButton,
+  discardSecrets,
+  jobForm,
+  limitsButton,
+  limitsStoredNote,
+  overrideForm,
+  primaryNote,
+  resetButton,
+  subscriptionForm,
+  takeFlash,
+  usersLaterNote,
+  watchOpenJobs,
+} from './render/writes-ui.ts';
 
 const STATUSES = ['provisioning', 'active', 'suspended', 'deleting', 'deleted'] as const;
 const JOB_KINDS = ['provision', 'suspend', 'resume', 'export', 'delete', 'purge'] as const;
@@ -157,6 +172,11 @@ function rememberConfig(config: OpsConfig): void {
   if (pill instanceof HTMLElement) pill.hidden = writesEnabled;
 }
 
+function refreshPage(): void {
+  pageKey = '';
+  void show(false);
+}
+
 function go(url: string): void {
   const next = new URL(url, location.origin);
   const changed = routeKey(parseRoute(next.pathname)) !== routeKey(parseRoute(location.pathname));
@@ -210,6 +230,7 @@ async function render(changed: boolean): Promise<void> {
   const route = parseRoute(location.pathname);
   const key = routeKey(route);
   const moveFocus = changed || (lastKey !== '' && lastKey !== key);
+  if (moveFocus) discardSecrets();
   lastKey = key;
   paintNav(route);
   const main = document.querySelector('#main');
@@ -227,7 +248,10 @@ async function render(changed: boolean): Promise<void> {
     main.append(el('p', { class: 'status', role: 'status' }, 'Loading…'));
   }, 150);
   try {
-    if (WRITE_SCREENS.has(route.name)) main.append(writesNote(writesEnabled));
+    if (WRITE_SCREENS.has(route.name) && !writesEnabled) main.append(writesNote(false));
+    else if (writesEnabled && !limitsEnabled && (route.name === 'installation' || route.name === 'plans')) main.append(limitsStoredNote());
+    const saved = takeFlash();
+    if (saved) main.append(el('p', { id: 'saved', class: 'notice', role: 'status' }, saved));
     if (route.name === 'overview') await paintOverview(main, gen);
     else if (route.name === 'installations') await paintInstallations(main, gen);
     else if (route.name === 'installation') await paintInstallation(main, route.id, gen);
@@ -395,7 +419,13 @@ async function paintInstallation(main: HTMLElement, id: string, gen: number): Pr
     ['Created', when(fields.created_at)],
     ['Updated', when(fields.updated_at)],
   ]));
-  section.append(actions(writeControl('Claim link'), writeControl('Reset admin')));
+  const live = writesEnabled && !detail.primary;
+  const refresh = (): void => { refreshPage(); };
+  if (writesEnabled && detail.primary) section.append(primaryNote());
+  else section.append(actions(
+    live ? claimButton(detail, client, refresh) : writeControl('Claim link'),
+    live ? resetButton(detail, client, refresh) : writeControl('Reset admin'),
+  ));
   main.append(section);
   main.append(dataTable('cap-routes', 'Routes', [
     { text: 'Host', code: true },
@@ -412,7 +442,8 @@ async function paintInstallation(main: HTMLElement, id: string, gen: number): Pr
       ['Period end', when(subscription.period_end)],
     ]));
   } else sub.append(el('p', {}, 'None'));
-  sub.append(writeControl('Change plan or status'));
+  if (live) sub.append(subscriptionForm(detail, client, refresh));
+  else if (!writesEnabled) sub.append(writeControl('Change plan or status'));
   main.append(sub);
   const limits = el('section');
   limits.append(el('h2', { id: 'limits-heading' }, 'Plan limits'));
@@ -421,7 +452,8 @@ async function paintInstallation(main: HTMLElement, id: string, gen: number): Pr
     { text: 'Soft', num: true },
     { text: 'Hard', num: true },
   ], detail.limits.map((limit) => [limit.limit_key, text(limit.soft_value), text(limit.hard_value)]), 'No limits on this plan.', 'limits-heading'));
-  limits.append(writeControl('Grant limit override'));
+  if (live) limits.append(overrideForm(detail, client, refresh));
+  else if (!writesEnabled) limits.append(writeControl('Grant limit override'));
   main.append(limits);
   const usage = el('section');
   usage.append(el('h2', { id: 'usage-heading' }, 'Usage'));
@@ -434,8 +466,10 @@ async function paintInstallation(main: HTMLElement, id: string, gen: number): Pr
   const jobs = el('section');
   jobs.append(el('h2', { id: 'recent-jobs-heading' }, 'Recent jobs'));
   jobs.append(jobTable('cap-recent-jobs', 'Recent jobs', detail.jobs, true, 'recent-jobs-heading'));
-  jobs.append(writeControl('Create job'));
+  if (live) jobs.append(jobForm(id, provisioningEnabled, client, refresh));
+  else if (!writesEnabled) jobs.append(writeControl('Create job'));
   main.append(jobs);
+  watchOpenJobs(detail.jobs.some((job) => job.state === 'queued' || job.state === 'running'), refresh);
   main.append(dataTable('cap-recent-audit', 'Recent audit', [
     { text: 'When' },
     { text: 'Operator' },
@@ -448,12 +482,13 @@ async function paintUsers(main: HTMLElement, id: string, gen: number): Promise<v
   if (gen !== generation) return;
   main.append(crumb('Users'), subnav(id, 'users'));
   main.append(el('p', {}, 'Accounts on this installation.'));
+  if (writesEnabled && id !== 'primary') main.append(usersLaterNote());
   main.append(userTable(list.users, id !== 'primary'));
 }
 
 function userTable(users: InstallationUser[], controls: boolean): HTMLElement {
   const rows = users.map((user) => {
-    const action = controls ? writeControl(user.status === 'active' ? 'Disable' : 'Re-enable') : document.createTextNode('');
+    const action = controls ? userAction(user.status === 'active' ? 'Disable' : 'Re-enable') : document.createTextNode('');
     return [
       user.username,
       roles(user.roles),
@@ -495,7 +530,7 @@ async function paintPlans(main: HTMLElement, gen: number): Promise<void> {
       { text: 'Soft', num: true },
       { text: 'Hard', num: true },
     ], rows, 'No limits on this plan.', headingId));
-    section.append(writeControl('Edit limits'));
+    section.append(writesEnabled ? limitsButton(plan, client, refreshPage) : writeControl('Edit limits'));
     main.append(section);
   }
 }
@@ -538,8 +573,10 @@ async function paintJobs(main: HTMLElement, gen: number): Promise<void> {
   main.append(choiceNav('Kind', 'kind', [{ id: '', name: 'Any kind' }, ...JOB_KINDS.map((kind) => ({ id: kind, name: label(kind) }))], query, '/jobs'));
   main.append(choiceNav('State', 'state', [{ id: '', name: 'Any state' }, ...JOB_STATES.map((state) => ({ id: state, name: label(state) }))], query, '/jobs'));
   main.append(searchForm('job-search', '/jobs', [{ name: 'installation', label: 'Installation', value: query.installation ?? '', type: 'search' }]));
-  main.append(jobTable('cap-jobs', 'Jobs', pageRows as LifecycleJob[], false));
+  const listed = pageRows as LifecycleJob[];
+  main.append(jobTable('cap-jobs', 'Jobs', listed, false));
   moreButton();
+  watchOpenJobs(listed.some((job) => job.state === 'queued' || job.state === 'running'), refreshPage);
 }
 
 function jobTable(id: string, caption: string, jobs: LifecycleJob[], recent: boolean, labelId?: string): HTMLElement {
@@ -550,13 +587,21 @@ function jobTable(id: string, caption: string, jobs: LifecycleJob[], recent: boo
       recent ? when(job.created_at) : statusText(job.state),
     ];
     if (!recent) cells.push(when(job.created_at));
-    cells.push(job.state === 'paused' ? writeControl('Confirm') : document.createTextNode(''));
+    cells.push(job.state === 'paused'
+      ? (writesEnabled ? confirmButton(job, client, refreshPage) : writeControl('Confirm'))
+      : document.createTextNode(''));
     return cells;
   });
   const heads: { text: string; code?: boolean }[] = recent
     ? [{ text: 'Kind' }, { text: 'State' }, { text: 'Created' }, { text: 'Action' }]
     : [{ text: 'Installation', code: true }, { text: 'Kind' }, { text: 'State' }, { text: 'Created' }, { text: 'Action' }];
   return dataTable(id, caption, heads, rows, 'No job matches these filters.', labelId);
+}
+
+function userAction(name: string): HTMLButtonElement {
+  const button = writeControl(name);
+  if (writesEnabled) button.setAttribute('aria-describedby', 'users-later');
+  return button;
 }
 
 function statusText(state: string): string {

@@ -64,6 +64,7 @@ export const jobs: LifecycleJob[] = [
   job('job-south', 'south', 'suspend', 'paused', '2026-11-18T00:00:00Z'),
   job('job-west', 'west', 'provision', 'queued', '2026-11-19T00:00:00Z'),
   job('job-yard', 'yard', 'export', 'paused', '2026-11-17T00:00:00Z'),
+  job('job-purge', 'north', 'purge', 'paused', '2026-11-01T00:00:00Z'),
 ];
 
 export const audit: OperatorAudit[] = [

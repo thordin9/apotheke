@@ -55,6 +55,17 @@ button:active { transform: translateY(1px); }
 .quiet:hover { background: var(--color-paper); border-color: var(--color-accent-strong); color: var(--color-ink); }
 button.write { background: var(--color-paper-3); color: var(--color-muted); border: var(--rule-hair) solid var(--color-rule); cursor: not-allowed; }
 button.write:hover, button.write:active { background: var(--color-paper-3); color: var(--color-muted); transform: none; }
+.write-form, .write-dialog { display: grid; gap: var(--space-sm); max-width: 36rem; }
+.write-form .field { display: grid; gap: var(--space-2xs); }
+.write-form label, .write-dialog legend { font-weight: 700; }
+.write-form input, .write-form select { min-height: var(--hit); padding: 0 var(--space-sm); border: var(--rule-hair) solid var(--color-field-edge); border-radius: var(--radius-control); background: var(--color-paper); color: var(--color-ink); font: inherit; }
+.field-error { color: var(--color-error); margin: 0; }
+button.danger { background: var(--color-error); color: var(--color-error-ink); }
+.write-dialog { border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper); color: var(--color-ink); padding: var(--space-lg); }
+.write-dialog::backdrop { background: rgb(4 48 61 / 0.45); }
+.write-dialog button.quiet { background: var(--color-paper-2); color: var(--color-ink); }
+.confirm-panel[hidden] { display: none; }
+#claim-once { position: fixed; inset: auto var(--space-md) var(--space-md) auto; z-index: var(--z-toast, 30); max-width: 24rem; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
 .table-scroll { overflow-x: auto; margin-top: var(--space-lg); max-width: 100%; }
 .table-scroll time { white-space: nowrap; }

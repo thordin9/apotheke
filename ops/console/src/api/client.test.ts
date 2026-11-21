@@ -54,15 +54,19 @@ test('a read is same-origin JSON, unwraps ok, and does not send X-CSRF', async (
   assert.equal(headers[CSRF_HEADER], undefined);
 });
 
-test('POST and PUT send X-CSRF: 1', async () => {
+test('POST, PUT and DELETE send X-CSRF: 1', async () => {
   const fetchImpl = fakeFetch(() => jsonResponse(200, { ok: true }));
   const client = createClient({ fetchImpl, base: 'https://ops.example/api/ops/v1/' });
   await client.write('POST', '/jobs', { kind: 'sleep' });
   await client.write('PUT', '/plans/shelf/limits', { limits: [] });
+  await client.deleteOverride('north', 'items');
   const calls = callsOf(fetchImpl);
   assert.equal(String(calls[0].input), 'https://ops.example/api/ops/v1/jobs');
   assert.equal(calls[0].init?.method, 'POST');
   assert.equal(calls[1].init?.method, 'PUT');
+  assert.equal(calls[2].init?.method, 'DELETE');
+  assert.equal(calls[2].init?.body, undefined);
+  assert.equal(String(calls[2].input), 'https://ops.example/api/ops/v1/installations/north/limits/items');
   for (const call of calls) {
     const headers = call.init?.headers as Record<string, string>;
     assert.equal(headers[CSRF_HEADER], '1');
