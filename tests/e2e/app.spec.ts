@@ -430,6 +430,42 @@ test('the header CTAs fit a phone in dark mode and show focus', async ({ browser
     await context.close();
 });
 
+test('the landing header fits at 320 and 375', async ({ browser }) => {
+    for (const width of [320, 375]) {
+        const context = await browser.newContext({ viewport: { width, height: 800 }, colorScheme: 'light' });
+        const page = await context.newPage();
+        for (const path of ['/', '/privacy/', '/404.html']) {
+            await page.goto(path);
+            const decline = page.getByRole('button', { name: 'Decline' });
+            if (await decline.isVisible()) await decline.click();
+            const metrics = await page.locator('header.slab').evaluate((header) => ({
+                headerScroll: header.scrollWidth,
+                headerClient: header.clientWidth,
+                docScroll: document.documentElement.scrollWidth,
+                inner: window.innerWidth,
+                text: header.textContent || '',
+            }));
+            expect(metrics.headerScroll, path + ' header at ' + width).toBeLessThanOrEqual(metrics.headerClient);
+            expect(metrics.docScroll, path + ' page at ' + width).toBe(metrics.inner);
+            expect(metrics.text).toContain('Apotheke');
+            expect(metrics.text).toContain('Open the app');
+            expect(metrics.text).toContain('Sign in');
+            await expect(page.getByRole('banner').getByRole('link', { name: 'Apotheke' })).toBeVisible();
+            for (const name of ['Open the app', 'Sign in']) {
+                const box = await page.getByRole('banner').getByRole('link', { name }).boundingBox();
+                expect(box, name + ' at ' + path).not.toBeNull();
+                expect(box!.x, name).toBeGreaterThanOrEqual(0);
+                expect(box!.y, name).toBeGreaterThanOrEqual(0);
+                expect(box!.x + box!.width, name + ' right at ' + width + ' ' + path).toBeLessThanOrEqual(metrics.inner);
+                expect(box!.y + box!.height, name).toBeLessThanOrEqual(800);
+                expect(box!.width, name + ' hit at ' + width).toBeGreaterThanOrEqual(44);
+                expect(box!.height, name + ' hit at ' + width).toBeGreaterThanOrEqual(44);
+            }
+        }
+        await context.close();
+    }
+});
+
 test('refreshing an app route serves the shell', async ({ page }) => {
     const signIn = await page.goto('/app/sign-in');
     expect(signIn?.status()).toBe(200);
