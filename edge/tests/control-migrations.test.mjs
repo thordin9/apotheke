@@ -55,6 +55,7 @@ const PINNED = {
   '0002_seed_primary.sql': '7c0ecfebc8603b75300154ac1ba66adabebc550ddb0fdbb445df5994a9db8dcc',
   '0003_lifecycle_jobs.sql': '932738cbb9f76105a4d9f8a1333341ad0cf0c3d503bfebe3de53693571d6fd83',
   '0004_plan_limits_photos_per_item.sql': 'c2720cf2f3b4fa03bd6655d483d076be0c3cbe235c0e1ff5ab469c3d5f2a3c78',
+  '0005_limit_overrides.sql': 'af48096ca6be8a5609351fcf465723589baf9d8931505a0ea33c402455cb146f',
 };
 
 test('applied migrations are pinned by sha256', () => {
@@ -204,6 +205,37 @@ test('0004 applied twice: same schema and rows', () => {
   assert.equal(before[1].length, 2);
 });
 
+
+test('0005 limit_overrides: columns, primary key, foreign key, checks, idempotent apply', () => {
+  const db = migrated();
+  const cols = db.prepare(`PRAGMA table_info('limit_overrides')`).all().map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, pk: c.pk, dflt: c.dflt_value }));
+  assert.deepEqual(cols.map((c) => c.name), ['installation_id', 'limit_key', 'hard_value', 'reason', 'expires_at', 'created_by', 'created_at']);
+  assert.equal(cols.filter((c) => c.pk).map((c) => c.name).join(','), 'installation_id,limit_key');
+  assert.equal(cols.find((c) => c.name === 'hard_value').notnull, 1);
+  assert.equal(cols.find((c) => c.name === 'created_by').notnull, 1);
+  const fks = db.prepare(`PRAGMA foreign_key_list('limit_overrides')`).all();
+  assert.equal(fks.length, 1);
+  assert.equal(fks[0].table, 'installations');
+  assert.equal(fks[0].from, 'installation_id');
+  assert.equal(fks[0].to, 'id');
+  db.exec(`INSERT INTO limit_overrides (installation_id, limit_key, hard_value, reason, expires_at, created_by)
+    VALUES ('primary', 'photos_per_item', 8, 'raise', NULL, 'ops@example.test')`);
+  refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('primary', 'photos_each', 4, 'ops@example.test')`, /CHECK/);
+  refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('primary', 'items', -1, 'ops@example.test')`, /CHECK/);
+  refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('primary', 'items', 'nope', 'ops@example.test')`, /CHECK/);
+  db.exec(`INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('primary', 'items', 0, 'ops@example.test')`);
+  assert.equal(db.prepare(`SELECT hard_value AS n FROM limit_overrides WHERE installation_id = 'primary' AND limit_key = 'items'`).get().n, 0);
+  refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value, expires_at, created_by) VALUES ('primary', 'users', 1, 'not-a-date', 'ops@example.test')`, /CHECK/);
+  db.exec(`INSERT INTO limit_overrides (installation_id, limit_key, hard_value, expires_at, created_by) VALUES ('primary', 'users', 1, '2099-01-01T00:00:00Z', 'ops@example.test')`);
+  refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('nope', 'items', 1, 'ops@example.test')`, /FOREIGN KEY/);
+  refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('primary', 'photos_per_item', 9, 'ops@example.test')`, /UNIQUE|PRIMARY KEY/);
+  refused(db, `INSERT INTO limit_overrides (installation_id, limit_key, hard_value) VALUES ('primary', 'items', 1)`, /NOT NULL/);
+  const sql = readFileSync(new URL('0005_limit_overrides.sql', dir), 'utf8');
+  db.exec(sql);
+  assert.equal(db.prepare(`SELECT hard_value AS n FROM limit_overrides WHERE installation_id = 'primary' AND limit_key = 'photos_per_item'`).get().n, 8);
+  assert.equal(db.prepare(`SELECT count(*) AS n FROM sqlite_master WHERE name LIKE 'limit_overrides%'`).get().n, 1);
+});
+
 // Every plan_limits key a migration has ever allowed: a later migration may add keys, never drop one (N-2200).
 const LIMIT_KEYS = ['items', 'storage_bytes', 'photos', 'users', 'autofill_calls_month', 'requests_month', 'container_hours_month',
   'sleep_after_ms', 'import_file_bytes', 'photos_per_item'];
@@ -229,6 +261,17 @@ test('plan_limits keeps every key it ever allowed after each migration', () => {
     allowed = now;
   }
   assert.deepEqual(allowed, LIMIT_KEYS);
+  const overrideKeys = LIMIT_KEYS.filter((key) => {
+    try {
+      db.exec(`INSERT INTO limit_overrides (installation_id, limit_key, hard_value, created_by) VALUES ('primary', '${key}', 1, 'test')`);
+      db.exec(`DELETE FROM limit_overrides WHERE installation_id = 'primary'`);
+      return true;
+    } catch (e) {
+      if (!/CHECK/.test(String(e))) throw e;
+      return false;
+    }
+  });
+  assert.deepEqual(overrideKeys, LIMIT_KEYS);
 });
 
 test('no foreign key cascades or sets null: every reference is NO ACTION, as 0001 made them', () => {
@@ -238,6 +281,7 @@ test('no foreign key cascades or sets null: every reference is NO ACTION, as 000
   assert.deepEqual(refs.sort(), [
     'installation_routes.installation_id -> installations.id NO ACTION/NO ACTION/NONE',
     'lifecycle_jobs.installation_id -> installations.id NO ACTION/NO ACTION/NONE',
+    'limit_overrides.installation_id -> installations.id NO ACTION/NO ACTION/NONE',
     'plan_limits.plan_id -> plans.id NO ACTION/NO ACTION/NONE',
     'subscriptions.installation_id -> installations.id NO ACTION/NO ACTION/NONE',
     'subscriptions.plan_id -> plans.id NO ACTION/NO ACTION/NONE',

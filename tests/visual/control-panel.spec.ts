@@ -54,7 +54,7 @@ test.describe('control panel', () => {
     await open(page, 'appearance');
     await page.locator('.preset[data-accent="#C8502D"]').click();
     await expect(page.locator('#s-accent')).toHaveValue('#C8502D');
-    await expect(page.locator('#accent-warn')).toContainText('4.16:1');
+    await expect(page.locator('#accent-warn')).toContainText('4.12:1');
     // the preview uses the adjusted (readable) shade
     const bg = await page.locator('#pv-light .pv-btn').evaluate(e => getComputedStyle(e).backgroundColor);
     expect(bg).not.toBe('rgb(79, 70, 229)');

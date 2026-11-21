@@ -1,5 +1,6 @@
 import { defineConfig, type ViteDevServer } from 'vite';
 import { handleMock } from './preview/mock-api.ts';
+import { OPS_CSP } from './src/csp.ts';
 
 // Dev server only. apply: 'serve' keeps this middleware out of the production build.
 function previewFault(cookie: string | undefined): string {
@@ -7,24 +8,37 @@ function previewFault(cookie: string | undefined): string {
   return match ? decodeURIComponent(match[1]) : '';
 }
 
+function mockApi(req: { url?: string; method?: string; headers: { cookie?: string } }, res: { statusCode: number; setHeader(name: string, value: string): void; end(body: string): void }, next: () => void): void {
+  const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+  if (!url.pathname.startsWith('/api/ops/v1')) {
+    next();
+    return;
+  }
+  const fault = previewFault(req.headers.cookie);
+  const result = handleMock(req.method ?? 'GET', url, fault);
+  res.statusCode = result.status;
+  const headers = result.headers ?? { 'content-type': 'application/json; charset=utf-8' };
+  for (const [name, value] of Object.entries(headers)) res.setHeader(name, value);
+  res.setHeader('cache-control', 'no-store');
+  res.end(typeof result.body === 'string' ? result.body : JSON.stringify(result.body));
+}
+
+function previewCsp(_req: { url?: string }, res: { setHeader(name: string, value: string): void }, next: () => void): void {
+  res.setHeader('content-security-policy', OPS_CSP);
+  next();
+}
+
 function mockPlugin() {
   return {
     name: 'ops-console-mock',
     apply: 'serve' as const,
     configureServer(server: ViteDevServer) {
-      server.middlewares.use((req, res, next) => {
-        const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-        if (!url.pathname.startsWith('/api/ops/v1')) {
-          next();
-          return;
-        }
-        const fault = previewFault(req.headers.cookie);
-        const result = handleMock(req.method ?? 'GET', url, fault);
-        res.statusCode = result.status;
-        res.setHeader('content-type', 'application/json; charset=utf-8');
-        res.setHeader('cache-control', 'no-store');
-        res.end(JSON.stringify(result.body));
-      });
+      server.middlewares.use(previewCsp);
+      server.middlewares.use(mockApi);
+    },
+    configurePreviewServer(server: ViteDevServer) {
+      server.middlewares.use(previewCsp);
+      server.middlewares.use(mockApi);
     },
   };
 }

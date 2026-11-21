@@ -1,11 +1,12 @@
 // apotheke-ops: the operator console (ops/console, Workers static assets) and its API /api/ops/v1, on its own host
 // behind Cloudflare Access (docs/operator-console.md#console-api). Every request runs this script first:
-//  1. ACCESS_TEAM_DOMAIN or ACCESS_AUD missing: 503 not_configured for everything.
+//  1. ACCESS_TEAM_DOMAIN, ACCESS_AUD or OPS_ALLOWED_EMAILS missing: 503 not_configured for everything.
 //  2. OPTIONS: 405. There are no CORS headers on any answer; the console calls same-origin.
-//  3. Access: a valid Cf-Access-Jwt-Assertion for this application (access.ts), else 401 (403 without an email claim).
-//     The operator is the token's email.
-//  4. A write (POST, PUT, PATCH, DELETE) needs `X-CSRF: 1` and an Origin equal to this request's origin, else 403 csrf.
-//  5. /api/ops/v1/... goes to api.ts, any other /api/ path is 404, everything else is the console's files.
+//  3. Access: a valid Access token for this application (access.ts), else 401; 403 without an email claim or with an
+//     email that is not on OPS_ALLOWED_EMAILS. The operator is the token's email.
+//  4. A write (POST, PUT, PATCH, DELETE) is 403 writes_disabled unless OPS_WRITES_ENABLED is "1" (read-only first).
+//  5. A write needs `X-CSRF: 1` and an Origin equal to this request's origin, else 403 csrf.
+//  6. /api/ops/v1/... goes to api.ts, any other /api/ path is 404, everything else is the console's files.
 // Every answer is Cache-Control: no-store and carries X-Request-Id, which is also the audit row's request_id.
 import { accessConfig, verifyAccess, type Fetch } from "./access";
 import { API_PREFIX, failure, handleApi } from "./api";
@@ -43,6 +44,11 @@ export function csrfOk(request: Request): boolean {
 	return request.headers.get("X-CSRF") === "1" && origin !== null && origin === new URL(request.url).origin;
 }
 
+/** Writes are off unless OPS_WRITES_ENABLED is exactly "1" (wrangler.jsonc ships "0"). */
+export function writesEnabled(env: { OPS_WRITES_ENABLED?: string }): boolean {
+	return env.OPS_WRITES_ENABLED === "1";
+}
+
 async function route(request: Request, env: Env, deps: Deps, requestId: string): Promise<Response> {
 	const method = request.method.toUpperCase();
 	const config = accessConfig(env);
@@ -50,9 +56,10 @@ async function route(request: Request, env: Env, deps: Deps, requestId: string):
 	if (method === "OPTIONS") return failure(405, "method_not_allowed");
 	const access = await verifyAccess(request, config, deps.fetch, deps.now());
 	if (!access.ok) return failure(access.code === "access_unavailable" ? 503 : access.code === "forbidden" ? 403 : 401, access.code);
+	if (WRITES.has(method) && !writesEnabled(env)) return failure(403, "writes_disabled");
 	if (WRITES.has(method) && !csrfOk(request)) return failure(403, "csrf");
 	const path = new URL(request.url).pathname;
-	if (path === API_PREFIX || path.startsWith(API_PREFIX + "/")) return handleApi(request, env, { email: access.email, requestId });
+	if (path === API_PREFIX || path.startsWith(API_PREFIX + "/")) return handleApi(request, env, { email: access.email, requestId }, deps.now());
 	if (path === "/api" || path.startsWith("/api/")) return failure(404, "not_found");
 	if (method !== "GET" && method !== "HEAD") return failure(405, "method_not_allowed");
 	if (!env.ASSETS) return failure(404, "not_found");
