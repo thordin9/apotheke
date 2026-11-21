@@ -443,7 +443,9 @@ test('E6-2 ops: every read needs Access, is GET or HEAD only, no-store, and OPTI
     const csrf = await t.go(API + path, { method: 'POST', body: '{}' });
     assert.deepEqual([csrf.status, csrf.json], [403, { ok: false, code: 'csrf' }], `POST ${path}`);
     const post = await t.write(API + path, {});
-    assert.deepEqual([post.status, post.json, post.res.headers.get('allow')], [405, { ok: false, code: 'method_not_allowed' }, 'GET, HEAD'], `POST ${path}`);
+    // POST /jobs creates a job (E6-3); an empty body is 422 and writes nothing.
+    if (path === '/jobs') assert.deepEqual([post.status, post.json.code], [422, 'invalid_body']);
+    else assert.deepEqual([post.status, post.json, post.res.headers.get('allow')], [405, { ok: false, code: 'method_not_allowed' }, 'GET, HEAD'], `POST ${path}`);
     assert.equal(t.db.batches.length, 0, 'a read writes nothing');
   }
   const unbound = readSetup();
