@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Maintenance
+
+- ci: bump @playwright/test to 1.65.1 and pin the Playwright image ([#342](https://github.com/thordin9/apotheke/pull/342))
+
 ## [3.65.0] - 2026-11-21
 
 ### Added
@@ -75,6 +79,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Maintenance
 
 - **deps-dev:** build: bump vite from 8.3.7 to 8.3.8 in /frontend ([#340](https://github.com/thordin9/apotheke/pull/340))
+
 
 ## [3.57.0] - 2026-11-20
 

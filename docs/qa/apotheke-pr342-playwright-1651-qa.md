@@ -1,0 +1,30 @@
+# QA: apotheke #342, @playwright/test 1.65.0 → 1.65.1 plus CI image pin
+
+- PR: https://github.com/thordin9/apotheke/pull/342 (Dependabot, with a CI image pin, a CHANGELOG bullet and three main catch-up merges from DevOps)
+- Reviewed head: `47ebfbaef35a0dbdc92bdc31eb52b77135fad5d3`, the plain merge of `e9b2bc5` and main `69912dda` (v3.65.0). 0 behind main `69912dda`, mergeable (clean). Content gated at `b5e13b0f` (0 behind `3a6156b6`, v3.57.0); catch-ups `e9b2bc5` (onto v3.64.0) and `47ebfba` (onto v3.65.0) read merge-only on 2026-11-21 09:25 (UTC+2).
+- History: 5 commits. Non-merge subjects: `ci: bump @playwright/test from 1.65.0 to 1.65.1 in the playwright group` (71), `ci(e2e): pin the Playwright image to v1.65.1-noble` (50). Merges exempt. The GitHub PR title is the `ci:` subject (71 characters, 78 including " (#342)"; see L-2432).
+- Gate: light (dependency bump + image pin + merges: diff read, lockfile sanity, image refs, CI, merge-tree, CHANGELOG). No mutants, no Docker/PG suites, no image rebuilds.
+- CI on `47ebfbae`: 22/22 check-runs pass. CI on `b5e13b0f`: Frontend 44777976004, CodeQL (PR #342) 44777965083 and CI 44777976034 all succeeded. Check-runs: 22 pass, 0 skipped. Deploy frontend and Deploy edge were not triggered (path filters). All 3 Visual E2E shards passed. No snapshot baseline files are in the diff, and the Update visual snapshots workflow did not run.
+- Reviewer: Apotheke QA 2
+
+## Checklist
+
+- [x] Scope vs main `3a6156b6`: 6 files: `package.json` +1/−1, `package-lock.json` +12/−12, `.github/workflows/ci.yml` +1/−1, `.github/workflows/snapshots.yml` +1/−1, `docs/ci.md` +1/−1, `CHANGELOG.md` +4. No spec, test-logic or baseline PNG changes. Only the root `package.json` is bumped; `frontend/`, `edge/` and `ops/console/` (still `@playwright/test` 1.64.1) are unchanged vs main.
+- [x] Merges: `4a9b5419` parents are Dependabot `15084666` and main `c62dafd8`; `git merge-tree --write-tree` equals that merge's tree (no hand resolution). `90cbb011` parents are the pin commit `dd1f741b` and main `34706c47` (#346). `b5e13b0f` parents are `90cbb011` and main `3a6156b6`. The last two `merge-tree` runs conflict only on CHANGELOG. The final resolution is main's CHANGELOG plus #342's Unreleased Maintenance bullet (same text as at `dd1f741b`, linking https://github.com/thordin9/apotheke/pull/342). Released sections from `## [3.57.0]` down are byte-identical to main. VERSION equals main (3.57.0). `e9b2bc5` (parents `[b5e13b0, c5476e79]`) differs from `git merge-tree` only in CHANGELOG (markers dropped, the bullet kept in `[Unreleased]`), `package.json` and `package-lock.json` (`@playwright/test` 1.65.1 from this branch; main's `@axe-core/playwright` 4.11.2 auto-merged and kept). `47ebfba` (parents `[e9b2bc5, 69912dda]`) differs only in CHANGELOG. End state at `47ebfbae`: the same 6 files vs main, the same lockfile entries (the three playwright packages 1.65.0 → 1.65.1, nothing else) and the same image pins; VERSION equals main (3.65.0). `docs/ci.md` auto-merged with #346; vs main it still differs by only the image tag. package.json and the lock are blob-identical to the Dependabot commit; the workflow image pins are blob-identical to `dd1f741b`. Nothing dropped.
+- [x] `package.json`: only `@playwright/test` 1.65.0 → 1.65.1 (exact pin, no range). package.json version == lock version.
+- [x] Lockfile: only `node_modules/@playwright/test`, `node_modules/playwright` and `node_modules/playwright-core` 1.65.0 → 1.65.1. No added or removed packages. Every `resolved` URL is `registry.npmjs.org`. sha512 integrities of all three match the npm registry. No `hasInstallScript` and no install scripts.
+- [x] Image pins: `mcr.microsoft.com/playwright:v1.65.1-noble` in `.github/workflows/ci.yml`, `.github/workflows/snapshots.yml` and `docs/ci.md`, matching the npm version. `scripts/update-snapshots.sh` already derives `v$(package.json)-noble` and was not edited. `docs/testing.md` still describes `v<version>-noble`. Repo-wide leftover `v1.65.0-noble` / `v1.64.1-noble` is only historical (`docs/qa/`). The tag exists: the MCR registry returned HTTP 200 for `mcr.microsoft.com/v2/playwright/manifests/v1.65.1-noble` (OCI index). Workflow permissions, triggers, secrets and `timeout-minutes` (e2e 30, update-snapshots 40) are unchanged; only the image tag line moved in the two workflows.
+- [x] CHANGELOG: an Unreleased Maintenance bullet, `ci: bump @playwright/test to 1.65.1 and pin the Playwright image`, links https://github.com/thordin9/apotheke/pull/342. Placement and wording match #311 / #183. A hand-written bullet is appropriate here because the PR also pins the CI image; pure Dependabot bumps still rely on release.php.
+- [x] Upstream 1.65.1 (https://github.com/microsoft/playwright/releases/tag/v1.65.1, 2026-11-13) is a patch: it restores loading of decorated classes with static fields when `useDefineForClassFields` is false, and fixes test locations being one column off under Bun 1.4.4+. Breaking changes listed in 1.65.0 are already on main. Browser versions move from Chromium 158.0.8127.18 (1.65.0) to Chromium 159.0.8154.6 (Firefox 159.0 and WebKit 27.2 unchanged). All 3 Visual E2E shards passed on the new image with no baseline updates.
+
+## Findings
+
+| ID | Grade | Finding |
+|---|---|---|
+| L-2432 | Low | The GitHub PR title is 71 characters, 78 including " (#342)", over the 72-character Conventional Commits limit. The pin commit is within the limit (50). Retitle (or squash with) `ci: bump @playwright/test to 1.65.1 and pin the Playwright image` (64, 71 including " (#342)"), not the PR title as-is. |
+
+0 High, 0 Medium, 1 Low, 0 Nit.
+
+## Verdict
+
+**PASS** at `47ebfbae`, 0 behind main `69912dda` (v3.65.0). Highs and Mediums block; none are open. Squash-merge with `ci: bump @playwright/test to 1.65.1 and pin the Playwright image (#342)` once the docs(qa) commit is on the branch and CI on that commit is green. A `ci` change does not cut a release. This clear is only for the current main. After any other PR merges, #342 needs a plain catch-up, a merge-only read and a reissued doc before it can be squashed.
