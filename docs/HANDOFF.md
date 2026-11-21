@@ -70,6 +70,12 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 - Unparsable paths (#332, `fix/unparsable-paths`): a path PHP's `parse_url()` rejects, such as `/stats:1`, keeps its
   path up to `?` (`Core\Http\RequestPath`, also in the front controllers) and is a 404; under `/api` the API's 404.
 
+- Operator console writes: both Worker configs declare `OPS_WRITES_ENABLED=1`; the approved deployment enables
+  implemented write routes and lifecycle confirmations (apotheke-api first, then apotheke-ops). Access, CSRF and
+  primary refusals remain. `OPS_PROVISIONING=0` and `LIMITS_ENABLED=0` remain unchanged. The ops deploy config accepts
+  writes `0` or `1` to allow rollback, but still refuses provisioning or limits. See
+  [deployment and rollback](operator-console.md#deploying-the-console) before deploying; this local change alone
+  does not change the live flags.
 - Operator console C1 (#317) and C2 (#320) are released in v3.47.0 and v3.48.0: read-only `GET /stats`, `/users` and
   `/limits` on `d1.internal`; with `APOTHEKE_HOSTED` the plan's limits, always-on sign-in, the first-admin claim and
   one stored backup per lifecycle job on `ops.internal`

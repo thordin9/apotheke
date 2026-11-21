@@ -28,8 +28,8 @@
 	// No AUTOFILL binding: the lifecycle Workflow runs on apotheke-api, whose own AUTOFILL serves purge.autofill.
 	"services": [{ "binding": "OPS", "service": "apotheke-api", "entrypoint": "Ops" }],
 	// LIFECYCLE: the lifecycle Workflow (edge/src/lifecycle-workflow.ts), hosted on apotheke-api (edge/storage.jsonc), with its own DB, R2, Durable Objects and AUTOFILL. No R2 or Durable
-	// Object binding here. POST /jobs/:id/confirm starts an instance through LIFECYCLE; both Workers' writes flags must
-	// be enabled by a reviewed change before a job can act (docs/operator-console.md#deploying-the-console).
+	// Object binding here. POST /jobs/:id/confirm starts an instance through LIFECYCLE; a job acts only while both
+	// Workers' writes flags are "1" (docs/operator-console.md#deploying-the-console).
 	"workflows": [{ "name": "apotheke-lifecycle", "binding": "LIFECYCLE", "class_name": "LifecycleWorkflow", "script_name": "apotheke-api" }],
 	// Paused: no Cron Trigger (an empty list also removes any cron left on the Worker).
 	"triggers": { "crons": [] },
@@ -41,9 +41,9 @@
 		// Comma-separated emails that may use the console (case-insensitive). Set where the Worker is deployed. Empty
 		// admits no one: every request gets 503 not_configured.
 		"OPS_ALLOWED_EMAILS": "",
-		// "0": every write (POST, PUT, PATCH, DELETE) is 403 writes_disabled; the console ships read-only. "1" only
-		// for the writes that have passed QA. Reported by GET /api/ops/v1/config.
-		"OPS_WRITES_ENABLED": "0",
+		// "1": the console's writes (POST, PUT, PATCH, DELETE) are on in production; anything else makes every write 403
+		// writes_disabled. Reported by GET /api/ops/v1/config.
+		"OPS_WRITES_ENABLED": "1",
 		// "0": provisioning new installations is off (prod). Reported by GET /api/ops/v1/config.
 		"OPS_PROVISIONING": "0",
 		// Plan limits, as apotheke-api's LIMITS_ENABLED. "0" on prod. Reported by GET /api/ops/v1/config.

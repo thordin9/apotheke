@@ -466,12 +466,12 @@ test('E4 Workflow wiring: C1 is not wired yet and fails closed; the instance run
   assert.ok(!w.container.running.has('tenant-a'));
 });
 
-test('E4 ships paused: no cron on apotheke-api, the Workflow only with the storage bindings, writes off', () => {
+test('E4 ships paused: no cron on apotheke-api, the Workflow only with the storage bindings, writes on', () => {
   const src = (f) => readFileSync(new URL(f, import.meta.url), 'utf8');
   for (const f of ['../wrangler.jsonc', '../storage.jsonc']) assert.doesNotMatch(src(f), /"(triggers|crons)"/, f);
   assert.doesNotMatch(src('../wrangler.jsonc'), /"workflows"/);
   assert.match(src('../storage.jsonc'), /"workflows": \[\{ "name": "apotheke-lifecycle", "binding": "LIFECYCLE", "class_name": "LifecycleWorkflow" \}\]/);
-  assert.match(src('../wrangler.jsonc'), /"OPS_WRITES_ENABLED": "0"\n/);
+  assert.match(src('../wrangler.jsonc'), /"OPS_WRITES_ENABLED": "1"\n/);
   assert.match(src('../src/index.ts'), /^export \{ LifecycleWorkflow \} from "\.\/lifecycle-workflow";$/m);
 });
 
