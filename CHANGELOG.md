@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** a lifecycle purge also deletes the installation's autofill budget, after its storage is purged ([#347](https://github.com/thordin9/apotheke/pull/347))
+
 ## [3.64.0] - 2026-11-21
 
 ### Added
