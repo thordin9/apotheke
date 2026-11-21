@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **auth:** the hosted admin reset matches session records on the account's own uid field only ([#355](https://github.com/thordin9/apotheke/pull/355))
+
 ### Maintenance
 
 - ci: bump @playwright/test to 1.65.1 and pin the Playwright image ([#342](https://github.com/thordin9/apotheke/pull/342))
