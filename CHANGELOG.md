@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **edge:** the operator console Worker no longer carries the unused autofill service binding ([#362](https://github.com/thordin9/apotheke/pull/362))
+
 ## [3.68.0] - 2026-11-21
 
 ### Added
