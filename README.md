@@ -57,8 +57,8 @@ your phone, to encrypt stored secrets with `APP_KEY`, to use PostgreSQL or to ru
 
 Docker is the recommended way to self-host. To run it on your own Cloudflare account instead, see
 [self-hosting on Cloudflare](docs/self-host-cloudflare.md). The project's hosted API already runs in storage mode
-(D1, an Installation Durable Object and R2). A self-hosted copy can use the same storage code; on d1, restoring a
-backup is not available yet.
+(D1, an Installation Durable Object and R2). A self-hosted copy can use the same storage code. On d1, a backup can
+be restored (each restore keeps the catalog before it under the installation's `backups/`).
 
 ## Documentation
 
