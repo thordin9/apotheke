@@ -54,8 +54,8 @@
 		// enforcement off and forwards every request as before; primary is never limited.
 		"LIMITS_ENABLED": "0",
 		// The lifecycle Workflow (LifecycleWorkflow, declared in edge/storage.jsonc) acts only while this is exactly "1",
-		// as apotheke-ops's var of the same name. "0" on prod. Read by the Workflow only; the container never sees it.
-		"OPS_WRITES_ENABLED": "0"
+		// as apotheke-ops's var of the same name. "1" on prod. Read by the Workflow only; the container never sees it.
+		"OPS_WRITES_ENABLED": "1"
 	},
 	// Secrets: set on the Worker with `wrangler secret put` (locally .dev.vars, git-ignored). Names only.
 	"secrets": { "required": ["APP_PASSWORD", "APP_KEY"] }
