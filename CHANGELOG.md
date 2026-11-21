@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **edge:** the lifecycle Workflow runs on apotheke-api and the operator console binds it, refusing to act while writes are off or for primary ([#359](https://github.com/thordin9/apotheke/pull/359))
+
 ## [3.67.0] - 2026-11-21
 
 ### Added
