@@ -1,8 +1,8 @@
 # QA 2 review: apotheke #359, host the lifecycle Workflow on apotheke-api
 
 - PR: https://github.com/thordin9/apotheke/pull/359 (Coder)
-- Reviewed head: `2e91622a106c1030891a5675d4c4c1d5b4a4030a`, 0 behind main `7811b980` (#360, after v3.67.0). Content reviewed at `2c0dd100` (`b70e642` feat, `2c0dd10` docs(changelog)) on `97d5e6e7` (v3.67.0), then caught up by plain merges: `cf9fb8e` (parents `[2c0dd10, 4f28784d]`, #358; only `CHANGELOG.md` hand-resolved, both `[Unreleased]` bullets kept), `1bcdbc0` (parents `[cf9fb8e, 98135012]`, #343; only `edge/worker-configuration.d.ts` and `edge/ops/worker-configuration.d.ts` hand-resolved, regenerated with wrangler 4.164.0, and they differ from main only by #359's `OPS_WRITES_ENABLED` and `LIFECYCLE` lines and header hashes) and `2e91622` (parents `[1bcdbc0, 7811b980]`, #360; equal to its `merge-tree`). VERSION 3.67.0 as main.
-- CI on `2c0dd100`: CI 44899104973, Deploy edge 44899104949 (includes Check and dry run (apotheke-api)), CodeQL 44899100573, all green (the three Deploy jobs skipped). On `2e91622a`: CI 44905644664, Deploy edge 44905644570, CodeQL 44905641632, green.
+- Reviewed head: `322ccd2805792bd8358b67aa7a3df44b6c05975e`, 0 behind main `69266595` (#361, after v3.67.0). Content reviewed at `2c0dd100` (`b70e642` feat, `2c0dd10` docs(changelog)) on `97d5e6e7` (v3.67.0), then caught up by plain merges: `cf9fb8e` (parents `[2c0dd10, 4f28784d]`, #358; only `CHANGELOG.md` hand-resolved, both `[Unreleased]` bullets kept), `1bcdbc0` (parents `[cf9fb8e, 98135012]`, #343; only `edge/worker-configuration.d.ts` and `edge/ops/worker-configuration.d.ts` hand-resolved, regenerated with wrangler 4.164.0, and they differ from main only by #359's `OPS_WRITES_ENABLED` and `LIFECYCLE` lines and header hashes) `2e91622` (parents `[1bcdbc0, 7811b980]`, #360) and `322ccd2` (parents `[43b380c, 69266595]`, #361; `43b380c` is the earlier QA doc, replaced by this one), each equal to its `merge-tree`. VERSION 3.67.0 as main.
+- CI on `2c0dd100`: CI 44899104973, Deploy edge 44899104949 (includes Check and dry run (apotheke-api)), CodeQL 44899100573, all green (the three Deploy jobs skipped). On `322ccd28`: CI 44908844407, Deploy edge 44908844394, CodeQL 44908840963, green.
 - Gate: full (code and deploy config of a write path). Reviewed by QA 2 on 2026-11-21 (UTC+2).
 
 ## Checklist
@@ -25,4 +25,4 @@
 
 ## Verdict
 
-**PASS** at `2e91622a`, 0 behind main `7811b980`. No High or Medium findings. This doc lands byte-exact as the last commit ("docs(qa): add QA 2 review for #359"), followed by the hash check and green CI on that head. Squash as "feat(edge): host the lifecycle Workflow on apotheke-api (#359)". As a `feat`, this cuts a minor release; the first approved deploy declares the Workflow on prod apotheke-api with both flags at `"0"`.
+**PASS** at `322ccd28`, 0 behind main `69266595`. No High or Medium findings. This doc lands byte-exact as the last commit ("docs(qa): add QA 2 review for #359"), followed by the hash check and green CI on that head. Squash as "feat(edge): host the lifecycle Workflow on apotheke-api (#359)". As a `feat`, this cuts a minor release; the first approved deploy declares the Workflow on prod apotheke-api with both flags at `"0"`.
