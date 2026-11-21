@@ -96,7 +96,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- Shared session match for one account (branch `refactor/uid-session-match`): `Auth\SessionUidMatch` builds the
+- Shared session match for one account (branch `refactor/uid-session-match`, [#360](https://github.com/thordin9/apotheke/pull/360)): `Auth\SessionUidMatch` builds the
   `uid|i:<id>;` session match used by the hosted admin reset and the hosted user disable. No behaviour change.
 - `check-dist` and its tests fail fast when `frontend/dist` is missing, with a note to run `npm ci` and `npm run build` in `frontend/`.
 - `RestoreFenceTest` checks a waiting fence claim by outcome, not wall-clock bounds.
