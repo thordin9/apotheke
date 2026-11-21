@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Changed
 
-- **frontend:** the self-hosted stylesheet uses the shared colour, type, space and radius tokens, with a paper header in the light theme
+- **frontend:** the self-hosted stylesheet uses the shared colour, type, space and radius tokens, with a paper header in the light theme ([#357](https://github.com/thordin9/apotheke/pull/357))
 
 ## [3.62.0] - 2026-11-21
 
