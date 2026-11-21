@@ -1,6 +1,6 @@
 # Feature 12 — Migrating Apotheke to CodeIgniter 4: plan (rev. 3)
 
-*Status: approved rev. 3 (PM + QA), committed in PR 1.*
+*Status: approved rev. 3 (PM + QA), committed in PR 1. Cutover and 3.0.0 are done; `main` is the CI4 app (latest release v3.68.0). The text below is the historical plan.*
 *Base: **`v2.5.0`** = **`87850e379d85d6690e232ba107373208f9b7ffbd`** (tag object `85a1a3f`, 2026-10-20 10:11 EEST),
 `chore(release): v2.5.0` on top of `5633472` (merge of PR #28; its tree equals PR head `56f5b08`). **The v2.5.0 tag check is verified** (QA PASS at 10:15 EEST, 87850e3, only VERSION, CHANGELOG and README coverage tables changed). The diff
 from 56f5b08/5633472 is those files (`VERSION`, `CHANGELOG.md`, `README.md`), as reported by Coder,
@@ -351,12 +351,11 @@ at 100%. Aim for under ~1,500 changed lines, excluding views moved verbatim.
 | 17 | `docs(ci4): docs rewrite` | §6 | link check; QA reads the upgrade guide end to end |
 | 18 | **cutover** `feat!: Apotheke 3.0 on CodeIgniter 4` (→ **main**) | move `ci4/` to the root, delete legacy `src/` (LegacyFunctions stays in the Migrations module), drop the legacy legs, keep golden files | PM re-scan, QA full pass, DevOps deploy test, Stathis sign-off; **image size before/after recorded in the PR**; **live check 2 (≤25 Neurons)** per §4.4 with usage posted; release workflow cuts **3.0.0** |
 
-Step 18 status (cutover PR, open): `ci4/` is at the root (`app/`, `modules/`, `spark`, `writable/`, `tools/`,
+Step 18 status (cutover, done): `ci4/` is at the root (`app/`, `modules/`, `spark`, `writable/`, `tools/`,
 `tests/Modules/`; `public/` and `composer.json` are CI4's), the bin tools call spark, the image serves CI4 only, the
 legacy tests, `src/` and the legacy CI legs are gone, coverage measures the module suite and the root suite (with
 every HTTP request), and the upgrade gate's legacy side is v2.6.26 in a temporary worktree. The final parity gate ran
-on the pre-cutover head (run id in the PR and in HANDOFF) and was then retired. The 3.0.0 release and the branch
-switch are a later PR.
+on the pre-cutover head and was then retired. The branch switch and the 3.0.0 release have landed; `main` is the CI4 app.
 
 Step 11a status (#102): the item page, `/new`, `/item/{id}/edit`, save (one photo upload, `MAX_FILE_SIZE`), delete, undo
 and `/activity` are ported with a golden test (`tests/Unit/Ci4ItemParityTest.php`). The photo routes (add, order,

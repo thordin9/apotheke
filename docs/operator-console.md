@@ -1,9 +1,9 @@
 # Operator console: control-plane data
 
-Design note for the hosted service's operator console (managing installations, plans and limits, subscriptions,
-usage and an audit log). The Worker routes each request by host through this schema (see [Routing](#routing)). The
-console's Worker, `apotheke-ops`, is in `edge/ops/` (see [Console API](#console-api)); most of its API is not built
-yet.
+The hosted service's operator console manages installations, plans and limits, subscriptions,
+usage and an audit log. The Worker routes each request by host through this schema (see [Routing](#routing)). The
+console's Worker, `apotheke-ops`, is in `edge/ops/` (see [Console API](#console-api)). It is live at
+`console.getapotheke.com`, behind Cloudflare Access.
 
 ## Source of truth
 
@@ -423,8 +423,8 @@ not this endpoint and gets the usual 404. Self-hosted, it doesn't exist.
 
 `apotheke-ops` (`edge/ops/`) serves the console (`ops/console`, built to `ops/console/dist` and served as Workers
 static assets) and `/api/ops/v1` on its own host, behind Cloudflare Access. It has no routes, no `workers.dev` and no
-preview URLs in this repository: the host and the Access application are set up outside it, and the deploy is off
-until it is switched on (see [Deploying the console](#deploying-the-console)). Its bindings are the control-plane D1
+preview URLs in this repository: the host and the Access application are set up outside it (see
+[Deploying the console](#deploying-the-console)). Its bindings are the control-plane D1
 `DB` (the same database as apotheke-api's), `OPS`, apotheke-api's `Ops` entrypoint (see
 [Claim and admin reset from the operator console](#claim-and-admin-reset-from-the-operator-console)), `AUTOFILL`, the
 autofill Worker's `HostedAutofill` entrypoint (left in place, unused for purges), `LIFECYCLE`, the `apotheke-lifecycle`
@@ -661,18 +661,17 @@ Enabling them is a separate reviewed change; do not start a prod job as a deploy
 
 ### Going live
 
-Each step below is done by the team (DevOps) on the owner's go-ahead, in this order. The PM
-approves the `deploy-edge` environment review.
+The operator console is live at `console.getapotheke.com`, behind Cloudflare Access. The steps below are how the team
+brought it up, and how to take it offline. Each is done by the team (DevOps) on the owner's go-ahead, in this order.
+The PM approves the `deploy-edge` environment review.
 
-1. **Access application** (Zero Trust): a self-hosted application for `console.getapotheke.com` (the host is a
-   placeholder until then), policy *allow* for the email `<operator email>`, login with a one-time PIN sent by
-   email, session 8 hours. Note its audience tag.
+1. **Access application** (Zero Trust): a self-hosted application for `console.getapotheke.com`, policy *allow* for
+   the email `<operator email>`, login with a one-time PIN sent by email, session 8 hours. Note its audience tag.
 2. **Variables** of the `deploy-edge` environment: `OPS_ACCESS_TEAM_DOMAIN`, `OPS_ACCESS_AUD` and `OPS_ALLOWED_EMAILS`
    (`<operator email>`). `APOTHEKE_D1_DATABASE_ID` is already there. No new secret.
-3. **First deploy**: set the repository variable `OPS_DEPLOY_ENABLED` to `1`, then a manual run of Deploy edge on
-   `main` (or the next release), approved in the `deploy-edge` review. The Worker answers nothing until it has a
-   host.
-4. **Route**: attach `console.getapotheke.com` to `apotheke-ops` as a custom domain in the dashboard (Workers &
+3. **Deploy**: the repository variable `OPS_DEPLOY_ENABLED` is `1`. A manual run of Deploy edge on `main` (or a
+   release), approved in the `deploy-edge` review, deploys `apotheke-ops`.
+4. **Route**: `console.getapotheke.com` is attached to `apotheke-ops` as a custom domain in the dashboard (Workers &
    Pages, apotheke-ops, Domains & Routes), only after the Access application covers that host. Not in
    `edge/ops/wrangler.jsonc`: CI never adds a route.
 5. Check: without an Access session the host redirects to Access or is denied, with no console content;

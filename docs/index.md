@@ -37,7 +37,7 @@ Agents working on the codebase should start with [`AGENTS.md`](../AGENTS.md).
 | [Analytics](analytics.md) | Cookieless page-view counting on getapotheke.com with Counterscale: consent, what is stored, deploying from the pinned tag, secrets, Access, upgrading |
 | [Deployment and operations](deployment-and-operations.md) | Backup and restore, upgrades, Docker defaults, host names, reverse proxies and HTTPS, PostgreSQL role, security, monitoring |
 | [Storage-mode preview check](storage-preview-check.md) | DevOps checklist: prove an item and its photo survive a container sleep on a storage-mode Workers Preview |
-| [Operator console](operator-console.md) | Hosted control plane in D1: installations, routes, plans and limits, manual subscriptions, usage counters, audit; how `primary` is registered |
+| [Operator console](operator-console.md) | Hosted control plane in D1, live at `console.getapotheke.com` behind Cloudflare Access: installations, routes, plans and limits, manual subscriptions, usage counters, audit; how `primary` is registered |
 | [Contributing](contributing.md) | Ground rules, workflow, commit messages, adding a feature end to end |
 | [Workers migration plan](future/workers-migration-plan.md) | A possible future option, not scheduled: the API in TypeScript on Workers (D1, Durable Objects, R2), self-hosted on workerd |
 
