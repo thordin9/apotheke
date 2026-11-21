@@ -6,9 +6,9 @@ test.describe('theme switch', () => {
     const scheme = info.project.use.colorScheme;
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'auto');
     const bgAuto = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(bgAuto === 'rgb(17, 17, 19)').toBe(scheme === 'dark');   // auto follows the OS scheme
+    expect(bgAuto === 'rgb(15, 37, 44)').toBe(scheme === 'dark');   // auto follows the OS scheme
 
-    for (const [theme, bg, meta] of [['dark', 'rgb(17, 17, 19)', '#111113'], ['light', 'rgb(245, 245, 247)', null], ['auto', null, null]] as const) {
+    for (const [theme, bg, meta] of [['dark', 'rgb(15, 37, 44)', '#07161c'], ['light', 'rgb(253, 252, 250)', null], ['auto', null, null]] as const) {
       await app.menu();
       await page.locator(`.seg-btn[value="${theme}"]`).click();
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);

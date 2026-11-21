@@ -212,7 +212,7 @@ final class Ci4ApiUsersTest extends TestCase
         ApiContract::assertMatches('GET', '/api/v1/branding', $r);
         $this->assertSame([], $anon->cookies, 'no session for a public read');
         $b = $r['json'];
-        $this->assertSame(['name' => 'Apotheke', 'accent' => '#4f46e5', 'theme_default' => 'auto'],
+        $this->assertSame(['name' => 'Apotheke', 'accent' => '#5b3b8e', 'theme_default' => 'auto'],
             array_intersect_key($b, array_flip(['name', 'accent', 'theme_default'])));
         $login = $this->client()->get('/login');
         $this->assertSame(200, $login['status']);

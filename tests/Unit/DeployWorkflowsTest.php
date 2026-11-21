@@ -46,6 +46,55 @@ final class DeployWorkflowsTest extends TestCase
         yield 'edge' => ['deploy-edge.yml', 'deploy-edge', 'apotheke-api', 'edge', 'check'];
     }
 
+    /** The jobs of a deploy workflow that deploy: deploy-edge also deploys the operator console (deploy-ops). */
+    private static function deployJobs(string $file): array
+    {
+        return $file === 'deploy-edge.yml' ? ['deploy', 'deploy-ops'] : ['deploy'];
+    }
+
+    public function testDeployOpsIsOffByDefaultGatedLikeTheApiDeployAndAddsNoRoute(): void
+    {
+        // D1: apotheke-ops deploys only with OPS_DEPLOY_ENABLED=1 (skipped before the environment gate otherwise),
+        // on the same refs as apotheke-api, after it, in deploy-edge, with the same tag check and token gate.
+        $yml = $this->workflow('deploy-edge.yml');
+        $job = $this->job($yml, 'deploy-ops');
+        $this->assertStringContainsString("    needs: [check, deploy]\n", $job);
+        $this->assertSame(1, preg_match("/^    if: >-\n((?:      .*\n)+)/m", $job, $m));
+        $cond = (string)preg_replace('/\s+/', ' ', trim($m[1]));
+        $this->assertStringStartsWith("vars.OPS_DEPLOY_ENABLED == '1' && !cancelled() && needs.check.result == 'success' && needs.deploy.result != 'failure' && (", $cond);
+        $this->assertStringEndsWith("(github.event_name == 'release' && !github.event.release.prerelease && startsWith(github.ref, 'refs/tags/v')) || "
+            . "(github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))))", $cond);
+        $this->assertStringContainsString("    environment: deploy-edge\n", $job);
+        $this->assertLessThan(strpos($job, '    environment: deploy-edge'), strpos($job, "vars.OPS_DEPLOY_ENABLED == '1'"));
+
+        $steps = $this->steps($yml, 'deploy-ops');
+        $this->assertSame($this->steps($yml, 'deploy')[0], $steps[0], 'the same tag check as apotheke-api');
+        $this->assertStringContainsString('id: token', $steps[1]);
+        $this->assertStringContainsString('if [ -n "$APOTHEKE_D1_DATABASE_ID" ]; then echo "::add-mask::$APOTHEKE_D1_DATABASE_ID"; fi', $steps[1]);
+        $this->assertStringNotContainsString('exit 1', $steps[1], 'a missing token skips, green');
+        $this->assertStringStartsWith('name: Console gate', $steps[2]);
+        $this->assertStringContainsString('if [ "$OPS_DEPLOY_ENABLED" != "1" ]; then', $steps[2]);
+        foreach (array_slice($steps, 2) as $step) {
+            $this->assertStringContainsString("if: steps.token.outputs.set == 'true'\n", $step);
+        }
+        $n = count($steps);
+        $this->assertStringContainsString("run: bash scripts/cf-deploy.sh apotheke-ops edge/ops\n", $steps[$n - 1], 'the deploy is the last step');
+        $this->assertStringContainsString("run: node scripts/ops-deploy-config.mjs edge/ops/wrangler.jsonc\n", $steps[$n - 2]);
+        $this->assertStringContainsString('npm run build && npm run test:bundle', $steps[$n - 3]);
+        $secretSteps = array_keys(array_filter($steps, static fn (string $s): bool => str_contains($s, 'secrets.')));
+        $this->assertSame([1, $n - 2, $n - 1], $secretSteps, 'the token check, the deploy config and the deploy step see secrets');
+        $this->assertStringNotContainsString('secrets.OPS_', $yml, 'the Access values are variables, not secrets');
+        $this->assertDoesNotMatchRegularExpression('/--route|custom_domain|wrangler (secret|d1|r2)/', $job);
+
+        // The PR check builds the console and dry-runs apotheke-ops with dummy values; no secret.
+        $check = $this->job($yml, 'check');
+        $this->assertStringContainsString('node scripts/cf-worker-guard.mjs apotheke-ops edge/ops/wrangler.jsonc -- --dry-run', $check);
+        $this->assertStringContainsString("'env.AUTOFILL (apotheke-autofill#HostedAutofill)'", $check);
+        $this->assertStringContainsString("'env.OPS (apotheke-api#Ops)'", $check);
+        $this->assertStringContainsString('git checkout -- edge/ops/wrangler.jsonc', $check);
+        $this->assertStringContainsString("      - 'ops/console/**'\n", $yml);
+    }
+
     public function testDeployEdgeFailsBeforeAnyWranglerCallUnlessStorageIsReady(): void
     {
         $yml = $this->workflow('deploy-edge.yml');
@@ -195,9 +244,11 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertStringContainsString('if [ "$state" != "draft=false prerelease=false" ]; then', $first);
         $this->assertStringNotContainsString('secrets.', $first);
         // N-1464: the token is only in this step, once; N-1465: the step runs in the shell the test runs it in.
+        // deploy-edge has a second deploy job (deploy-ops) with the same first step.
         $yml = $this->workflow($file);
-        $this->assertSame(1, substr_count($yml, 'GH_TOKEN'));
-        $this->assertSame(1, substr_count($yml, 'github.token'));
+        $jobs = count(self::deployJobs($file));
+        $this->assertSame($jobs, substr_count($yml, 'GH_TOKEN'));
+        $this->assertSame($jobs, substr_count($yml, 'github.token'));
         $this->assertSame(1, substr_count($first, 'GH_TOKEN: ${{ github.token }}'));
         $this->assertStringContainsString("\n        shell: bash\n        run: |\n", $first);
         foreach (['v1.2.3' => true, 'v10.0.0' => true, 'v1.2' => false, 'v1.2.3-rc.1' => false, 'v01.2.3' => false, 'v1.2.3x' => false, 'vX.Y.Z' => false] as $tag => $ok) {
@@ -211,21 +262,25 @@ final class DeployWorkflowsTest extends TestCase
         $yml = $this->workflow($file);
         $this->assertStringContainsString("\npermissions:\n  contents: read\n\n", $yml);
         // The deploy job states its own (it reads the tag's release, L-1460); every block is contents: read only.
-        $this->assertStringContainsString("    permissions:\n      contents: read\n    steps:\n", $this->job($yml, 'deploy'));
-        $this->assertSame(2, substr_count($yml, 'permissions:'));
-        $this->assertSame(2, preg_match_all("/^( *)permissions:\n\\1  contents: read\n(?!\\1  \\S)/m", $yml), 'no block widens the permissions');
+        $deployJobs = self::deployJobs($file);
+        $jobs = 1 + count($deployJobs);
+        foreach ($deployJobs as $job) {
+            $this->assertStringContainsString("    permissions:\n      contents: read\n    steps:\n", $this->job($yml, $job));
+        }
+        $this->assertSame($jobs, substr_count($yml, 'permissions:'));
+        $this->assertSame($jobs, preg_match_all("/^( *)permissions:\n\\1  contents: read\n(?!\\1  \\S)/m", $yml), 'no block widens the permissions');
         $this->assertDoesNotMatchRegularExpression('/id-token|contents:\s*write|: write\b|write-all/', $yml);
         $this->assertStringNotContainsString('pull_request_target', $yml);
 
         // One checkout per job, pinned by a full commit SHA with its version as a comment (any version, so a
         // Dependabot bump passes), the same SHA everywhere, and no credentials left behind.
-        $this->assertSame(2, preg_match_all('/^      - uses: actions\/checkout@([0-9a-f]{40}) # v\d\S*\n/m', $yml, $pins), 'one checkout per job, pinned by SHA');
-        foreach ([$check, 'deploy'] as $job) {
+        $this->assertSame($jobs, preg_match_all('/^      - uses: actions\/checkout@([0-9a-f]{40}) # v\d\S*\n/m', $yml, $pins), 'one checkout per job, pinned by SHA');
+        foreach ([$check, ...$deployJobs] as $job) {
             $this->assertSame(1, preg_match_all('/^      - uses: actions\/checkout@/m', $this->job($yml, $job)), "one checkout in $job");
         }
-        $this->assertSame(1, count(array_unique($pins[1])), 'both checkouts use the same SHA');
-        $this->assertSame(2, substr_count($yml, 'actions/checkout@'));
-        $this->assertSame(2, preg_match_all("/uses: actions\/checkout@[0-9a-f]{40} # v\S+\n(?:        if: .*\n)?        with:\n          persist-credentials: false\n/", $yml));
+        $this->assertSame(1, count(array_unique($pins[1])), 'every checkout uses the same SHA');
+        $this->assertSame($jobs, substr_count($yml, 'actions/checkout@'));
+        $this->assertSame($jobs, preg_match_all("/uses: actions\/checkout@[0-9a-f]{40} # v\S+\n(?:        if: .*\n)?        with:\n          persist-credentials: false\n/", $yml));
         $this->assertSame(0, preg_match_all('/persist-credentials: true/', $yml));
         if ($file === 'deploy-frontend.yml') {
             // N-1411: the build reads the latest release tag and its date.
@@ -304,7 +359,8 @@ final class DeployWorkflowsTest extends TestCase
         // on every setup-node step, so a Dependabot bump can't silently start saving or restoring a cache here.
         $yml = $this->workflow($file);
         $found = 0;
-        foreach ([$check, 'deploy'] as $job) {
+        $jobs = [$check, ...self::deployJobs($file)];
+        foreach ($jobs as $job) {
             foreach ($this->steps($yml, $job) as $step) {
                 if (!str_starts_with($step, 'uses: actions/setup-node@')) {
                     continue;
@@ -314,9 +370,9 @@ final class DeployWorkflowsTest extends TestCase
                 $this->assertDoesNotMatchRegularExpression('/^          cache(-dependency-path)?:/m', $step, "setup-node in $job");
             }
         }
-        $this->assertSame(2, $found, 'one setup-node per job');
-        $this->assertSame(2, substr_count($yml, 'actions/setup-node@'));
-        $this->assertSame(2, preg_match_all('/^ +package-manager-cache:/m', $yml), 'only on the two setup-node steps');
+        $this->assertSame(count($jobs), $found, 'one setup-node per job');
+        $this->assertSame(count($jobs), substr_count($yml, 'actions/setup-node@'));
+        $this->assertSame(count($jobs), preg_match_all('/^ +package-manager-cache:/m', $yml), 'only on the setup-node steps');
         $this->assertStringNotContainsString('actions/cache', $yml);
     }
 
@@ -378,9 +434,11 @@ final class DeployWorkflowsTest extends TestCase
     public function testConcurrencyIsOneGroupPerEnvironmentAndNeverCancelsADeploy(string $file, string $env): void
     {
         $yml = $this->workflow($file);
-        $this->assertStringContainsString("    concurrency:\n      group: $env\n      cancel-in-progress: false\n", $this->job($yml, 'deploy'));
+        foreach (self::deployJobs($file) as $job) {
+            $this->assertStringContainsString("    concurrency:\n      group: $env\n      cancel-in-progress: false\n", $this->job($yml, $job));
+        }
         $this->assertStringContainsString("cancel-in-progress: \${{ github.event_name == 'pull_request' }}\n", $yml);
-        $this->assertSame(2, substr_count($yml, 'cancel-in-progress:'));
+        $this->assertSame(1 + count(self::deployJobs($file)), substr_count($yml, 'cancel-in-progress:'));
         $other = $env === 'deploy-site' ? 'deploy-edge' : 'deploy-site';
         $this->assertStringNotContainsString("group: $other", $yml);
     }
@@ -417,7 +475,7 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/echo[^\n]*\$CLOUDFLARE_(API_TOKEN|ACCOUNT_ID)/', $sh);
 
         $mjs = self::file('scripts/cf-worker-guard.mjs');
-        $this->assertStringContainsString('const ALLOWLIST = new Set(["getapotheke-app", "apotheke-api"]);', $mjs);
+        $this->assertStringContainsString('const ALLOWLIST = new Set(["getapotheke-app", "apotheke-api", "apotheke-ops"]);', $mjs);
         $this->assertStringContainsString('for (const other of ["wrangler.json", "wrangler.toml"])', $mjs);
         $this->assertStringContainsString('join(dir, ".wrangler", "deploy", "config.json")', $mjs);
         foreach (['edge/wrangler.jsonc', 'edge/app/wrangler.jsonc'] as $cfg) {

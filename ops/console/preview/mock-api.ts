@@ -11,7 +11,7 @@ import type {
   SubscriptionDueList,
   SubscriptionStatus,
 } from '../src/api/types.ts';
-import { NOW, audit, installations, jobs, limits, plans, routes, subscriptions, usage } from './fixtures.ts';
+import { NOW, audit, installationUsers, installations, jobs, limits, plans, routes, subscriptions, usage } from './fixtures.ts';
 
 const statuses: InstallationStatus[] = ['provisioning', 'active', 'suspended', 'deleting', 'deleted'];
 const subStatuses: SubscriptionStatus[] = ['trial', 'active', 'past_due', 'cancelled'];
@@ -38,6 +38,8 @@ export function handleMock(method: string, url: URL, fault = ''): MockResult {
     if (path === '/jobs') return ok(listJobs(url));
     if (path === '/audit') return ok(listAudit(url));
     if (path === '/audit.csv') return csv(url);
+    const usersPath = /^\/installations\/([^/]+)\/users$/.exec(path);
+    if (usersPath) return usersOf(decodeURIComponent(usersPath[1]));
     const detail = /^\/installations\/([^/]+)$/.exec(path);
     if (detail) {
       const id = decodeURIComponent(detail[1]);
@@ -74,6 +76,30 @@ function ok(body: object): MockResult {
 
 function fail(status: number, code: string, detail?: string): MockResult {
   return { status, body: detail ? { ok: false, code, detail } : { ok: false, code } };
+}
+
+function usersOf(id: string): MockResult {
+  if (id === 'primary') return fail(403, 'primary');
+  if (id === 'old') return fail(410, 'gone');
+  if (id === 'nohost') return fail(409, 'no_host');
+  if (id === 'unread') return fail(503, 'unavailable', 'read_failed');
+  if (id === 'unconfigured') return fail(503, 'not_configured');
+  const found = one(id);
+  if (!found) return fail(404, 'not_found');
+  if (found.installation.status === 'deleted') return fail(410, 'gone');
+  if (found.installation.status !== 'provisioning' && found.installation.status !== 'active') return fail(409, 'not_startable');
+  if (found.routes.length === 0) return fail(409, 'no_host');
+  const rows = installationUsers.filter((item) => item.installation_id === id).map((item) => ({
+    id: item.id,
+    username: item.username,
+    display_name: item.display_name,
+    roles: item.roles,
+    active: item.active,
+    status: item.status,
+    created_at: item.created_at,
+    last_login_at: item.last_login_at,
+  }));
+  return { status: 200, body: { ok: true, installation: id, users: rows, next_cursor: null } };
 }
 
 function one(id: string): InstallationSummary | null {

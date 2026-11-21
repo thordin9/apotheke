@@ -24,7 +24,7 @@ final class Ci4PagesGoldenTest extends TestCase
     private const GOLDEN = [
         'GET /' => [
             'status' => 200,
-            'sha1' => 'f58221024d5e0cf5c542dc39923f5b63f120f9cf',
+            'sha1' => 'fd5b96a81f9ebb63ffc9a9c8e93eb86f11b74269',
             'content-type' => 'text/html; charset=UTF-8',
             'cache-control' => 'no-store',
             'x-content-type-options' => 'nosniff',
@@ -32,7 +32,7 @@ final class Ci4PagesGoldenTest extends TestCase
         ],
         'GET /item/1' => [
             'status' => 200,
-            'sha1' => 'bb90af88f6a33fade380768d7e8f2bf7aa688219',
+            'sha1' => '0d5de7c0adb228fd51b82e75aa4d0183eeca4c2e',
             'content-type' => 'text/html; charset=UTF-8',
             'cache-control' => 'no-store',
             'x-content-type-options' => 'nosniff',
@@ -40,7 +40,7 @@ final class Ci4PagesGoldenTest extends TestCase
         ],
         'GET /item/1/edit' => [
             'status' => 200,
-            'sha1' => '1d6d390668fa6d26570481c8525fc8bebc7cb56e',
+            'sha1' => '7135bcbb2dad88faf95c6765a2b667230a6762f9',
             'content-type' => 'text/html; charset=UTF-8',
             'cache-control' => 'no-store',
             'x-content-type-options' => 'nosniff',
@@ -48,7 +48,7 @@ final class Ci4PagesGoldenTest extends TestCase
         ],
         'GET /item/999' => [
             'status' => 404,
-            'sha1' => 'aca4c0124cbca4ee6705e4871a1556c448c74d11',
+            'sha1' => '3cc749155e4c8d8dcab897e4eca78b9e64bb58f8',
             'content-type' => 'text/html; charset=UTF-8',
             'cache-control' => 'no-store, max-age=0, no-cache',
             'x-content-type-options' => 'nosniff',

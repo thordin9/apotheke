@@ -44,22 +44,22 @@
   --brand-wordmark: #4b3081;         /* the wordmark text colour */
 
   /* spacing (Hallmark shared scale) */
-  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
+  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 32px; --space-2xl: 48px; --space-3xl: 72px; --space-4xl: 96px;
   /* type: page scale (landing) */
   --text-xs: 0.8125rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.25rem; --text-xl: 1.5625rem; --text-2xl: 1.953rem; --text-3xl: 2.441rem;
-  --text-display-s: clamp(2.25rem, 4vw + 0.5rem, 3.75rem); --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
-  --text-section: clamp(2rem, 2.5vw + 1rem, 3.5rem); --text-title: clamp(1.25rem, 0.75vw + 0.875rem, 1.625rem); --text-lead: clamp(1.125rem, 0.35vw + 1rem, 1.375rem);
+  --text-display-s: clamp(1.75rem, 2vw + 0.75rem, 2.5rem); --text-display: clamp(2.25rem, 3.2vw + 0.8rem, 3.25rem);
+  --text-section: clamp(1.5rem, 1.5vw + 0.9rem, 2.25rem); --text-title: clamp(1.25rem, 0.75vw + 0.875rem, 1.625rem); --text-lead: clamp(1.125rem, 0.35vw + 1rem, 1.375rem);
   /* type: app scale (fixed, ratio 1.2; Hallmark app screens) */
   --app-text-xs: 0.8125rem; --app-text-sm: 0.875rem; --app-text-md: 1rem; --app-text-lg: 1.2rem; --app-text-xl: 1.44rem; --app-text-2xl: 1.728rem;
   --font-display: "Epilogue", "Apotheke Greek", ui-sans-serif, system-ui, sans-serif; --font-body: var(--font-display);
   --font-brand: "Nunito", "Epilogue", ui-rounded, system-ui, sans-serif; /* wordmark only */
   --font-outlier: "IBM Plex Mono", ui-monospace, monospace;
-  --tracking-display: -0.04em; --display-weight: 700; --body-weight: 400; --strong-weight: 600;
+  --tracking-display: -0.03em; --display-weight: 700; --body-weight: 400; --strong-weight: 600;
   /* motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
   /* layout */
-  --container: 1440px; --gutter: 64px; --gap-columns: 32px; --section-gap-s: 120px; --section-gap: 144px; --section-gap-l: 176px;
+  --container: 1440px; --gutter: 32px; --gap-columns: 32px; --section-gap-s: 64px; --section-gap: 80px; --section-gap-l: 96px;
   --app-container: 1200px; --form-measure: 40rem;
   --control-h: 44px; --app-control-h: 40px; --hit: 44px;
   --mascot-s: 48px; --mascot-m: 120px; --mascot-l: 200px; /* reserved square slots for mascot poses */
@@ -88,9 +88,9 @@
   --color-success: #1f6b45;
   --color-overlay: rgb(4 48 61 / 0.55);
   --shadow-card: 0 20px 40px rgb(4 48 61 / 0.14);
-  --shadow-rest: 0 1px 2px rgb(4 48 61 / 0.06), 0 12px 28px rgb(4 48 61 / 0.08);
-  --color-header: #04303d;
-  --color-header-ink: #fdfcfa;
+  --shadow-rest: 0 1px 2px rgb(4 48 61 / 0.04), 0 4px 12px rgb(4 48 61 / 0.05);
+  --color-header: var(--color-paper);
+  --color-header-ink: var(--color-ink);
 }
 /* dark: brand set + the neutrals that move (paper 16%, ink 95%, elevation lighter, no resting shadow).
    The two dark blocks must stay identical; contrast.mjs fails if they drift. */
@@ -101,7 +101,7 @@
   --brand-tertiary: #f2949a; --brand-tertiary-ink: #2b0609; --brand-tertiary-soft: #3c1a1d;
   --brand-outline: #8fb3bd; --brand-tan: #cfa267; --brand-grey: #43434d; --brand-wordmark: #f4efe8;
   --brand-halo: #8fb3bd; --mascot-halo: drop-shadow(1px 0 0 var(--brand-halo)) drop-shadow(-1px 0 0 var(--brand-halo)) drop-shadow(0 1px 0 var(--brand-halo)) drop-shadow(0 -1px 0 var(--brand-halo));
-  --color-paper: #0a1d23; --color-paper-2: #0f252c; --color-paper-3: #152e36;
+  --color-paper: #0f252c; --color-paper-2: #152e36; --color-paper-3: #1c3944;
   --color-ink: #eef3f3; --color-ink-2: #cdd9dc; --color-muted: #9db1b7;
   --color-rule: #24414a; --color-rule-2: #1a343c; --color-field-edge: #6f8f98;
   --color-success: #7fd1a4;
@@ -116,7 +116,7 @@
     --brand-tertiary: #f2949a; --brand-tertiary-ink: #2b0609; --brand-tertiary-soft: #3c1a1d;
     --brand-outline: #8fb3bd; --brand-tan: #cfa267; --brand-grey: #43434d; --brand-wordmark: #f4efe8;
   --brand-halo: #8fb3bd; --mascot-halo: drop-shadow(1px 0 0 var(--brand-halo)) drop-shadow(-1px 0 0 var(--brand-halo)) drop-shadow(0 1px 0 var(--brand-halo)) drop-shadow(0 -1px 0 var(--brand-halo));
-    --color-paper: #0a1d23; --color-paper-2: #0f252c; --color-paper-3: #152e36;
+    --color-paper: #0f252c; --color-paper-2: #152e36; --color-paper-3: #1c3944;
     --color-ink: #eef3f3; --color-ink-2: #cdd9dc; --color-muted: #9db1b7;
     --color-rule: #24414a; --color-rule-2: #1a343c; --color-field-edge: #6f8f98;
     --color-success: #7fd1a4;

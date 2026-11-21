@@ -365,6 +365,12 @@ operator Worker's service binding. It has no route, and this Worker declares no 
   `unknown_installation`, `ambiguous_installation`, `not_startable`, `bad_app_key`, `unavailable` (the container did
   not start) and `unreachable` (the request did not finish). The claim token is only in the result: it is not logged
   and not put in an error.
+- **`listUsers(installation)`** resolves and refuses the installation exactly like `claimCreate`, then reads
+  `GET /users` (see [Hosted installations](#hosted-installations)) from the installation's `Installation` object. The
+  container is not started and nothing is signed: the read never leaves the edge. It returns `{ok:true, users}` with
+  only `id`, `username`, `role`, `status`, `created_at` and `last_login_at` per account (any other field is dropped),
+  or `{ok:false, code, status?}`: the refusals above, `unbound` (storage mode is not selected), `read_failed` (the
+  read failed), `http_<status>`, `bad_answer` (a field missing or of the wrong type) and `unreachable`.
 
 ## Backup for a lifecycle job
 
@@ -405,33 +411,40 @@ not this endpoint and gets the usual 404. Self-hosted, it doesn't exist.
 
 `apotheke-ops` (`edge/ops/`) serves the console (`ops/console`, built to `ops/console/dist` and served as Workers
 static assets) and `/api/ops/v1` on its own host, behind Cloudflare Access. It has no routes, no `workers.dev` and no
-preview URLs in this repository: the host, the Access application and the deploy are set up outside it. Its bindings
-are the control-plane D1 `DB` (the same database as apotheke-api's) and `OPS`, apotheke-api's `Ops` entrypoint (see
-[Claim and admin reset from the operator console](#claim-and-admin-reset-from-the-operator-console)); it has no R2
-binding. Calls are same-origin. The credential is the Access cookie. There is no app session. The console's API base
+preview URLs in this repository: the host and the Access application are set up outside it, and the deploy is off
+until it is switched on (see [Deploying the console](#deploying-the-console)). Its bindings are the control-plane D1
+`DB` (the same database as apotheke-api's), `OPS`, apotheke-api's `Ops` entrypoint (see
+[Claim and admin reset from the operator console](#claim-and-admin-reset-from-the-operator-console)), `AUTOFILL`, the
+autofill Worker's `HostedAutofill` entrypoint (for the lifecycle Workflow's `purge.autofill` step), and `ASSETS`; it
+has no R2 binding. Calls are same-origin. The credential is the Access cookie. There is no app session. The console's API base
 defaults to same-origin `/api/ops/v1` (`<meta name="ops-api-base">` can set another). Responses are JSON unless a
 download says otherwise.
 
 Every request, the console's files included, goes through the Worker's script (`edge/ops/src/index.ts`) in this order:
 
-1. While `ACCESS_TEAM_DOMAIN` (`<team>.cloudflareaccess.com`) or `ACCESS_AUD` (the Access application's audience) is
-   empty, every request is 503 `not_configured`. Both are empty in `edge/ops/wrangler.jsonc`.
+1. While `ACCESS_TEAM_DOMAIN` (`<team>.cloudflareaccess.com`), `ACCESS_AUD` (the Access application's audience) or
+   `OPS_ALLOWED_EMAILS` (comma-separated emails, any case) is empty, every request is 503 `not_configured`. All three
+   are empty in `edge/ops/wrangler.jsonc`; the deploy sets them.
 2. `OPTIONS` is 405. No answer carries CORS headers.
-3. The `Cf-Access-Jwt-Assertion` token must be RS256-signed by one of the team's keys (read from
+3. The Access token (the `Cf-Access-Jwt-Assertion` header, or the `CF_Authorization` cookie when the header is
+   missing or empty) must be RS256-signed by one of the team's keys (read from
    `https://<team>/cdn-cgi/access/certs` and kept for five minutes; a token with an unknown key reads them again, at
    most every 30 seconds), with issuer `https://<team>`, the configured audience, and an `exp` in the future;
    `nbf` and `iat`, when present, may be up to 60 seconds in the future (clock skew); `exp` has no skew. Otherwise 401
-   `unauthorized`. The operator is the token's `email` (lower case); a token without one (a service token) is 403
-   `forbidden`. If the keys cannot be read (an answer other than 200, or no full answer within 5 seconds): 503
+   `unauthorized`. The operator is the token's `email` (lower case); a token without one (a service token), or with
+   an email that is not on `OPS_ALLOWED_EMAILS`, is 403 `forbidden`. If the keys cannot be read (an answer other than 200, or no full answer within 5 seconds): 503
    `access_unavailable`, and for the next 10 seconds every request gets that answer without fetching the keys
    again.
-4. A write (`POST`, `PUT`, `PATCH`, `DELETE`) needs `X-CSRF: 1` and an `Origin` equal to the request's own origin
+4. While `OPS_WRITES_ENABLED` is not exactly `"1"`, every write (`POST`, `PUT`, `PATCH`, `DELETE`) is 403
+   `writes_disabled`. It is `"0"` in `edge/ops/wrangler.jsonc`: the console ships read-only, and writes are turned on
+   only once they have passed QA.
+5. A write needs `X-CSRF: 1` and an `Origin` equal to the request's own origin
    (scheme and host); otherwise 403 `csrf`. There is no CSRF token. In the console, `csrfHeaders()` is the only place
    that header is set, so a real token can replace the fixed value later.
-5. `/api/ops/v1/…` goes to the API (`edge/ops/src/api.ts`); any other `/api/` path is 404 `not_found`; everything
+6. `/api/ops/v1/…` goes to the API (`edge/ops/src/api.ts`); any other `/api/` path is 404 `not_found`; everything
    else is the console's files. An unknown API path is 404 and a known one with another method 405, before any body
    is read.
-6. Only then is a write's body read: at most 4 KiB. A larger `Content-Length` is not read at all; without one,
+7. Only then is a write's body read: at most 4 KiB. A larger `Content-Length` is not read at all; without one,
    reading stops as soon as more than 4 KiB have arrived. Either is 422 `invalid_body`.
 
 Every answer is `Cache-Control: no-store` and carries `X-Request-Id`, which is also the `request_id` of any audit row
@@ -452,9 +465,9 @@ the action succeeded. A claim token or link is never written to D1, an audit row
 
 ### Implemented
 
-- `GET /config` returns `{"ok":true,"provisioning_enabled":…,"limits_enabled":…}`: `OPS_PROVISIONING` and
-  `LIMITS_ENABLED` of `apotheke-ops` equal to `"1"`. Both are `"0"` in `edge/ops/wrangler.jsonc` and on prod. The
-  console reads it once at startup.
+- `GET /config` returns `{"ok":true,"provisioning_enabled":…,"limits_enabled":…,"writes_enabled":…}`:
+  `OPS_PROVISIONING`, `LIMITS_ENABLED` and `OPS_WRITES_ENABLED` of `apotheke-ops` equal to `"1"`. All three are `"0"`
+  in `edge/ops/wrangler.jsonc` and on prod. The console reads it once at startup.
 - `POST /installations/:id/claim` with `{"confirm_host":…}` returns `{"ok":true,"link":…,"expires_at":…}` once. The
   link is `https://<confirm_host>/claim#<token>`, built by `apotheke-ops` from the token `claimCreate` returned. The
   console shows the link once and does not store it. Audit action `installation.claim`, `after_json`
@@ -495,6 +508,18 @@ it is null on the last one. Installations are in `id` order; jobs and audit rows
 - `GET /installations/:id` returns the same fields as a list entry plus `limits` (its plan's `plan_limits`), `usage`
   (its `usage_counters`, newest period first, at most 120), `jobs` and `audit` (its last 20 `lifecycle_jobs` and
   `operator_audit` rows). Unknown is 404 `not_found`; `primary` and deleted installations are readable.
+- `GET /installations/:id/users` returns `{"ok":true,"installation":…,"users":[…],"next_cursor":null}` from the
+  installation's own database through `listUsers`. Each user is `{id, username, display_name, roles, active, status,
+  created_at, last_login_at}`: `display_name` is null (the app has none), `roles` is the account's one role as a list
+  (empty if it has none), `active` is whether `status` is `active`, `status` is the app's value as stored (`active` or
+  `pending` today), and the two dates are ISO 8601 UTC (`2026-11-20T10:00:00Z`) or null (also for a value that is not
+  a date). It is not paginated: every account is in one answer and `next_cursor` is always null. Metadata only:
+  `apotheke-ops` keeps those fields and drops anything else, so no password hash, session, token or link is ever in
+  it. It is guarded like the actions: `primary` 403 `primary` (as for a claim: the console does not act on `primary`,
+  and `listUsers` refuses it too), unknown 404 `not_found`, `deleted` 410 `gone`, any status other than
+  `provisioning` or `active` 409 `not_startable`, no host 409 `no_host`. `listUsers`'s refusals are mapped as for the
+  actions; any other failure is 503 `unavailable` with its code as `detail` (`read_failed`, `unbound`,
+  `bad_answer`). It writes no audit row.
 - `GET /plans` returns `plans`, each `plans` row with its `limits`.
 - `GET /subscriptions?due=14d` (`N` or `Nd`, 0 to 365 days, default 14) returns `due_days`, `now`, `subscriptions`
   and `truncated` (more than 500). A subscription is due on its `trial_end` while `trial`, else its `period_end`;
@@ -514,7 +539,6 @@ it is null on the last one. Installations are in `id` order; jobs and audit rows
 
 Not served yet; the shapes may still change.
 
-- `GET /installations/:id/users` (metadata only)
 - `PUT /plans/:id/limits`
 - `PUT /installations/:id/subscription`
 - `GET /subscriptions/rules` is a report only. A rule with an unset value shows `not run: value not set`.
@@ -528,7 +552,65 @@ Deferred, and not in E6: `POST /installations/:id/users/:uid/disable`, `POST /in
 
 The local preview in `ops/console` answers the reads above with made-up rows (`primary.example.test`, never a
 real host), and can answer 401, 503 and 410 so the error screens can be checked. It is not part of the production
-build. `GET /installations/:id/users` stays planned, so the users screen does not call it.
+build. The users screen calls `GET /installations/:id/users` and stays read-only: it shows the username (there is
+no display name), the roles, the raw status, and the created and last sign-in times. A status other than `active`
+is inactive, and a null last sign-in is "never". Primary is 403 and the screen says those users are not shown
+here. An installation that is not running or has no host is 409. The Worker route is the read above;
+the screen and the preview use that response shape.
+
+## Deploying the console
+
+`apotheke-ops` is deployed by the `deploy-ops` job of
+[`.github/workflows/deploy-edge.yml`](../.github/workflows/deploy-edge.yml). Merging a change deploys nothing: the job
+is skipped (before the `deploy-edge` environment's review) unless the repository variable `OPS_DEPLOY_ENABLED` is
+exactly `1`, and checks that again before any checkout. When it is on, it runs on the same refs as apotheke-api's
+deploy (a published full release `vX.Y.Z`, or a manual run on `main` or such a tag), after that deploy (skipped is
+fine, failed stops it), in the `deploy-edge` environment with its required reviewer. It builds `ops/console`
+(`npm ci`, `npm run build`, `npm run test:bundle`), runs `scripts/ops-deploy-config.mjs`, then `scripts/cf-deploy.sh
+apotheke-ops edge/ops` (the Worker guard, then `wrangler deploy`).
+
+`scripts/ops-deploy-config.mjs` adds, on the runner's checkout only, what is never committed:
+
+| Value | From | Note |
+|---|---|---|
+| `DB`'s `database_id` | secret `APOTHEKE_D1_DATABASE_ID` (environment `deploy-edge`) | the same secret apotheke-api's deploy uses |
+| `ACCESS_TEAM_DOMAIN` | variable `OPS_ACCESS_TEAM_DOMAIN` | `<team>.cloudflareaccess.com`; not a secret |
+| `ACCESS_AUD` | variable `OPS_ACCESS_AUD` | the Access application's audience tag; not a secret |
+| `OPS_ALLOWED_EMAILS` | variable `OPS_ALLOWED_EMAILS` | comma-separated; `<operator email>` for the first deploy |
+
+It refuses (and nothing is deployed) when a value is missing or malformed, when the committed config already has a
+`database_id` or Access values, or when `OPS_PROVISIONING`, `LIMITS_ENABLED` or `OPS_WRITES_ENABLED` is not `"0"`.
+Pull requests run the same script with dummy values, the Worker guard, and `wrangler deploy --dry-run`, and check the
+bindings `DB` (apotheke-api), `OPS` (`apotheke-api#Ops`), `AUTOFILL` (`apotheke-autofill#HostedAutofill`) and
+`ASSETS`, and the three flags at `"0"`.
+
+The config has no route and no custom domain (the Worker guard refuses both), no Cron Trigger (`triggers.crons` is
+empty) and no Workflow yet. The lifecycle Workflow (`edge/src/lifecycle-workflow.ts`) is hosted by this Worker, which
+already binds `AUTOFILL` for it; declaring it also needs the cross-script `APOTHEKE` and `INSTALLATION` Durable Object
+bindings, `STORAGE`, and a class that this Worker's typecheck accepts, and comes in a later change. Until then no job
+can start from this Worker.
+
+### Going live
+
+Each step below needs Stathis's approval and is done by him, in this order:
+
+1. **Access application** (Zero Trust): a self-hosted application for `console.getapotheke.com` (the host is a
+   placeholder until then), policy *allow* for the email `<operator email>`, login with the one-time PIN, session
+   8 hours. Note its audience tag.
+2. **Variables** of the `deploy-edge` environment: `OPS_ACCESS_TEAM_DOMAIN`, `OPS_ACCESS_AUD` and `OPS_ALLOWED_EMAILS`
+   (`<operator email>`). `APOTHEKE_D1_DATABASE_ID` is already there. No new secret.
+3. **First deploy**: set the repository variable `OPS_DEPLOY_ENABLED` to `1`, then a manual run of Deploy edge on
+   `main` (or the next release), approved in the `deploy-edge` review. The Worker answers nothing until it has a
+   host.
+4. **Route**: attach `console.getapotheke.com` to `apotheke-ops` as a custom domain in the dashboard (Workers &
+   Pages, apotheke-ops, Domains & Routes), only after the Access application covers that host. Not in
+   `edge/ops/wrangler.jsonc`: CI never adds a route.
+5. Check: without an Access session the host shows the Access login; signed in as `<operator email>`,
+   `GET /api/ops/v1/config` answers `"writes_enabled":false`; any other email is 403 `forbidden`.
+
+Writes (`OPS_WRITES_ENABLED` `"1"`), provisioning and limits stay off; each is a reviewed change to
+`edge/ops/wrangler.jsonc`, and the deploy config refuses them until then. To stop deploying, unset
+`OPS_DEPLOY_ENABLED`; to take the console offline, remove the custom domain.
 
 ## First-admin claim and admin reset for the hosting side
 

@@ -15,9 +15,23 @@ export type OpsFailure = { ok: false; code: string; status?: number };
 export type OpsEntrypoint = {
 	claimCreate(installation: string): Promise<{ ok: true; token: string; expires_at: string } | OpsFailure>;
 	resetAdmins(installation: string): Promise<{ ok: true } | OpsFailure>;
+	listUsers(installation: string): Promise<{ ok: true; users: unknown[] } | OpsFailure>;
 };
 
-export type ApiEnv = { DB?: AuditDb; OPS?: unknown; OPS_PROVISIONING?: string; LIMITS_ENABLED?: string };
+/** One account in GET /installations/:id/users: these fields only (metadata, never a hash, token or link). The app
+ *  has no display name (null) and one role per account; active is status "active"; dates are ISO 8601 UTC or null. */
+export type ConsoleUser = {
+	id: number;
+	username: string;
+	display_name: string | null;
+	roles: string[];
+	active: boolean;
+	status: string;
+	created_at: string | null;
+	last_login_at: string | null;
+};
+
+export type ApiEnv = { DB?: AuditDb; OPS?: unknown; OPS_PROVISIONING?: string; LIMITS_ENABLED?: string; OPS_WRITES_ENABLED?: string };
 export type Operator = { email: string; requestId: string };
 
 export function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
@@ -72,10 +86,10 @@ async function readBody(request: Request): Promise<Record<string, unknown> | nul
 
 type Target = { id: string; host: string };
 
-/** The installation id from the path, the guards both actions share, and the confirmed host. primary: 403 (before
- *  any lookup and again by its row). Unknown: 404. deleted: 410. Not provisioning or active: 409 not_startable. No
- *  host: 409 no_host. confirm_host not one of its hosts: 422 confirm_host. */
-async function target(db: AuditDb, rawId: string, body: Record<string, unknown>): Promise<Target | Response> {
+/** The installation id from the path and the guards the actions and the users read share. primary: 403 (before any
+ *  lookup and again by its row). Unknown: 404. deleted: 410. Not provisioning or active: 409 not_startable. No host:
+ *  409 no_host. */
+async function guard(db: AuditDb, rawId: string): Promise<{ id: string; hosts: string[] } | Response> {
 	let id: string;
 	try {
 		id = decodeURIComponent(rawId);
@@ -91,10 +105,70 @@ async function target(db: AuditDb, rawId: string, body: Record<string, unknown>)
 	if (row.status !== "provisioning" && row.status !== "active") return failure(409, "not_startable");
 	const { results } = await db.prepare("SELECT host FROM installation_routes WHERE installation_id = ? ORDER BY host").bind(id).all<{ host: string }>();
 	if (results.length === 0) return failure(409, "no_host");
+	return { id, hosts: results.map((r) => r.host) };
+}
+
+/** guard, then the confirmed host: confirm_host not one of its hosts is 422 confirm_host. */
+async function target(db: AuditDb, rawId: string, body: Record<string, unknown>): Promise<Target | Response> {
+	const g = await guard(db, rawId);
+	if (g instanceof Response) return g;
 	const confirm = typeof body.confirm_host === "string" ? body.confirm_host.trim().toLowerCase() : "";
-	const host = results.find((r) => r.host === confirm)?.host;
+	const host = g.hosts.find((h) => h === confirm);
 	if (!host) return failure(422, "confirm_host");
-	return { id, host };
+	return { id: g.id, host };
+}
+
+const nullableText = (v: unknown): v is string | null => v === null || typeof v === "string";
+
+/** A stored UTC date-time ("2026-11-20 10:00:00", with or without T, fraction or Z) as ISO 8601
+ *  ("2026-11-20T10:00:00Z"); null for null or any other text. */
+export function isoUtc(v: string | null): string | null {
+	const m = v === null ? null : /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?Z?$/.exec(v);
+	if (!m) return null;
+	const iso = `${m[1]}T${m[2]}Z`;
+	const t = Date.parse(iso);
+	return Number.isNaN(t) || new Date(t).toISOString().slice(0, 19) + "Z" !== iso ? null : iso;
+}
+
+/** The allowlisted fields of one account from apotheke-api, or null when one is missing or of the wrong type. */
+function consoleUser(u: unknown): ConsoleUser | null {
+	if (u === null || typeof u !== "object") return null;
+	const { id, username, role, status, created_at, last_login_at } = u as Record<string, unknown>;
+	if (!Number.isSafeInteger(id) || typeof username !== "string" || typeof role !== "string" || typeof status !== "string") return null;
+	if (!nullableText(created_at) || !nullableText(last_login_at)) return null;
+	return {
+		id: id as number,
+		username,
+		display_name: null,
+		roles: role === "" ? [] : [role],
+		active: status === "active",
+		status,
+		created_at: isoUtc(created_at),
+		last_login_at: isoUtc(last_login_at),
+	};
+}
+
+/** GET /installations/:id/users: the installation's accounts through apotheke-api's Ops entrypoint (listUsers),
+ *  guarded like the actions. A read: no body, no CSRF check and no audit row. Upstream failures are 503 unavailable
+ *  with the code as detail. */
+async function installationUsers(env: ApiEnv, op: Operator, rawId: string): Promise<Response> {
+	const db = env.DB;
+	const ops = env.OPS as OpsEntrypoint | undefined;
+	if (!db || !ops) return failure(503, "not_configured");
+	const g = await guard(db, rawId);
+	if (g instanceof Response) return g;
+	let result: Awaited<ReturnType<OpsEntrypoint["listUsers"]>>;
+	try {
+		result = await ops.listUsers(g.id);
+	} catch (e) {
+		console.error("ops users failed", op.requestId, e instanceof Error ? e.name : "error");
+		return failure(503, "unavailable");
+	}
+	if (!result || result.ok !== true) return edgeFailure((result ?? { ok: false, code: "bad_answer" }) as OpsFailure);
+	const users = Array.isArray(result.users) ? result.users.map(consoleUser) : [null];
+	if (users.some((u) => u === null)) return failure(503, "unavailable", { detail: "bad_answer" });
+	// Not paginated: every account in one answer (installations have few), so next_cursor is always null.
+	return json(200, { ok: true, installation: g.id, users, next_cursor: null });
 }
 
 type Action = "claim" | "admin-reset";
@@ -140,6 +214,7 @@ async function installationAction(action: Action, request: Request, env: ApiEnv,
 }
 
 const ACTION_PATH = /^\/installations\/([^/]+)\/(claim|admin-reset)$/;
+const USERS_PATH = /^\/installations\/([^/]+)\/users$/;
 
 /** A request under API_PREFIX. nowMs is the clock for the reads (subscriptions due, the usage period). */
 export async function handleApi(request: Request, env: ApiEnv, op: Operator, nowMs: number = Date.now()): Promise<Response> {
@@ -148,13 +223,23 @@ export async function handleApi(request: Request, env: ApiEnv, op: Operator, now
 	const method = request.method.toUpperCase();
 	if (path === "/config") {
 		if (method !== "GET" && method !== "HEAD") return withAllow("GET, HEAD");
-		return json(200, { ok: true, provisioning_enabled: env.OPS_PROVISIONING === "1", limits_enabled: env.LIMITS_ENABLED === "1" });
+		return json(200, {
+			ok: true,
+			provisioning_enabled: env.OPS_PROVISIONING === "1",
+			limits_enabled: env.LIMITS_ENABLED === "1",
+			writes_enabled: env.OPS_WRITES_ENABLED === "1",
+		});
 	}
 	const read = readRoute(path);
 	if (read) {
 		if (method !== "GET" && method !== "HEAD") return withAllow("GET, HEAD");
 		if (!env.DB) return failure(503, "not_configured");
 		return runRead(read, env.DB, url.searchParams, nowMs);
+	}
+	const u = USERS_PATH.exec(path);
+	if (u) {
+		if (method !== "GET" && method !== "HEAD") return withAllow("GET, HEAD");
+		return installationUsers(env, op, u[1]);
 	}
 	const m = ACTION_PATH.exec(path);
 	if (m) {
