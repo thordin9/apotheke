@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Auth;
 
 use Apotheke\Auth\FirstAdminClaim;
+use Apotheke\Auth\HostedDisabledUsers;
 use Apotheke\Auth\OpsAccountsEndpoint;
 use Apotheke\Auth\UserRepository;
 use Apotheke\Core\Database\Writes;
@@ -58,8 +59,11 @@ final class OpsAccountsHttpTest extends CIUnitTestCase
         $this->assertNotNull($this->sig);
         // The same key as the edge's vector.
         $this->assertSame($v['header'], $this->sig->header($v['method'], $v['path'], $v['body'], $v['t']));
+        $db = $d->db;
+        Services::injectMock('hostedDisabledUsers', new HostedDisabledUsers($db, Services::unitsOfWork(), new Clock(), $hosted));
         Services::injectMock('opsAccountsEndpoint', new OpsAccountsEndpoint($hosted, $this->sig,
-            static fn (): FirstAdminClaim => Services::firstAdminClaim(false), static fn () => Services::hostedAdminReset(false), new Clock()));
+            static fn (): FirstAdminClaim => Services::firstAdminClaim(false), static fn () => Services::hostedAdminReset(false),
+            new Clock(), static fn (): HostedDisabledUsers => Services::hostedDisabledUsers(false)));
     }
 
     /** @return array<string,string> */

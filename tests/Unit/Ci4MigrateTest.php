@@ -98,7 +98,7 @@ final class Ci4MigrateTest extends TestCase
 
             $applied = $this->worker($this->sqliteEnv($dir))['applied'];
             $this->assertSame('legacy-v' . $version, $applied[0] ?? null, $label);
-            $this->assertCount(34, $applied, $label . ': legacy-v' . $version . ' stands for 0001');
+            $this->assertCount(35, $applied, $label . ': legacy-v' . $version . ' stands for 0001');
 
             $backups = glob($dir . '/catalog-v' . $version . '-backup-*.sqlite') ?: [];
             $this->assertCount(1, $backups, $label . ': one backup');
@@ -191,7 +191,7 @@ final class Ci4MigrateTest extends TestCase
             $file = glob(ROOT . '/migrations/' . $version . '_*.php')[0];
             $names[$version] = substr(basename($file, '.php'), 5);
         }
-        $this->assertCount(34, $names);
+        $this->assertCount(35, $names);
         $banner = 'Database: sqlite – ' . $dir . '/catalog.sqlite';
 
         $pending = $this->migrate($dir, ['--status']);
@@ -203,7 +203,7 @@ final class Ci4MigrateTest extends TestCase
 
         $run = $this->migrate($dir, []);
         $this->assertSame(0, $run['code'], $run['out'] . $run['err']);
-        $this->assertStringEndsWith("Done: 34 step(s).\n", $run['out']);
+        $this->assertStringEndsWith("Done: 35 step(s).\n", $run['out']);
         $lines = [$banner];
         foreach ($names as $version => $name) {
             $lines[] = sprintf('  %s  %-40s %s', $version, $name, 'applied ' . self::CLOCK);
@@ -411,9 +411,9 @@ final class Ci4MigrateTest extends TestCase
     {
         $files = glob(ROOT . '/migrations/[0-9][0-9][0-9][0-9]_*.php') ?: [];
         sort($files, SORT_STRING);
-        $this->assertCount(34, $files);
+        $this->assertCount(35, $files);
         [$fresh, $freshSchema] = $this->target($driver, 'fresh');
-        $this->assertCount(34, $this->worker($this->env($driver, $fresh, $freshSchema))['applied']);
+        $this->assertCount(35, $this->worker($this->env($driver, $fresh, $freshSchema))['applied']);
         $expected = $this->dump($driver, $fresh, $freshSchema);
         // An install whose first run made the roles table (0022) starts with the new built-in role defaults; one that
         // gets 0022 on a later run (an upgrade) keeps 2.6.x's.

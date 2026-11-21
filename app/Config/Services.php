@@ -196,6 +196,8 @@ class Services extends BaseService
             static fn (): \Apotheke\Settings\SettingsService => static::settings(),
             new \Apotheke\Auth\UserRepository($db, new \Apotheke\Auth\SessionEpoch(), static::unitsOfWork(), static::readCache(), static::hostedLimits()),
             static fn (): array => $_SESSION ?? [],
+            new \Apotheke\Auth\SessionEpoch(),
+            static::hostedDisabledUsers(false),
         );
     }
 
@@ -600,6 +602,7 @@ class Services extends BaseService
             static::roles(),
             new \Apotheke\Core\Libraries\Clock(),
             new \Apotheke\Auth\SignInPace((int)static::apothekeConfig()->values()['sign_in_fail_ms']),
+            static::hostedDisabledUsers(false),
         );
     }
 
@@ -1301,6 +1304,18 @@ class Services extends BaseService
             static fn (): \Apotheke\Backup\OpsBackups => static::opsBackups(), new \Apotheke\Core\Libraries\Clock());
     }
 
+    /** Hosted disabled-account flag (Auth). Off without APOTHEKE_HOSTED. */
+    public static function hostedDisabledUsers(bool $getShared = true): \Apotheke\Auth\HostedDisabledUsers
+    {
+        if ($getShared) {
+            return static::getSharedInstance('hostedDisabledUsers');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Auth\HostedDisabledUsers($db, static::unitsOfWork(), new \Apotheke\Core\Libraries\Clock(), static::apothekeConfig()->values()['hosted'] === true);
+    }
+
     /** POST /internal/accounts/{claim,reset-admins} on ops.internal (Auth, operator console): off unless APOTHEKE_HOSTED. */
     public static function opsAccountsEndpoint(bool $getShared = true): \Apotheke\Auth\OpsAccountsEndpoint
     {
@@ -1312,7 +1327,9 @@ class Services extends BaseService
         return new \Apotheke\Auth\OpsAccountsEndpoint(static::apothekeConfig()->values()['hosted'] === true,
             \Apotheke\Core\Security\OpsSignature::fromAppKey(is_string($appKey) ? $appKey : null),
             static fn (): \Apotheke\Auth\FirstAdminClaim => static::firstAdminClaim(false),
-            static fn (): \Apotheke\Auth\HostedAdminReset => static::hostedAdminReset(false), new \Apotheke\Core\Libraries\Clock());
+            static fn (): \Apotheke\Auth\HostedAdminReset => static::hostedAdminReset(false),
+            new \Apotheke\Core\Libraries\Clock(),
+            static fn (): \Apotheke\Auth\HostedDisabledUsers => static::hostedDisabledUsers(false));
     }
 
     /** One stored backup per lifecycle job (Backup, operator console C2). */
