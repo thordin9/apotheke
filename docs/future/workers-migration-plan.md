@@ -139,7 +139,7 @@ target: SQL tables in the installation's SQLite, and blob keys under the install
 | | |
 |---|---|
 | CI4 source | `modules/Core/` (12,480 lines: `Database/`, `Storage/`, `Security/`, `Jobs/`, `Hosted/`, `Filters/`, `Http/`, `Config/`), `app/Config/Filters.php`, `app/Config/Routes.php`, `app/Config/Services.php`, `modules/Layout/` (506) |
-| TS target | `edge/src/app/core/`: router, the before-filter chain in the order `app/Config/Filters.php` fixes (Host allow-list, base URL, session parameters, same-origin writes, permission, CSRF), problem+json errors, config loader, `ItemHistory`, the unit of work, the job queue; `edge/src/app/layout/` for the page shell |
+| TS target | `edge/src/app/core/`: router, the filter chain in the order `app/Config/Filters.php` fixes (14 required before-filters, plus the global ones), including the Host allow-list (`hostcheck`), base URL (`publicbase`), session parameters (`session`), same-origin writes (`sameorigin`), permission (`permission`) and CSRF (`sessioncsrf`, and `apicsrf` on `/api`), problem+json errors, config loader, `ItemHistory`, the unit of work, the job queue; `edge/src/app/layout/` for the page shell |
 | Storage | All app tables through `Sql`; `uow_guard` and `uow_refs` are not needed once writes run inside a DO transaction |
 | Tricky parts | The permission map must stay route-for-route (`PermissionFilterTest` is the oracle). Absolute URLs from `public_url` and `trust_proxy`, never the Host header. `ClientAddress` semantics. The `UnitOfWork` contract (`hold`, `insert` returning a `Ref`, `write(…, expect, fail)`, `assert`) maps onto `transactionSync`, which simplifies it. SQL stays SQLite only: PostgreSQL-only paths (`FOR UPDATE`, `LOCK TABLE`) are dropped. |
 | Rough size | 6–8 pw |
@@ -323,7 +323,7 @@ data; they are covered by the replay tests below.
 
 ## 6. Self-hosting on workerd
 
-**Decided by the owner:** self-hosters run the same Worker code on workerd, and in the target state that replaces
+**Decided by the owner, if this plan goes ahead:** self-hosters run the same Worker code on workerd, and in the target state that replaces
 the FrankenPHP Docker image. The facts below were checked against workerd's `README.md` and
 `src/workerd/server/workerd.capnp` on its `main` branch, and Cloudflare's Miniflare and Durable Objects docs, on
 2026-11-21. Several of the features below are marked experimental upstream; anything not confirmed is in the
@@ -344,8 +344,9 @@ the FrankenPHP Docker image. The facts below were checked against workerd's `REA
 - **Ports.** One HTTP socket on `9091`, the port the PHP images use, so the Compose file's
   `127.0.0.1:9091:9091` mapping and reverse-proxy setups keep working. TLS stays with the reverse proxy, as today
   ([deployment and operations](../deployment-and-operations.md)).
-- **Volumes.** One volume at `/data`, as today: `/data/do/` for Durable Object SQLite files and `/data/blobs/` for
-  the object store. Secrets come from the environment (`APP_KEY`, `APP_PASSWORD`) through `fromEnvironment`
+- **Volumes.** One volume at `/data`, as today: `/data/do/` for Durable Object SQLite files (the `do` disk service
+  below, so the database is at `/data/do/apotheke-installation/<id>.sqlite`) and `/data/blobs/` for the object store.
+  Secrets come from the environment (`APP_KEY`, `APP_PASSWORD`) through `fromEnvironment`
   bindings, so they are never written into the config. An `APP_KEY_FILE` would need its file exposed through a
   read-only `disk` service.
 
@@ -357,7 +358,7 @@ using Workerd = import "/workerd/workerd.capnp";
 const config :Workerd.Config = (
   services = [
     (name = "apotheke", worker = .apotheke),
-    (name = "data", disk = (path = "/data", writable = true)),
+    (name = "do", disk = (path = "/data/do", writable = true)),
   ],
   sockets = [(name = "http", address = "*:9091", http = (), service = "apotheke")],
 );
@@ -367,7 +368,7 @@ const apotheke :Workerd.Worker = (
   compatibilityDate = "2026-10-29",
   compatibilityFlags = ["nodejs_compat"],
   durableObjectNamespaces = [(className = "Installation", uniqueKey = "apotheke-installation", enableSql = true)],
-  durableObjectStorage = (localDisk = "data"),
+  durableObjectStorage = (localDisk = "do"),
   bindings = [
     (name = "INSTALLATION", durableObjectNamespace = "Installation"),
     (name = "APP_KEY", fromEnvironment = "APP_KEY"),
@@ -397,7 +398,7 @@ An S3 shim is optional and can come later.
 | Cloudflare Access (`edge/ops/src/access.ts`) | Not available | Not needed: the operator console and `apotheke-ops` are hosted-only. Self-hosters keep the app's own sign-in. |
 | Workflows (`LifecycleWorkflow`) | Bundled `/workerd/workflows.js`, experimental | Not needed: lifecycle jobs are hosted-only. |
 | Queues | Bundled `/workerd/queues.js`, experimental | Not used: background jobs run as Durable Object alarms in both modes. |
-| Cron Triggers | Bundled `/workerd/cron.js`, experimental | Not used by `apotheke-api` today (`triggers.crons` is empty on `apotheke-ops`). Periodic app work (the restore sweep, the import sweep) runs from an alarm on the object. |
+| Cron Triggers | Bundled `/workerd/cron.js`, experimental | Neither Worker uses one today: `apotheke-api` has no `triggers` (`edge/wrangler.jsonc`, `edge/storage.jsonc`) and `apotheke-ops` has `triggers.crons: []` (`edge/ops/wrangler.jsonc`). Periodic app work (the restore sweep, the import sweep) runs from an alarm on the object. |
 | Durable Object alarms (jobs) | Expected with `localDisk` storage | To confirm ([open question](#8-open-questions)); fallback is a sweep on the next request. |
 | Point-in-time recovery | Not available locally (the SQLite storage API page says the PITR API is not supported in local development) | File backups and the app's own backup ([d](#d-upgrades-and-backups)). |
 | Images binding (photo resizing) | Wrangler's offline Images support covers only `width`, `height`, `rotate` and `format`; no confirmed workerd-only implementation | A WASM codec path in the `ImageProcessor` adapter, with lower pixel caps than today, or resizing in the browser ([open question](#8-open-questions)). |
@@ -420,12 +421,13 @@ An S3 shim is optional and can come later.
   today's behaviour (pending migrations run automatically on the first request, under a lock,
   [upgrades](../deployment-and-operations.md#upgrades)) and the hosted path's (the schema
   bootstraps on the object under a lease, [HANDOFF](../HANDOFF.md)).
-- **Rollback.** Going back one image version works if no migration ran in between. Otherwise: restore the file
-  backup taken before the upgrade, then start the older image, as with the PHP image today
-  ([upgrading and rolling back](../deployment-and-operations.md)).
+- **Rollback.** Going back one image version works if no migration ran in between. Otherwise: restore the copy of
+  `/data/do/` and `/data/blobs/` taken before the upgrade, then start the older image, as with the PHP image today
+  ([upgrades](../deployment-and-operations.md#upgrades)).
 - **Backups.** Two layers. The app's own backup (the ZIP under `backups/`, downloadable from `/backup`) is the
-  portable one and restores on the PHP image too. File backups copy `/data/do/` and `/data/blobs/` with the
-  container stopped, or after a checkpoint, because the SQLite files can have `-wal` and `-shm` companions.
+  portable one and restores on the PHP image too. File backups copy `/data/do/` (the database,
+  `/data/do/apotheke-installation/<id>.sqlite`) and `/data/blobs/` with the container stopped,
+  or after a checkpoint, because the SQLite files can have `-wal` and `-shm` companions.
 
 ### e. One codebase for hosted and self-hosted
 
