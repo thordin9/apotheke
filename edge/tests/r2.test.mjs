@@ -1000,3 +1000,4 @@ await import(new URL('./ops-backup.test.mjs', import.meta.url).href);
 await import(new URL('./ops-accounts.test.mjs', import.meta.url).href);
 await import(new URL('./autofill.test.mjs', import.meta.url).href);
 await import(new URL('./ops-worker.test.mjs', import.meta.url).href);
+await import(new URL('./ops-writes.test.mjs', import.meta.url).href);
