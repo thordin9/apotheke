@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **frontend:** the self-hosted stylesheet uses the shared colour, type, space and radius tokens, with a paper header in the light theme
+
 ## [3.62.0] - 2026-11-21
 
 ### Added

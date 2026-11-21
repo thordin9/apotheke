@@ -19,8 +19,8 @@ final class Accent
         '#15803d' => 'Green', '#2563eb' => 'Blue', '#be123c' => 'Rose', '#7c3aed' => 'Violet', '#475569' => 'Slate',
     ];
     /** Backgrounds the accent is checked against (page + cards). */
-    public const BG_LIGHT = ['#f5f5f7', '#ffffff'];
-    public const BG_DARK = ['#111113', '#1c1c20'];
+    public const BG_LIGHT = ['#fdfcfa', '#f6f4f0'];
+    public const BG_DARK = ['#0f252c', '#152e36'];
 
     /** @return array{0:float,1:float,2:float} 0–255 */
     public static function rgb(string $hex): array

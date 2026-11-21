@@ -58,7 +58,7 @@
   });
 
   /* ---------- theme switch (Auto / Light / Dark): instant, persisted in localStorage + cookie ---------- */
-  const DARK = '#111113', LIGHT = '#f5f5f7';
+  const DARK = '#07161c', LIGHT = '#fdfcfa';
   function applyTheme(t) {
     const d = document.documentElement;
     d.setAttribute('data-theme', t);
@@ -982,7 +982,7 @@
     const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
     const mix = (h, to, t) => { const a = rgb(h), b = rgb(to); return hex(a.map((v, i) => v + (b[i] - v) * t)); };
     const fit = (h, bgs, to) => { for (let i = 0; i <= 50; i++) { const c = mix(h, to, i / 50); if (Math.min(...bgs.map(b => ratio(c, b))) >= 4.5) return c; } return to; };
-    const modes = { light: [['#f5f5f7', '#ffffff'], '#000000', 0.10], dark: [['#111113', '#1c1c20'], '#ffffff', 0.16] };
+    const modes = { light: [['#fdfcfa', '#f6f4f0'], '#000000', 0.10], dark: [['#0f252c', '#152e36'], '#ffffff', 0.16] };
     const update = () => {
       const v = normHex(accentIn.value);
       if (!v) return;
