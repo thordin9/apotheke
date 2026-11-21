@@ -67,12 +67,9 @@ final class HostedDisabledUsers
                     1,
                 );
             }
-            // The uid key opens the payload or follows a ';' or '}' field boundary, so otheruid|i:<id>; stays.
             $uow->write(
-                "DELETE FROM sessions WHERE data LIKE 'uid|i:' || CAST(? AS TEXT) || ';%'"
-                . " OR data LIKE '%;uid|i:' || CAST(? AS TEXT) || ';%'"
-                . " OR data LIKE '%}uid|i:' || CAST(? AS TEXT) || ';%'",
-                [$userId, $userId, $userId],
+                'DELETE FROM sessions WHERE ' . SessionUidMatch::condition('data', '?'),
+                SessionUidMatch::bindings($userId),
                 'disable hosted user sessions',
             );
         }, UserRepository::ACTIVE_ADMINS);
