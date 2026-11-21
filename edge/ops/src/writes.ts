@@ -28,8 +28,8 @@ export const MAX_RETENTION_DAYS = 3650;
 const MAX_REASON = 200;
 const NOW = "strftime('%Y-%m-%dT%H:%M:%SZ', 'now')";
 
-/** apotheke-ops's binding to the lifecycle Workflow (edge/src/lifecycle-workflow.ts), when one is declared. It is not
- *  declared in edge/ops/wrangler.jsonc yet: without it, confirming a job is 503 not_configured. */
+/** apotheke-ops's binding to the lifecycle Workflow hosted by apotheke-api (edge/src/lifecycle-workflow.ts), declared
+ *  in edge/ops/wrangler.jsonc by script_name. Without the binding, confirming a job is 503 not_configured. */
 export type LifecycleWorkflowBinding = {
 	create(options: { id: string; params: { jobId: string } }): Promise<unknown>;
 	get(id: string): Promise<unknown>;

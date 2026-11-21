@@ -7,7 +7,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 const { createJob, confirmJob, runJob, steps, PURGE_PAGE, LifecycleError, LifecycleRetry, EXPORT_STEP, lifecycleCode } = await import('../src/lifecycle.ts');
 const { NonRetryableError } = await import('cloudflare:workflows');
-const { lifecycleDeps, LifecycleWorkflow, deleteAutofillBudget } = await import('../src/lifecycle-workflow.ts');
+const { lifecycleDeps, LifecycleWorkflow, deleteAutofillBudget, preflight } = await import('../src/lifecycle-workflow.ts');
 const { lifecycleName, Installation } = await import('../src/installation.ts');
 const { ApothekeContainer } = await import('../src/index.ts');
 const { multipartMarkerKey } = await import('../src/r2.ts');
@@ -459,17 +459,59 @@ test('E4 Workflow wiring: C1 is not wired yet and fails closed; the instance run
 
   const w = world();
   const job = await confirmed(w, 'suspend');
-  const wf = new LifecycleWorkflow({}, { DB: w.deps.db, STORAGE: w.bucket, INSTALLATION: env.INSTALLATION,
+  const wf = new LifecycleWorkflow({}, { OPS_WRITES_ENABLED: '1', DB: w.deps.db, STORAGE: w.bucket, INSTALLATION: env.INSTALLATION,
     APOTHEKE: { getByName: (n) => ({ stopContainer: async () => w.container.stop(n) }) } });
   await wf.run({ payload: { jobId: job.id } }, once);
   assert.equal(status(w), 'suspended');
   assert.ok(!w.container.running.has('tenant-a'));
 });
 
-test('E4 ships paused: no cron, workflow or new binding on apotheke-api, and the Workflow is not exported by its Worker', () => {
+test('E4 ships paused: no cron on apotheke-api, the Workflow only with the storage bindings, writes off', () => {
   const src = (f) => readFileSync(new URL(f, import.meta.url), 'utf8');
-  for (const f of ['../wrangler.jsonc', '../storage.jsonc']) assert.doesNotMatch(src(f), /"(workflows|triggers|crons)"/, f);
-  assert.doesNotMatch(src('../src/index.ts'), /lifecycle-workflow|LifecycleWorkflow/);
+  for (const f of ['../wrangler.jsonc', '../storage.jsonc']) assert.doesNotMatch(src(f), /"(triggers|crons)"/, f);
+  assert.doesNotMatch(src('../wrangler.jsonc'), /"workflows"/);
+  assert.match(src('../storage.jsonc'), /"workflows": \[\{ "name": "apotheke-lifecycle", "binding": "LIFECYCLE", "class_name": "LifecycleWorkflow" \}\]/);
+  assert.match(src('../wrangler.jsonc'), /"OPS_WRITES_ENABLED": "0"\n/);
+  assert.match(src('../src/index.ts'), /^export \{ LifecycleWorkflow \} from "\.\/lifecycle-workflow";$/m);
+});
+
+/** A step runner that fails the test if any step runs. */
+const noSteps = { do: async (name) => assert.fail(`step ${name} ran`) };
+const wfEnv = (w, extra = {}) => ({ DB: w.deps.db, STORAGE: w.bucket, INSTALLATION: {}, APOTHEKE: {}, ...extra });
+
+test('E6 Workflow gate: OPS_WRITES_ENABLED other than exactly "1" refuses before any step, nothing changed', async () => {
+  const w = world();
+  const job = await confirmed(w, 'suspend');
+  const before = w.snapshot();
+  for (const v of [undefined, '0', '', 'true', ' 1', '1 ', '01', 1, true]) {
+    const wf = new LifecycleWorkflow({}, wfEnv(w, { DB: { prepare: () => assert.fail('DB read with writes off') }, ...(v === undefined ? {} : { OPS_WRITES_ENABLED: v }) }));
+    await assert.rejects(wf.run({ payload: { jobId: job.id } }, noSteps), (e) => e instanceof NonRetryableError && e.code === 'writes_disabled', String(v));
+  }
+  assert.deepEqual(w.snapshot(), before);
+  assert.equal(jobRow(w, job.id).state, 'queued');
+  await preflight(wfEnv(w, { OPS_WRITES_ENABLED: '1' }), job.id);
+});
+
+test('E6 Workflow never touches primary: refused by the job\'s installation id and by its row, before any step', async () => {
+  const w = world();
+  // A queued job for primary can only be written by hand: createJob and confirmJob refuse it.
+  w.raw.exec(`INSERT INTO lifecycle_jobs (id, installation_id, kind, idempotency_key, state, created_by, confirmed_by)
+    VALUES ('j-primary', 'primary', 'purge', 'purge:primary:x', 'queued', 'op@example.test', 'op@example.test')`);
+  const before = w.snapshot();
+  const wf = new LifecycleWorkflow({}, wfEnv(w, { OPS_WRITES_ENABLED: '1' }));
+  await assert.rejects(wf.run({ payload: { jobId: 'j-primary' } }, noSteps), (e) => e instanceof NonRetryableError && e.code === 'refused');
+  assert.deepEqual(w.snapshot(), before);
+
+  // By id: the job names primary, before its row is read (here there is none).
+  // By row: an installation whose id is not primary but whose row says primary (id or do_name) is refused too.
+  for (const [inst, row] of [['primary', null], ['t-x', { id: 'primary', do_name: 'tenant-x' }], ['t-x', { id: 't-x', do_name: 'primary' }]]) {
+    const rows = { lifecycle_jobs: { installation_id: inst }, installations: row };
+    const DB = { prepare: (sql) => ({ bind: () => ({ first: async () => rows[/FROM (\w+)/.exec(sql)[1]] }) }) };
+    await assert.rejects(new LifecycleWorkflow({}, { OPS_WRITES_ENABLED: '1', DB }).run({ payload: { jobId: 'j' } }, noSteps),
+      (e) => e instanceof NonRetryableError && e.code === 'refused', `${inst} ${JSON.stringify(row)}`);
+  }
+  const missing = { prepare: () => ({ bind: () => ({ first: async () => null }) }) };
+  await assert.rejects(preflight({ OPS_WRITES_ENABLED: '1', DB: missing }, 'j'), (e) => e.code === 'job_not_found');
 });
 
 test('E4 purge after a failed delete is refused: no export, nothing removed (M-2157 P1)', async () => {

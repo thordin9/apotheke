@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // edge-storage-config.mjs <wrangler.jsonc> <storage.jsonc>: merges the P4 storage bindings (D1, R2, the Installation
-// Durable Object and its migration, and drops COOKIE_DOMAIN) into the Worker's wrangler.jsonc, in place. Run only by the deploy job of
+// Durable Object and its migration, the lifecycle Workflow, and drops COOKIE_DOMAIN) into the Worker's wrangler.jsonc, in place. Run only by the deploy job of
 // deploy-edge.yml (behind EDGE_STORAGE_READY), on the runner's checkout, right before cf-deploy.sh, whose Worker guard
 // then checks the merged file as usual. The D1 database_id comes from APOTHEKE_D1_DATABASE_ID (a repository variable).
 import { readFileSync, writeFileSync } from "node:fs";
@@ -23,7 +23,7 @@ const config = read(configPath);
 const storage = read(storagePath);
 // N-1541: the fragment may carry only what this merge knows how to apply; anything else (kv_namespaces, routes,
 // vars, …) would be dropped silently or widen the Worker, so it is refused.
-const KNOWN = new Set(["d1_databases", "r2_buckets", "durable_objects", "migrations", "drop_vars"]);
+const KNOWN = new Set(["d1_databases", "r2_buckets", "durable_objects", "migrations", "workflows", "drop_vars"]);
 for (const key of Object.keys(storage)) if (!KNOWN.has(key)) fail(`${storagePath}: unknown key "${key}" (allowed: ${[...KNOWN].join(", ")})`);
 for (const key of Object.keys(storage.durable_objects ?? {})) {
 	if (key !== "bindings") fail(`${storagePath}: unknown key "durable_objects.${key}" (allowed: bindings)`);
@@ -34,7 +34,11 @@ for (const value of Object.values(config)) {
 	if (Array.isArray(value)) for (const b of value) if (b && typeof b.binding === "string") taken.add(b.binding);
 }
 for (const b of config.durable_objects?.bindings ?? []) taken.add(b.name);
-const added = [...(storage.d1_databases ?? []), ...(storage.r2_buckets ?? [])].map((b) => b.binding);
+// Workflows hosted by this Worker: exactly binding, name and class_name (no script_name, limits or schedules).
+for (const w of storage.workflows ?? []) {
+	if (Object.keys(w).sort().join() !== "binding,class_name,name") fail(`${storagePath}: each workflow needs exactly binding, name and class_name`);
+}
+const added = [...(storage.d1_databases ?? []), ...(storage.r2_buckets ?? []), ...(storage.workflows ?? [])].map((b) => b.binding);
 added.push(...(storage.durable_objects?.bindings ?? []).map((b) => b.name));
 for (const name of added) {
 	if (taken.has(name)) fail(`${storagePath}: the binding name "${name}" is already used by ${configPath} or the fragment`);
@@ -79,9 +83,9 @@ for (const b of storage.durable_objects?.bindings ?? []) {
 		fail(`${storagePath}: the Durable Object class "${b.class_name}" is not created by a fragment migration`);
 	}
 }
-for (const key of ["d1_databases", "r2_buckets"]) {
+for (const key of ["d1_databases", "r2_buckets", "workflows"]) {
 	if (key in config) fail(`${configPath} already has "${key}"; the storage bindings come only from ${storagePath}`);
-	config[key] = storage[key];
+	if (key in storage) config[key] = storage[key];
 }
 config.d1_databases = config.d1_databases.map((d) => (d.database_id === "<APOTHEKE_D1_DATABASE_ID>" ? { ...d, database_id: id } : d));
 config.durable_objects = { ...config.durable_objects, bindings: [...(config.durable_objects?.bindings ?? []), ...storage.durable_objects.bindings] };
@@ -93,4 +97,4 @@ const vars = { ...config.vars };
 for (const v of storage.drop_vars ?? []) delete vars[v];
 config.vars = vars;
 writeFileSync(configPath, `${JSON.stringify(config, null, "\t")}\n`);
-console.log(`Edge storage config: merged D1 (DB), R2 (STORAGE, eu) and the Installation Durable Object, without COOKIE_DOMAIN, into ${configPath}`);
+console.log(`Edge storage config: merged D1 (DB), R2 (STORAGE, eu), the Installation Durable Object and the lifecycle Workflow, without COOKIE_DOMAIN, into ${configPath}`);
