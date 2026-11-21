@@ -12,6 +12,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **frontend:** the self-hosted stylesheet uses the shared colour, type, space and radius tokens, with a paper header in the light theme ([#357](https://github.com/thordin9/apotheke/pull/357))
 
+## [3.63.0] - 2026-11-21
+
+### Added
+
+- **ops:** the console uses the shared tokens, a paper header in the light theme, and a read-only installation users list ([#356](https://github.com/thordin9/apotheke/pull/356))
+
 ## [3.62.0] - 2026-11-21
 
 ### Added
@@ -1974,7 +1980,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.62.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.63.0...HEAD
+[3.63.0]: https://github.com/thordin9/apotheke/compare/v3.62.0...v3.63.0
 [3.62.0]: https://github.com/thordin9/apotheke/compare/v3.61.0...v3.62.0
 [3.61.0]: https://github.com/thordin9/apotheke/compare/v3.60.0...v3.61.0
 [3.60.0]: https://github.com/thordin9/apotheke/compare/v3.59.0...v3.60.0
