@@ -573,11 +573,12 @@ can start from this Worker.
 
 ### Going live
 
-Each step below needs Stathis's approval and is done by him, in this order:
+Each step below is done by the team (DevOps) on the owner's go-ahead, in this order. The PM
+approves the `deploy-edge` environment review.
 
 1. **Access application** (Zero Trust): a self-hosted application for `console.getapotheke.com` (the host is a
-   placeholder until then), policy *allow* for the email `<operator email>`, login with the one-time PIN, session
-   8 hours. Note its audience tag.
+   placeholder until then), policy *allow* for the email `<operator email>`, login with a one-time PIN sent by
+   email, session 8 hours. Note its audience tag.
 2. **Variables** of the `deploy-edge` environment: `OPS_ACCESS_TEAM_DOMAIN`, `OPS_ACCESS_AUD` and `OPS_ALLOWED_EMAILS`
    (`<operator email>`). `APOTHEKE_D1_DATABASE_ID` is already there. No new secret.
 3. **First deploy**: set the repository variable `OPS_DEPLOY_ENABLED` to `1`, then a manual run of Deploy edge on
@@ -586,8 +587,9 @@ Each step below needs Stathis's approval and is done by him, in this order:
 4. **Route**: attach `console.getapotheke.com` to `apotheke-ops` as a custom domain in the dashboard (Workers &
    Pages, apotheke-ops, Domains & Routes), only after the Access application covers that host. Not in
    `edge/ops/wrangler.jsonc`: CI never adds a route.
-5. Check: without an Access session the host shows the Access login; signed in as `<operator email>`,
-   `GET /api/ops/v1/config` answers `"writes_enabled":false`; any other email is 403 `forbidden`.
+5. Check: without an Access session the host redirects to Access or is denied, with no console content;
+   `/api/ops/v1` is denied without Access. Signed in as `<operator email>`, `GET /api/ops/v1/config`
+   answers `"writes_enabled":false`; any other email is 403 `forbidden`.
 
 Writes (`OPS_WRITES_ENABLED` `"1"`), provisioning and limits stay off; each is a reviewed change to
 `edge/ops/wrangler.jsonc`, and the deploy config refuses them until then. To stop deploying, unset
