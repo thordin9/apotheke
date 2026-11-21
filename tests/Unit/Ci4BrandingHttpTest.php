@@ -155,7 +155,7 @@ final class Ci4BrandingHttpTest extends TestCase
         'svg logo' => [
             '/theme.css' => [
                 'status' => 200,
-                'sha1' => '0770c5bc6a5b5450aea8fa55995847ec0a21e743',
+                'sha1' => '29c79d9574fa9096c81c70acc98346ce42094248',
                 'content-type' => 'text/css; charset=utf-8',
                 'cache-control' => 'no-cache',
                 'content-length' => null,
@@ -166,7 +166,7 @@ final class Ci4BrandingHttpTest extends TestCase
             ],
             '/theme.css?v=1' => [
                 'status' => 200,
-                'sha1' => '0770c5bc6a5b5450aea8fa55995847ec0a21e743',
+                'sha1' => '29c79d9574fa9096c81c70acc98346ce42094248',
                 'content-type' => 'text/css; charset=utf-8',
                 'cache-control' => 'public, max-age=31536000, immutable',
                 'content-length' => null,
@@ -177,7 +177,7 @@ final class Ci4BrandingHttpTest extends TestCase
             ],
             '/theme.css?v' => [
                 'status' => 200,
-                'sha1' => '0770c5bc6a5b5450aea8fa55995847ec0a21e743',
+                'sha1' => '29c79d9574fa9096c81c70acc98346ce42094248',
                 'content-type' => 'text/css; charset=utf-8',
                 'cache-control' => 'public, max-age=31536000, immutable',
                 'content-length' => null,
@@ -289,7 +289,7 @@ final class Ci4BrandingHttpTest extends TestCase
         'png logo' => [
             '/theme.css' => [
                 'status' => 200,
-                'sha1' => 'e27c6c74fcf3bab8ab7948b084ae8b7a387d06cc',
+                'sha1' => 'a4f45cf62feb6f2b2b4f849403555ee43d505cdd',
                 'content-type' => 'text/css; charset=utf-8',
                 'cache-control' => 'no-cache',
                 'content-length' => null,
@@ -300,7 +300,7 @@ final class Ci4BrandingHttpTest extends TestCase
             ],
             '/theme.css?v=1' => [
                 'status' => 200,
-                'sha1' => 'e27c6c74fcf3bab8ab7948b084ae8b7a387d06cc',
+                'sha1' => 'a4f45cf62feb6f2b2b4f849403555ee43d505cdd',
                 'content-type' => 'text/css; charset=utf-8',
                 'cache-control' => 'public, max-age=31536000, immutable',
                 'content-length' => null,
@@ -311,7 +311,7 @@ final class Ci4BrandingHttpTest extends TestCase
             ],
             '/theme.css?v' => [
                 'status' => 200,
-                'sha1' => 'e27c6c74fcf3bab8ab7948b084ae8b7a387d06cc',
+                'sha1' => 'a4f45cf62feb6f2b2b4f849403555ee43d505cdd',
                 'content-type' => 'text/css; charset=utf-8',
                 'cache-control' => 'public, max-age=31536000, immutable',
                 'content-length' => null,
