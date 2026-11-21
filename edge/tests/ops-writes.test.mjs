@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 const { handle } = await import('../ops/src/index.ts');
 const { clearJwksCache, JWKS_FAILURE_MS } = await import('../ops/src/access.ts');
 const { CSV_MAX_ROWS } = await import('../ops/src/reads.ts');
-const { LIMIT_KEYS, JOB_KINDS } = await import('../ops/src/writes.ts');
+const { LIMIT_KEYS, JOB_KINDS, jobAudit } = await import('../ops/src/writes.ts');
 
 const TEAM = 'ops-team.cloudflareaccess.com';
 const AUD = 'fake-aud-writes-0123456789';
@@ -487,4 +487,54 @@ test('E6-3 ops writes: every write route is 403 writes_disabled unless OPS_WRITE
   }
   assert.deepEqual(wf.calls.map((c) => c.id), ['j1']);
   assert.equal(audits(t.db).length, 6);
+});
+
+test('E6-3 ops writes: primary is refused by id before any lookup, also when it has no row', async () => {
+  const db = controlDb();
+  db.raw.exec("DELETE FROM subscriptions WHERE installation_id = 'primary'; DELETE FROM installation_routes WHERE installation_id = 'primary'; DELETE FROM installations WHERE id = 'primary'");
+  const lookups = [];
+  const prepare = db.prepare;
+  db.prepare = (sql) => { lookups.push(sql); return prepare(sql); };
+  const t = setup({ db, lifecycle: workflowStub() });
+  for (const [method, path, body] of [
+    ['PUT', '/installations/primary/subscription', { plan_id: 'pro', status: 'active' }],
+    ['PUT', '/installations/primary/limits/items', { hard_value: 5 }],
+    ['DELETE', '/installations/primary/limits/items', undefined],
+    ['POST', '/jobs', { kind: 'suspend', installation_id: 'primary', nonce: 'nonce-0001' }],
+  ]) {
+    lookups.length = 0;
+    const r = await t.send(method, path, body);
+    assert.deepEqual([r.status, r.json], [403, { ok: false, code: 'primary' }], `${method} ${path}`);
+    assert.ok(!lookups.some((sql) => /FROM installations/.test(sql)), `no installation lookup: ${method} ${path}`);
+  }
+  assert.equal(t.db.batches.length, 0);
+});
+
+test('E6-3 ops writes: confirming a purge checks the retention again; a delete finished too recently is 409 retention', async () => {
+  const wf = workflowStub();
+  const t = setup({ lifecycle: wf });
+  t.db.raw.exec(`INSERT INTO lifecycle_jobs (id, installation_id, kind, idempotency_key, state, params_json, result_json, created_by, confirmed_by, updated_at)
+    VALUES ('del', 'x', 'delete', 'delete:x:nonce-0001', 'done', '{"retention_days":30}', '{"key":"installations/tenant-x/backups/k"}', 'o@example.test', 'o@example.test', '2020-01-01T00:00:00Z')`);
+  const created = await t.send('POST', '/jobs', { kind: 'purge', installation_id: 'x', nonce: 'nonce-0001' });
+  assert.equal(created.status, 201);
+  const job = created.json.job;
+  const audited = audits(t.db).length;
+  // The delete now finished only just now (its retention runs again): the confirm re-checks and refuses.
+  t.db.raw.exec(`UPDATE lifecycle_jobs SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = 'del'`);
+  const r = await t.send('POST', `/jobs/${job.id}/confirm`, { confirm_host: 'x.example.test' });
+  assert.deepEqual([r.status, r.json], [409, { ok: false, code: 'retention' }]);
+  assert.equal(t.db.raw.prepare('SELECT state FROM lifecycle_jobs WHERE id = ?').get(job.id).state, 'paused');
+  assert.equal(audits(t.db).length, audited);
+  assert.equal(wf.calls.length, 0);
+});
+
+test('E6-3 ops writes: a job audit row refuses a credential-like key before anything is written', () => {
+  const db = controlDb();
+  const op = { email: OPERATOR, requestId: 'req-1' };
+  for (const after of [{ token: 'x' }, { job_id: 'j', link: 'https://x' }, { Password: 'p' }, { claim_token: 't' }, { secret: 's' }, { nested: { token: 'x' } }]) {
+    assert.throws(() => jobAudit(db, 'j', 'suspend', 'confirm', 'b', op, after, '1 = 1', []), /credential/, JSON.stringify(after));
+  }
+  const ok = jobAudit(db, 'j', 'suspend', 'confirm', 'b', op, { job_id: 'j', host: 'b.example.test' }, '1 = 1', []);
+  assert.match(ok.sql, /INSERT INTO operator_audit/);
+  assert.equal(audits(db).length, 0);
 });

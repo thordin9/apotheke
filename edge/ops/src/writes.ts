@@ -253,7 +253,7 @@ async function retentionOver(db: AuditDb, installationId: string): Promise<boole
 
 /** A job's audit row, id <job id>:<action> as lifecycle.ts writes them, inserted only when the condition holds (so a
  *  repeated request writes none). */
-function jobAudit(db: AuditDb, jobId: string, kind: string, action: string, installationId: string, op: Operator, after: unknown, condition: string, args: unknown[]) {
+export function jobAudit(db: AuditDb, jobId: string, kind: string, action: string, installationId: string, op: Operator, after: unknown, condition: string, args: unknown[]) {
 	const id = `${jobId}:${action}`;
 	const afterJson = JSON.stringify(after);
 	if (/"(?:token|link|claim_token|password|secret)"\s*:/i.test(afterJson)) throw new Error("audit: refused a value that looks like a credential");
