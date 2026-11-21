@@ -1,6 +1,6 @@
 # PR #355 evidence
 
-Final head `f0f3ccd4c6a254ee9ce526b5db0417ff6fe5a00c`, read from Coder2's bundle `admin-reset-session-match-5.bundle` (sha256 `c9c6aebd…315bc5`, verified). Full-gate head `ec7b28213d6750e1cc13c6d5e8b78003726c0197`. Live `git ls-remote origin refs/pull/355/head` returned that SHA immediately before the verdict. `refs/heads/main` was `815a5abd13ea51400cef2e2cf840c8a3bc73a3e4`. Behind count 0.
+Final head `a5c0ebd3e7af0d794de36471619c4d5d744cb6be`, read from Coder2's bundle `admin-reset-session-match-6.bundle` (sha256 `f1571a8e…249dda3`, verified). Full-gate head `ec7b28213d6750e1cc13c6d5e8b78003726c0197`. Live `git ls-remote origin refs/pull/355/head` returned that SHA immediately before the verdict. `refs/heads/main` was `815a5abd13ea51400cef2e2cf840c8a3bc73a3e4`. Behind count 0.
 
 `git diff --stat 815a5abd...HEAD`: `CHANGELOG.md` +4, `docs/HANDOFF.md` +2/−2, `modules/Auth/HostedAdminReset.php` +7/−4, `tests/Modules/Auth/HostedAdminResetTest.php` +25/−2. README and VERSION have no diff. VERSION is 3.60.0 on both. The changelog header equals main. From `## [3.60.0]` the file equals main. Unreleased is one Fixed bullet linking `https://github.com/thordin9/apotheke/pull/355`.
 
@@ -41,3 +41,4 @@ Each read: parents checked, 0 behind main, the previous head an ancestor, the on
 - `5f6252c5`: merge `97e1dfa2` of main `4637fa18` (v3.61.0) plus the hand-off. PASS.
 - `f1d14c1f`: merge `4ec3144d` of main `c5476e79` (v3.64.0) plus the hand-off. Covered by the final read, which compares against main directly.
 - `f0f3ccd4`: merge `2c684b6e` of main `69912dda` (v3.65.0) plus the hand-off. `git diff --stat 69912dda f0f3ccd4`: the same four files, +38/−8. Changelog preamble and released sections equal main, Unreleased is the one `#355` Fixed bullet. README and VERSION (3.65.0) have no diff. The hand-off diff is the latest-release line (v3.58.0 to v3.65.0) and the `#344` line replaced by `#355`. PASS.
+- `a5c0ebd3`: merge of main `0674342c` (`#342`, ci only, no release) into `f0f3ccd4`. 0 behind. The code and test diff and the hand-off diff against main equal those of `f0f3ccd4` against `69912dda`. Changelog preamble and released sections equal main. Unreleased is the `#355` Fixed bullet followed by main's `#342` Maintenance bullet. README and VERSION (3.65.0) have no diff. PASS.
