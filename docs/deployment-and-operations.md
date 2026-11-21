@@ -561,13 +561,14 @@ that none reaches the log, on both images.
 ## Cloudflare deploys (getapotheke.com)
 
 The hosted Apotheke runs on Cloudflare Workers. Self-hosting doesn't need any of this; to run a copy on your own
-Cloudflare account, see [Self-hosting on Cloudflare](self-host-cloudflare.md). Two Workers are deployed from
-this repository, and only these two:
+Cloudflare account, see [Self-hosting on Cloudflare](self-host-cloudflare.md). Three Workers are deployed from
+this repository, and only these three:
 
 | Worker | Code | Serves | Workflow | GitHub environment |
 |---|---|---|---|---|
 | `getapotheke-app` | `edge/app/` (routing and headers) + `frontend/dist` (static assets) | the landing page (`/`, `/privacy/`, `/404.html`, `robots.txt`, `sitemap.xml`, icons, `site.webmanifest`, `/assets/…`) and the SPA under `/app/` | `.github/workflows/deploy-frontend.yml` | `deploy-site` |
-| `apotheke-api` | `edge/` (Worker + Container Durable Object) + `Dockerfile.frankenphp` | the API (Cloudflare Containers, instance `basic`, 1 instance, sleeps after 15 minutes) | `.github/workflows/deploy-edge.yml` | `deploy-edge` |
+| `apotheke-api` | `edge/` (Worker + Container Durable Object) + `Dockerfile.frankenphp` | the API (Cloudflare Containers, instance `basic`, 1 instance, sleeps after 15 minutes) and the lifecycle Workflow (`apotheke-lifecycle`) | `.github/workflows/deploy-edge.yml` | `deploy-edge` |
+| `apotheke-ops` | `edge/ops/` + `ops/console/` (built to `ops/console/dist` and served as static assets) | the operator console and `/api/ops/v1` at `console.getapotheke.com`, behind Cloudflare Access | `.github/workflows/deploy-edge.yml` (`deploy-ops`, only while `OPS_DEPLOY_ENABLED` is `1`) | `deploy-edge` |
 
 **`apotheke-api` settings** are vars in `edge/wrangler.jsonc` (not secrets; changed by a reviewed pull request) that
 the Worker passes to the container: `SLEEP_AFTER_MS`, `ALLOWED_HOSTS` (`api.services.getapotheke.com`),
@@ -606,11 +607,11 @@ calls. Deploying a Worker with D1, R2 or Durable Object bindings needs no permis
 P4 storage flip adds none ([flip checklist](#p4-edge-storage-flip-checklist)). Account-wide means such a token could edit **any** Worker in the account, including ones this
 repository must never touch (for example `apotheke-autofill`). So:
 
-* each workflow hard-codes its Worker name (`getapotheke-app` or `apotheke-api`); no name comes from inputs,
+* each workflow hard-codes its Worker name (`getapotheke-app`, `apotheke-api` or `apotheke-ops`); no name comes from inputs,
   variables or files outside review;
 * `scripts/cf-deploy.sh` and every `wrangler` call in the workflows pass `--config wrangler.jsonc` explicitly;
 * before every deploy and dry run, `scripts/cf-worker-guard.mjs` reads the effective name from the wrangler config and
-  fails the job unless it is exactly the workflow's Worker and on the allowlist (`getapotheke-app`, `apotheke-api`).
+  fails the job unless it is exactly the workflow's Worker and on the allowlist (`getapotheke-app`, `apotheke-api`, `apotheke-ops`).
   It also fails on any other name (such as `apotheke-autofill` or `flaremo`), on `env` sections, routes or custom
   domains in the config, on `--name`, `--env`, `--route`, `--domain` or `--config` arguments, and on
   `CLOUDFLARE_ENV`/`WRANGLER_ENV`. It also fails when another config could win over that file: a `wrangler.json`

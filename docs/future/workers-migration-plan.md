@@ -201,7 +201,7 @@ target: SQL tables in the installation's SQLite, and blob keys under the install
 | CI4 source | `modules/Backup/OpsBackupEndpoint.php`, `modules/Backup/OpsBackups.php`, `modules/Auth/OpsAccountsEndpoint.php`, `modules/Core/Security/OpsSignature.php`; TS: `edge/src/index.ts` (`Ops` entrypoint, `opsBackup`, `opsAccounts`, `listUsers`), `edge/src/ops-accounts.ts`, `edge/src/ops-signature.ts`, `edge/src/lifecycle*.ts`, `edge/ops/src/` |
 | TS target | The same `Ops` entrypoint, calling methods on the `Installation` object directly. `edge/ops/` is already TypeScript and keeps its API. |
 | Storage | Control plane in D1 (unchanged); per-installation tables through the object |
-| Tricky parts | The lifecycle export step today starts a container to make the app's backup (`ApothekeContainer.opsBackup`); in the target the object makes the backup itself, so suspend and export no longer stop and start a container. `stopContainer()` and the purge of the container object's storage go away. The never-`primary` checks in every function stay and keep their tests. Where `LifecycleWorkflow` is hosted (`apotheke-ops` per its file comment, or `apotheke-api`) does not change the plan. |
+| Tricky parts | The lifecycle export step today starts a container to make the app's backup (`ApothekeContainer.opsBackup`); in the target the object makes the backup itself, so suspend and export no longer stop and start a container. `stopContainer()` and the purge of the container object's storage go away. The never-`primary` checks in every function stay and keep their tests. `LifecycleWorkflow` is hosted by `apotheke-api`; that does not change the plan. |
 | Rough size | 2–3 pw |
 
 ### Per-installation data: backup, restore, import and export, settings
