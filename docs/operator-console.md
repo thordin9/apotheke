@@ -251,7 +251,7 @@ step by `LifecycleWorkflow` (`edge/src/lifecycle-workflow.ts`) over the step fun
 | resume | Status `active`, drop cached routes. The next request starts the container |
 | export | The app's own backup, once per job, written by the app under the installation's prefix (`installations/<do_name>/`, in its backups folder); its key is kept on the job. The container object asks its container for it (`ApothekeContainer.opsBackup`, see [Backup for a lifecycle job](#backup-for-a-lifecycle-job)), starting it if needed, also while `suspended`. Then, unless the installation is `active`, the container is stopped again, including when the backup fails the job |
 | delete | Soft delete: status `deleting` (routing answers 410 once the cached route expires, within 30 seconds; the container no longer starts), stop and destroy the container, export (which starts the container for the backup only), stop the container again, including when the backup fails the job. The job needs a retention period in days (30 is planned; the final value is the owner's decision) and has no default. The export stays under the prefix until a purge, which cannot run before the retention is over |
-| purge | Only after a soft delete that finished (its export made) and whose retention is over: now is at least the time that delete job finished plus its retention days. Before then, or after a delete that failed, creating, confirming and every step of a purge are refused and change nothing. There is no immediate purge. Then: abort unfinished multipart uploads that have a marker and delete their markers, then delete everything under `installations/<do_name>/` in pages of at most 1,000 keys (one page per step, so a retry carries on), then delete the `Installation` and container objects' storage, then status `deleted`. The row stays as a tombstone, so the DO names are never reused |
+| purge | Only after a soft delete that finished (its export made) and whose retention is over: now is at least the time that delete job finished plus its retention days. Before then, or after a delete that failed, creating, confirming and every step of a purge are refused and change nothing. There is no immediate purge. Then: abort unfinished multipart uploads that have a marker and delete their markers, then delete everything under `installations/<do_name>/` in pages of at most 1,000 keys (one page per step, so a retry carries on), then delete the `Installation` and container objects' storage, then delete the installation's autofill budget (see [Autofill budget step](#autofill-budget-step)), then status `deleted`. The row stays as a tombstone, so the DO names are never reused |
 
 Not wired yet, and failing closed until they are: the `BOOTSTRAP=1` start and the claim (C1), and the download link
 for an export (the console API, E6).
@@ -277,6 +277,25 @@ deployed with the operator Worker (D1), not with `apotheke-api`, whose configura
 A purge takes one Workflow step per page of up to 1,000 keys (plus one per 100 unfinished uploads). The Workflow's
 step limit per instance therefore caps one purge at about 10 million objects (about 1 million on the Free plan's
 1,024 steps). Past the limit the instance fails without reaching its last step, and the job is left in `running`.
+
+### Autofill budget step
+
+`purge.autofill` deletes the installation's monthly budget in the autofill service: `DELETE
+/v1/installations/<do_name>/budget` on the `HostedAutofill` entrypoint, through the same `AUTOFILL` service binding as
+[Autofill](#autofill) (`deleteAutofillBudget` in `edge/src/lifecycle-workflow.ts`). It runs after `purge.storage` and
+before status `deleted`: the installation has been `deleting` since its soft delete and its container is gone, so no
+autofill call can count again after the budget is deleted. `primary` is refused before any call.
+
+- `200` is done. Its `deleted` count (0 when there was no budget) is recorded on the job under `purge.autofill`, so a
+  retried step does not call the service again, and logged with the job id only.
+- `503` (the service's storage failed), any other 5xx, a call that did not finish and a missing `AUTOFILL` binding are
+  retried by the Workflow. After the last retry the job fails with `autofill_<status>`, `autofill_unreachable` or
+  `autofill_not_configured`, and the installation stays `deleting`, so a new purge job can finish it.
+- Any other status fails the job at once as `autofill_<status>` (for example `autofill_400`); a `200` without a usable
+  count fails it as `bad_autofill_answer`.
+
+The step is not skipped without the binding: a purge only finishes once the budget is gone. The Workflow's
+environment therefore needs the `AUTOFILL` binding when it is deployed with the operator Worker.
 
 ## Hosted installations
 
