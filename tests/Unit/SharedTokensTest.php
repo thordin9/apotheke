@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Apotheke\Settings\Branding\Accent;
+use Apotheke\Settings\SettingsSchema;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -41,6 +43,53 @@ final class SharedTokensTest extends TestCase
                 $this->assertArrayHasKey($name, $tokens[$mode], $mode . ' tokens are missing ' . $name);
             }
         }
+    }
+
+    public function testTheDefaultAccentIsTheBrandPrimary(): void
+    {
+        $app = $this->blocks($this->root() . '/public/assets/app.css');
+        $this->assertSame($app['light']['--brand-primary'], SettingsSchema::ACCENT_DEFAULT);
+        $this->assertSame($app['dark']['--brand-primary'], Accent::DEFAULT_DARK);
+        $this->assertSame($app['scheme']['--brand-primary'], Accent::DEFAULT_DARK);
+        $presets = Accent::PRESETS;
+        $first = (string)array_key_first($presets);
+        $this->assertSame(SettingsSchema::ACCENT_DEFAULT, strtolower($first));
+        $this->assertSame('Plum (default)', $presets[$first]);
+        $css = (string)file_get_contents($this->root() . '/public/assets/app.css');
+        $this->assertMatchesRegularExpression('/\.sw-0\{background:' . preg_quote(SettingsSchema::ACCENT_DEFAULT, '/') . '\}/', $css);
+        $preview = Accent::variants(SettingsSchema::ACCENT_DEFAULT);
+        $this->assertSame(SettingsSchema::ACCENT_DEFAULT, $preview['light']['accent']);
+        $this->assertSame(Accent::DEFAULT_DARK, $preview['dark']['accent']);
+        $this->assertFalse($preview['adjusted']['dark']);
+        $this->assertSame('', Accent::css(SettingsSchema::ACCENT_DEFAULT));
+        $js = (string)file_get_contents($this->root() . '/public/assets/app.js');
+        $this->assertStringContainsString("'#" . strtoupper(ltrim(SettingsSchema::ACCENT_DEFAULT, '#')) . "': '" . Accent::DEFAULT_DARK . "'", $js);
+        $this->assertStringContainsString("'#" . strtoupper(ltrim(Accent::INDIGO, '#')) . "': '" . Accent::INDIGO_DARK . "'", $js);
+    }
+
+    public function testASavedIndigoStillEmitsIndigoCss(): void
+    {
+        $css = Accent::css(Accent::INDIGO);
+        $this->assertNotSame('', $css);
+        $this->assertStringContainsString('--accent:' . Accent::INDIGO, $css);
+        $this->assertStringContainsString('--accent:' . Accent::INDIGO_DARK, $css);
+        $this->assertStringNotContainsString(SettingsSchema::ACCENT_DEFAULT, $css);
+    }
+
+    public function testAccentBackgroundsMatchTheStylesheetPaper(): void
+    {
+        $app = $this->blocks($this->root() . '/public/assets/app.css');
+        $this->assertSame([$app['light']['--color-paper'], $app['light']['--color-paper-2']], Accent::BG_LIGHT);
+        $this->assertSame([$app['dark']['--color-paper'], $app['dark']['--color-paper-2']], Accent::BG_DARK);
+        $js = (string)file_get_contents($this->root() . '/public/assets/app.js');
+        $light = preg_quote($app['light']['--color-paper'], '/') . "', '" . preg_quote($app['light']['--color-paper-2'], '/');
+        $dark = preg_quote($app['dark']['--color-paper'], '/') . "', '" . preg_quote($app['dark']['--color-paper-2'], '/');
+        $this->assertMatchesRegularExpression("/light: \\[\\['" . $light . "'\\]/", $js);
+        $this->assertMatchesRegularExpression("/dark: \\[\\['" . $dark . "'\\]/", $js);
+        $page = (string)file_get_contents($this->root() . '/modules/Layout/Page.php');
+        $this->assertStringContainsString('#fdfcfa', $page);
+        $branding = (string)file_get_contents($this->root() . '/modules/Settings/Branding/Branding.php');
+        $this->assertStringContainsString("? '#fdfcfa'", $branding);
     }
 
     /** @return array{light: array<string, string>, dark: array<string, string>, scheme: array<string, string>} */

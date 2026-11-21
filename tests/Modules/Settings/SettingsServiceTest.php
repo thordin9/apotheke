@@ -251,7 +251,7 @@ final class SettingsServiceTest extends CIUnitTestCase
         $service->store(['logo' => 'svg']);
         $this->assertSame([], $service->save(['accent' => '#0f766e', 'page_size' => '9', 'app_name' => 'Box']));
         $service->resetSection('appearance');
-        $this->assertSame('#4f46e5', $service->get('accent'));
+        $this->assertSame('#5b3b8e', $service->get('accent'));
         $this->assertSame('', $service->get('logo'));
         $this->assertFalse($brand->has('logo.svg'));
         $this->assertSame(9, $service->get('page_size'), 'other sections untouched');

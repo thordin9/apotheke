@@ -76,7 +76,7 @@ final class Ci4BrandingHttpTest extends TestCase
             ],
             '/manifest.webmanifest' => [
                 'status' => 200,
-                'sha1' => '278bc84ee1971e7b87d5d5109609e9fbcecfc0a7',
+                'sha1' => '7afdabeb917745568aac0ef121cd3a7ce7a8e793',
                 'content-type' => 'application/manifest+json',
                 'cache-control' => 'no-cache',
                 'content-length' => null,
