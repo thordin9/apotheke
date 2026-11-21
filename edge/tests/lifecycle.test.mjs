@@ -514,6 +514,14 @@ test('E6 Workflow never touches primary: refused by the job\'s installation id a
   await assert.rejects(preflight({ OPS_WRITES_ENABLED: '1', DB: missing }, 'j'), (e) => e.code === 'job_not_found');
 });
 
+test('E6 Workflow preflight: a job whose installation row is missing is refused as not_found, before any step', async () => {
+  const rows = { lifecycle_jobs: { installation_id: 't-gone' }, installations: null };
+  const DB = { prepare: (sql) => ({ bind: () => ({ first: async () => rows[/FROM (\w+)/.exec(sql)[1]] }) }) };
+  const refusedNotFound = (e) => e instanceof NonRetryableError && e.code === 'not_found';
+  await assert.rejects(preflight({ OPS_WRITES_ENABLED: '1', DB }, 'j'), refusedNotFound);
+  await assert.rejects(new LifecycleWorkflow({}, { OPS_WRITES_ENABLED: '1', DB }).run({ payload: { jobId: 'j' } }, noSteps), refusedNotFound);
+});
+
 test('E4 purge after a failed delete is refused: no export, nothing removed (M-2157 P1)', async () => {
   const w = world();
   await w.bucket.put('installations/tenant-a/photo.jpg', 'x');
