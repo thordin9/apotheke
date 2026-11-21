@@ -1,15 +1,15 @@
 # QA: apotheke #353, a lighter, tighter landing and app shell (design refresh A)
 
 - PR: https://github.com/thordin9/apotheke/pull/353 (Front-End), base `main`. CSS-only restyle of the landing, privacy, 404 and `/app` shell, plus an axe and keyboard spec (`tests/e2e/landing-a11y.spec.ts`) with one new dev dependency.
-- Reviewed head: `11b18a1a94a64dc6960946c52437a3d3123fee31`, 0 behind main `4637fa18` (v3.61.0), merge state `CLEAN`. Content PASS at `4a4b6759` (against `815a5abd`); catch-up merge `11b18a1` read merge-only. Commits: `5f0f28f` (feat), `67fec98` and `4a4b675` (docs), merges `598021a`, `c4e33e1` and `11b18a1`.
+- Reviewed head: `caff451ec381fa16b3876cb28bd18d6028264f11`, 0 behind main `268aae4f` (#352), merge state `CLEAN`. Content PASS at `4a4b6759` (against `815a5abd`); catch-up merges `11b18a1` and `caff451` read merge-only. Commits: `5f0f28f` (feat), `67fec98` and `4a4b675` (docs), merges `598021a`, `c4e33e1`, `11b18a1` and `caff451`; `507ce13` is a void earlier doc that this one replaces.
 - Gate: full (user-facing CSS and a new dependency). Full diff read, frontend build, the Frontend e2e suite locally, extra layout probes at 8 widths in both schemes, contrast checks and a secret scan.
-- CI on `4a4b6759`: Frontend 44828088476, CI 44828088539, Deploy frontend 44828088819, PR #353 44828077798. On `11b18a1a`: 23 green, 1 skipped (the deploy job).
-- Reviewed 2026-11-21 00:50 to 01:30; merge-only read 01:45 (UTC+2). Reviewer: Apotheke QA 2
+- CI on `4a4b6759`: Frontend 44828088476, CI 44828088539, Deploy frontend 44828088819, PR #353 44828077798. On `caff451e`: 23 green, 1 skipped (the deploy job).
+- Reviewed 2026-11-21 00:50 to 01:30; merge-only reads 01:45 and 02:15 (UTC+2). Reviewer: Apotheke QA 2
 
 ## Checklist
 
 - [x] Scope (`815a5abd...head`): 7 files, +186/−58: `tokens.css`, `base.css`, `landing.css`, root `package.json` and `package-lock.json`, the new spec, CHANGELOG. No HTML, consent JS, CSP, headers or build config changed.
-- [x] Merges: parents `[67fec98, 86a5e904]` and `[598021a, 815a5abd]`; each differs from `git merge-tree` only in `CHANGELOG.md`. `VERSION` equals main (3.60.0); the bullet is under `[Unreleased]` / Changed with the full PR URL. `11b18a1` (parents `[4a4b675, 4637fa18]`) also differs from `git merge-tree` only in `CHANGELOG.md`: the markers are dropped and both sides kept. `4637fa18...head` has the same 7 files with identical per-file hunks to `815a5abd...4a4b6759`; `VERSION` equals main (3.61.0).
+- [x] Merges: parents `[67fec98, 86a5e904]` and `[598021a, 815a5abd]`; each differs from `git merge-tree` only in `CHANGELOG.md`. `VERSION` equals main (3.60.0); the bullet is under `[Unreleased]` / Changed with the full PR URL. `11b18a1` (parents `[4a4b675, 4637fa18]`) and `caff451` (parents `[507ce13, 268aae4f]`) also differ from `git merge-tree` only in `CHANGELOG.md`: the markers are dropped and both sides kept. `268aae4f...head` has the same 7 files with identical per-file hunks to `815a5abd...4a4b6759`, plus this doc; `VERSION` equals main (3.61.0).
 - [x] Dependency: `@axe-core/playwright` 4.11.2 (pinned, dev, MPL-2.0) and `axe-core` 4.11.4 (`~4.11.3`), both from registry.npmjs.org with integrity hashes. It goes in the root package, which is what the Frontend job installs, and Dependabot already covers the root (`npm`, `/`). `tests/e2e/package.json` (puppeteer) is untouched.
 - [x] The spec runs in CI: the Frontend job went from 50 to 64 tests (+14: axe on 5 pages × 2 schemes, tab order × 2, consent clearance, no inline script or style). Locally 64/64 against the built `dist`.
 - [x] Contrast: `contrast.mjs` 90/90 pairs in CI, and axe (WCAG 2.0 to 2.2 AA tags) finds nothing in either scheme. The light header is now paper/ink (covered by the existing header pair). The dark header stays `#07161c`, and its focus ring (`--color-focus`, now used there) measures 8.05:1. Dark paper moves one step lighter in both dark blocks, which stay identical.
@@ -29,4 +29,4 @@
 
 ## Verdict
 
-**PASS** at `11b18a1a`, 0 behind main `4637fa18` (v3.61.0). The doc lands byte-exact as the last commit ("docs(qa): add QA 2 review for #353"), followed by the hash check and green CI on that head. Squash as "feat(frontend): lighter, tighter landing and app shell (#353)". As a `feat`, this cuts a minor release.
+**PASS** at `caff451e`, 0 behind main `268aae4f`. The doc lands byte-exact as the last commit ("docs(qa): add QA 2 review for #353"), followed by the hash check and green CI on that head. Squash as "feat(frontend): lighter, tighter landing and app shell (#353)". As a `feat`, this cuts a minor release.
