@@ -12,6 +12,17 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **auth:** a hosted installation can disable or re-enable one user on the signed ops accounts channel ([#349](https://github.com/thordin9/apotheke/pull/349))
 
+## [3.65.1] - 2026-11-21
+
+### Fixed
+
+- **auth:** the hosted admin reset matches session records on the account's own uid field only ([#355](https://github.com/thordin9/apotheke/pull/355))
+
+### Maintenance
+
+- ci: bump @playwright/test to 1.65.1 and pin the Playwright image ([#342](https://github.com/thordin9/apotheke/pull/342))
+- ci: bump @playwright/test to 1.65.1 and pin the Playwright image ([#342](https://github.com/thordin9/apotheke/pull/342))
+
 ## [3.65.0] - 2026-11-21
 
 ### Added
@@ -79,6 +90,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Maintenance
 
 - **deps-dev:** build: bump vite from 8.3.7 to 8.3.8 in /frontend ([#340](https://github.com/thordin9/apotheke/pull/340))
+
 
 ## [3.57.0] - 2026-11-20
 
@@ -1996,7 +2008,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.65.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.65.1...HEAD
+[3.65.1]: https://github.com/thordin9/apotheke/compare/v3.65.0...v3.65.1
 [3.65.0]: https://github.com/thordin9/apotheke/compare/v3.64.0...v3.65.0
 [3.64.0]: https://github.com/thordin9/apotheke/compare/v3.63.0...v3.64.0
 [3.63.0]: https://github.com/thordin9/apotheke/compare/v3.62.0...v3.63.0
