@@ -8,13 +8,19 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **frontend:** the landing consent bar takes its own height, the hero shot is capped, and the product shots are light and dark ([#365](https://github.com/thordin9/apotheke/pull/365))
+
+## [3.69.0] - 2026-11-21
+
 ### Added
 
 - **console:** operator console writes are enabled in production on both Workers; provisioning and plan limits stay off ([#362](https://github.com/thordin9/apotheke/pull/362))
 
-### Changed
+### Maintenance
 
-- **frontend:** the landing consent bar takes its own height, the hero shot is capped, and the product shots are light and dark ([#365](https://github.com/thordin9/apotheke/pull/365))
+- docs: refresh repo docs for v3.68.0 and the live console ([#363](https://github.com/thordin9/apotheke/pull/363))
 
 ### Fixed
 
@@ -2044,7 +2050,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.68.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.69.0...HEAD
+[3.69.0]: https://github.com/thordin9/apotheke/compare/v3.68.0...v3.69.0
 [3.68.0]: https://github.com/thordin9/apotheke/compare/v3.67.0...v3.68.0
 [3.67.0]: https://github.com/thordin9/apotheke/compare/v3.66.0...v3.67.0
 [3.66.0]: https://github.com/thordin9/apotheke/compare/v3.65.1...v3.66.0
