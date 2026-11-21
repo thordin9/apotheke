@@ -6,7 +6,7 @@ const routes: { path: string; heading: string; shot: string }[] = [
   { path: '/overview', heading: 'Overview', shot: 'overview' },
   { path: '/', heading: 'Overview', shot: '' },
   { path: '/installations', heading: 'Installations', shot: 'installations' },
-  { path: '/installations/north', heading: 'Installation', shot: 'installation' },
+  { path: '/installations/north', heading: 'north', shot: 'installation' },
   { path: '/installations/north/users', heading: 'Users', shot: 'users' },
   { path: '/plans', heading: 'Plans and limits', shot: 'plans' },
   { path: '/subscriptions', heading: 'Subscriptions', shot: 'subscriptions' },
@@ -149,7 +149,7 @@ test.describe('operator console', () => {
     await expectFocusRing(page);
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/\/installations\/north$/);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Installation');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('north');
     await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
 
     const users = page.getByRole('navigation', { name: 'Installation' }).getByRole('link', { name: 'Users' });
@@ -338,12 +338,35 @@ for (const viewport of viewports) {
       expect(loose).toBe(0);
       const iso = await page.locator('#main').innerText();
       expect(iso).not.toMatch(/T\d{2}:\d{2}:\d{2}Z/);
+      if (route.path === '/installations/north') {
+        await expect(page.getByRole('heading', { name: 'Plan limits' })).toHaveCount(1);
+        await expect(page.locator('caption', { hasText: 'Plan limits' })).toHaveCount(0);
+        await expect(page.locator('caption', { hasText: 'Usage' })).toHaveCount(0);
+        await expect(page.locator('caption', { hasText: 'Recent jobs' })).toHaveCount(0);
+        await expect(page.locator('.crumb')).toContainText('Installation');
+      }
+      if (viewport.width === 320 && route.path === '/audit') {
+        const nowrap = await page.locator('.table-scroll time').first().evaluate((node) => getComputedStyle(node).whiteSpace);
+        expect(nowrap).toBe('nowrap');
+      }
       await axe(page);
     }
     if (viewport.width === 320 && viewport.scheme === 'light') {
       await page.goto('/overview');
       const top = await page.locator('.stats').first().evaluate((node) => node.getBoundingClientRect().top);
       expect(top).toBeLessThan(640);
+      const header = await page.locator('.bar').evaluate((bar) => {
+        const where = bar.querySelector('.where');
+        const pill = bar.querySelector('#read-only');
+        return {
+          height: bar.getBoundingClientRect().height,
+          whereHidden: where ? getComputedStyle(where).position === 'absolute' : false,
+          pillNowrap: pill ? getComputedStyle(pill).whiteSpace : '',
+        };
+      });
+      expect(header.height).toBeLessThanOrEqual(56);
+      expect(header.whereHidden).toBe(true);
+      expect(header.pillNowrap).toBe('nowrap');
     }
   });
 }

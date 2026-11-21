@@ -12,6 +12,7 @@ import type {
   Overview,
 } from './api/types.ts';
 import {
+  actions,
   dataTable,
   el,
   facts,
@@ -275,9 +276,10 @@ function subnav(id: string, current: 'installation' | 'users'): HTMLElement {
   return nav;
 }
 
-function crumb(): HTMLElement {
+function crumb(context = ''): HTMLElement {
   const line = el('p', { class: 'crumb' });
   line.append(el('a', { href: '/installations' }, 'Installations'));
+  if (context) line.append(el('span', {}, context));
   return line;
 }
 
@@ -364,9 +366,13 @@ function installationTable(rows: InstallationSummary[]): HTMLElement {
 async function paintInstallation(main: HTMLElement, id: string, gen: number): Promise<void> {
   const detail = await client.installation(id);
   if (gen !== generation) return;
-  main.append(crumb(), subnav(id, 'installation'));
-  if (detail.primary) main.append(primaryPill());
   const fields = detail.installation;
+  const title = fields.do_name || fields.id;
+  const heading = main.querySelector('#screen-title');
+  if (heading) heading.textContent = title;
+  document.title = `${title}, Apotheke operator console`;
+  main.append(crumb('Installation'), subnav(id, 'installation'));
+  if (detail.primary) main.append(primaryPill());
   const section = el('section');
   section.append(el('h2', {}, 'Facts'));
   section.append(facts([
@@ -379,7 +385,7 @@ async function paintInstallation(main: HTMLElement, id: string, gen: number): Pr
     ['Created', when(fields.created_at)],
     ['Updated', when(fields.updated_at)],
   ]));
-  section.append(writeControl('Claim link'), writeControl('Reset admin'));
+  section.append(actions(writeControl('Claim link'), writeControl('Reset admin')));
   main.append(section);
   main.append(dataTable('cap-routes', 'Routes', [
     { text: 'Host', code: true },
@@ -399,25 +405,25 @@ async function paintInstallation(main: HTMLElement, id: string, gen: number): Pr
   sub.append(writeControl('Change plan or status'));
   main.append(sub);
   const limits = el('section');
-  limits.append(el('h2', {}, 'Plan limits'));
+  limits.append(el('h2', { id: 'limits-heading' }, 'Plan limits'));
   limits.append(dataTable('cap-limits', 'Plan limits', [
     { text: 'Key' },
     { text: 'Soft', num: true },
     { text: 'Hard', num: true },
-  ], detail.limits.map((limit) => [limit.limit_key, text(limit.soft_value), text(limit.hard_value)]), 'No limits on this plan.'));
+  ], detail.limits.map((limit) => [limit.limit_key, text(limit.soft_value), text(limit.hard_value)]), 'No limits on this plan.', 'limits-heading'));
   limits.append(writeControl('Grant limit override'));
   main.append(limits);
   const usage = el('section');
-  usage.append(el('h2', {}, 'Usage'));
+  usage.append(el('h2', { id: 'usage-heading' }, 'Usage'));
   usage.append(dataTable('cap-usage', 'Usage', [
     { text: 'Period' },
     { text: 'Metric' },
     { text: 'Value', num: true },
-  ], detail.usage.map((row) => [row.period, row.metric, String(row.value)]), 'No usage recorded.'));
+  ], detail.usage.map((row) => [row.period, row.metric, String(row.value)]), 'No usage recorded.', 'usage-heading'));
   main.append(usage);
   const jobs = el('section');
-  jobs.append(el('h2', {}, 'Recent jobs'));
-  jobs.append(jobTable('cap-recent-jobs', 'Recent jobs', detail.jobs, true));
+  jobs.append(el('h2', { id: 'recent-jobs-heading' }, 'Recent jobs'));
+  jobs.append(jobTable('cap-recent-jobs', 'Recent jobs', detail.jobs, true, 'recent-jobs-heading'));
   jobs.append(writeControl('Create job'));
   main.append(jobs);
   main.append(dataTable('cap-recent-audit', 'Recent audit', [
@@ -471,13 +477,14 @@ async function paintPlans(main: HTMLElement, gen: number): Promise<void> {
   if (gen !== generation) return;
   for (const plan of list.plans) {
     const section = el('section');
-    section.append(el('h2', {}, plan.name));
+    const headingId = `plan-${plan.id}-heading`;
+    section.append(el('h2', { id: headingId }, plan.name));
     const rows = plan.limits.map((limit) => [limit.limit_key, text(limit.soft_value), text(limit.hard_value)]);
     section.append(dataTable(`cap-plan-${plan.id}`, plan.name, [
       { text: 'Limit' },
       { text: 'Soft', num: true },
       { text: 'Hard', num: true },
-    ], rows, 'No limits on this plan.'));
+    ], rows, 'No limits on this plan.', headingId));
     section.append(writeControl('Edit limits'));
     main.append(section);
   }
@@ -525,7 +532,7 @@ async function paintJobs(main: HTMLElement, gen: number): Promise<void> {
   moreButton();
 }
 
-function jobTable(id: string, caption: string, jobs: LifecycleJob[], recent: boolean): HTMLElement {
+function jobTable(id: string, caption: string, jobs: LifecycleJob[], recent: boolean, labelId?: string): HTMLElement {
   const rows = jobs.map((job) => {
     const cells: (Node | string)[] = [
       recent ? label(job.kind) : code(job.installation_id),
@@ -539,7 +546,7 @@ function jobTable(id: string, caption: string, jobs: LifecycleJob[], recent: boo
   const heads: { text: string; code?: boolean }[] = recent
     ? [{ text: 'Kind' }, { text: 'State' }, { text: 'Created' }, { text: 'Action' }]
     : [{ text: 'Installation', code: true }, { text: 'Kind' }, { text: 'State' }, { text: 'Created' }, { text: 'Action' }];
-  return dataTable(id, caption, heads, rows, 'No job matches these filters.');
+  return dataTable(id, caption, heads, rows, 'No job matches these filters.', labelId);
 }
 
 function statusText(state: string): string {

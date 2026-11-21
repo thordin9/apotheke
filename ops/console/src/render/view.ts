@@ -62,10 +62,19 @@ export interface Head {
   code?: boolean;
 }
 
-export function dataTable(id: string, caption: string, heads: Head[], rows: (Node | string)[][], empty?: string): HTMLElement {
+export function actions(...nodes: Node[]): HTMLElement {
+  const row = el('div', { class: 'actions' });
+  for (const node of nodes) row.append(node);
+  return row;
+}
+
+export function dataTable(id: string, caption: string, heads: Head[], rows: (Node | string)[][], empty?: string, labelId?: string): HTMLElement {
   const table = document.createElement('table');
-  const title = rows.length === 0 && empty ? empty : caption;
-  table.append(el('caption', { id }, title));
+  const showingEmpty = rows.length === 0 && Boolean(empty);
+  const title = showingEmpty ? empty! : caption;
+  const namedByHeading = Boolean(labelId) && !showingEmpty;
+  if (!namedByHeading) table.append(el('caption', { id }, title));
+  else table.setAttribute('aria-labelledby', labelId!);
   const head = document.createElement('thead');
   const headRow = document.createElement('tr');
   for (const column of heads) {
@@ -90,7 +99,7 @@ export function dataTable(id: string, caption: string, heads: Head[], rows: (Nod
   }
   table.append(head, body);
   const region = el('div', { class: 'table-scroll', role: 'region', tabindex: '0' });
-  region.setAttribute('aria-labelledby', id);
+  region.setAttribute('aria-labelledby', namedByHeading ? labelId! : id);
   region.append(table);
   return region;
 }
