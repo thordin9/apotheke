@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Maintenance
+
+- **docs:** say the team runs the operator console go-live steps on the owner's go-ahead ([#358](https://github.com/thordin9/apotheke/pull/358))
+
 ## [3.67.0] - 2026-11-21
 
 ### Added
