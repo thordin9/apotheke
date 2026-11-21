@@ -200,6 +200,24 @@ export interface AuditList {
   next_cursor: string | null;
 }
 
+export interface InstallationUser {
+  id: number;
+  username: string;
+  display_name: string | null;
+  roles: string[];
+  active: boolean;
+  status: string;
+  created_at: string | null;
+  last_login_at: string | null;
+}
+
+export interface InstallationUserList {
+  ok: true;
+  installation: string;
+  users: InstallationUser[];
+  next_cursor: null;
+}
+
 export interface PageQuery {
   limit?: string;
   cursor?: string;

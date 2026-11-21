@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **ops:** the console uses the shared tokens, a paper header in the light theme, and a read-only installation users list ([#356](https://github.com/thordin9/apotheke/pull/356))
+
 ## [3.62.0] - 2026-11-21
 
 ### Added

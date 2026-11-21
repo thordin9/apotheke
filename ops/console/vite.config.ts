@@ -1,5 +1,6 @@
 import { defineConfig, type ViteDevServer } from 'vite';
 import { handleMock } from './preview/mock-api.ts';
+import { OPS_CSP } from './src/csp.ts';
 
 // Dev server only. apply: 'serve' keeps this middleware out of the production build.
 function previewFault(cookie: string | undefined): string {
@@ -22,10 +23,8 @@ function mockApi(req: { url?: string; method?: string; headers: { cookie?: strin
   res.end(typeof result.body === 'string' ? result.body : JSON.stringify(result.body));
 }
 
-const PREVIEW_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'";
-
 function previewCsp(_req: { url?: string }, res: { setHeader(name: string, value: string): void }, next: () => void): void {
-  res.setHeader('content-security-policy', PREVIEW_CSP);
+  res.setHeader('content-security-policy', OPS_CSP);
   next();
 }
 

@@ -4,6 +4,7 @@ import type {
   InstallationDetail,
   InstallationList,
   InstallationQuery,
+  InstallationUserList,
   JobList,
   JobQuery,
   OpsConfig,
@@ -90,6 +91,7 @@ export interface OpsClient {
   overview(): Promise<Overview>;
   installations(query?: InstallationQuery): Promise<InstallationList>;
   installation(id: string): Promise<InstallationDetail>;
+  users(id: string): Promise<InstallationUserList>;
   plans(): Promise<PlanList>;
   subscriptions(due?: string): Promise<SubscriptionDueList>;
   jobs(query?: JobQuery): Promise<JobList>;
@@ -103,11 +105,15 @@ function errorMessage(status: number, code: string, detail: string): string {
   if (status === 403) {
     if (code === 'csrf') return 'The request was refused: CSRF.';
     if (code === 'primary') return 'The request was refused: primary.';
+    if (code === 'writes_disabled') return 'The request was refused: writes are disabled.';
     return 'The request was refused: a disallowed identity.';
   }
   if (status === 404) return 'That record was not found.';
   if (status === 405) return 'That method is not allowed.';
-  if (status === 409) return 'The request conflicts with the current record.';
+  if (status === 409) {
+    if (code === 'not_startable' || code === 'no_host') return "This installation isn't running or has no host, so its users can't be read.";
+    return 'The request conflicts with the current record.';
+  }
   if (status === 410) return 'This installation has been deleted.';
   if (status === 422) {
     if (code === 'invalid_query') return `The query is not valid: ${detail || 'unknown'}.`;
@@ -166,6 +172,7 @@ export function createClient(options: OpsClientOptions = {}): OpsClient {
     overview: () => request<Overview>('GET', '/overview'),
     installations: (query) => request<InstallationList>('GET', withQuery('/installations', query ?? {})),
     installation: (id) => request<InstallationDetail>('GET', `/installations/${encodeURIComponent(id)}`),
+    users: (id) => request<InstallationUserList>('GET', `/installations/${encodeURIComponent(id)}/users`),
     plans: () => request<PlanList>('GET', '/plans'),
     subscriptions: (due) => request<SubscriptionDueList>('GET', withQuery('/subscriptions', { due: due ?? '' })),
     jobs: (query) => request<JobList>('GET', withQuery('/jobs', query ?? {})),
