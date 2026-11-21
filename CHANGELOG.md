@@ -15,6 +15,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Fixed
 
 - **frontend:** the landing header keeps Sign in on a 320px screen ([#365](https://github.com/thordin9/apotheke/pull/365))
+- **frontend:** a long page keeps its footer after the article, and the app card starts in view above the consent bar ([#365](https://github.com/thordin9/apotheke/pull/365))
 
 ## [3.69.0] - 2026-11-21
 

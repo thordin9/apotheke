@@ -8,7 +8,9 @@
 @import url("./base.css");
 
 body { font-weight: var(--body-weight); color: var(--color-ink-2); height: 100svh; display: flex; flex-direction: column; overflow: hidden; }
-.scroller { order: 1; flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+/* Block layout, so a long .doc keeps its height. A flex column would let
+   min-height: 50svh shrink the article and park the footer in the middle. */
+.scroller { order: 1; flex: 1 1 auto; min-height: 0; overflow: auto; }
 #consent { order: 2; flex: none; }
 #consent[hidden] { display: none; }
 h1, h2, h3 { color: var(--color-ink); }
@@ -190,9 +192,11 @@ a:hover { color: var(--color-accent-strong); }
 @media (min-width: 60rem) { .consent-inner { grid-template-columns: minmax(0, 1fr) auto; } .consent-actions { min-width: 22rem; } }
 @media print { .consent { display: none; } }
 
-/* App shell. The scroller fills the space above the notice so the card sits over the footer. */
+/* App shell. The card keeps its own height and starts at the top when the
+   notice leaves too little room to centre it. The footer does not shrink away. */
 body:has(#app) .scroller { display: flex; flex-direction: column; }
-body:has(#app) #main { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; padding-block: var(--space-lg); }
+body:has(#app) #main { flex: 1 0 auto; display: flex; align-items: safe center; justify-content: center; min-height: auto; padding-block: var(--space-lg); }
+body:has(#app) .scroller > .mast { flex-shrink: 0; }
 #app { display: grid; gap: var(--space-sm); width: min(100%, 24rem); }
 #app h1 { max-width: none; font-size: var(--app-text-2xl); letter-spacing: -0.02em; line-height: 1.2; }
 #app .answer { font-size: var(--app-text-md); }
