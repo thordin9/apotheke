@@ -1,9 +1,9 @@
 # QA: apotheke #358, who runs the operator console go-live
 
 - PR: https://github.com/thordin9/apotheke/pull/358 (DevOps), base `main`. Docs only: the *Going live* section of `docs/operator-console.md` says the team (DevOps) runs the steps on the owner's go-ahead and the PM approves the `deploy-edge` review; the step 5 fail-closed check now covers `/` and `/api/ops/v1`.
-- Reviewed head: `01b9de89effec99ac725a3bbdefd602c0d463392`, 0 behind main `c5476e79` (v3.64.0), merge state `CLEAN`. Commits: `816f8ef5` (docs), `01b9de89` (CHANGELOG link).
+- Reviewed head: `d24982ae99537944a24c513d7c3075a271daad30`, 0 behind main `7a45c1ca` (v3.65.1), merge state `CLEAN`. Content gated at `01b9de89` (0 behind `c5476e79`). Commits: `816f8ef5` (docs), `01b9de89` (CHANGELOG link), `bb737ab1` (the earlier QA doc, replaced by this one), merges `1069c9b8` (onto v3.65.0) and `d24982ae` (onto v3.65.1). Each merge differs from `git merge-tree` only in `CHANGELOG.md` (markers dropped, the #358 bullet once in `[Unreleased]`); the `docs/operator-console.md` hunks are identical to `01b9de89`; `VERSION` is 3.65.1, equal to main.
 - Gate: light (docs only). Diff read, consistency grep across `docs/`, `deploy-edge` environment rules read, placeholder and secret check. No suites, mutants or Docker runs.
-- CI on `01b9de89`: 21/21 green, both required checks pass.
+- CI on `d24982ae`: 21/21 green. CI on `01b9de89`: 21/21 green, both required checks pass.
 - Reviewed 2026-11-21 08:28 to 08:33 (UTC+2). Reviewer: Apotheke QA 2
 
 ## Checklist
@@ -21,4 +21,4 @@
 
 ## Verdict
 
-**PASS** at `01b9de89`, 0 behind main `c5476e79`. The doc lands byte-exact as the last commit ("docs(qa): add QA 2 review for #358"), followed by the hash check and green CI on that head. Squash as "docs(console): say the team runs go-live on the owner go-ahead (#358)". As `docs`, this cuts no release.
+**PASS** at `d24982ae`, 0 behind main `7a45c1ca` (v3.65.1). This clear is only for the current main; after any other PR merges, #358 needs a plain catch-up, a merge-only read and a reissued doc. The doc lands byte-exact as the last commit ("docs(qa): add QA 2 review for #358"), followed by the hash check and green CI on that head. Squash as "docs(console): say the team runs go-live on the owner go-ahead (#358)". As `docs`, this cuts no release.
