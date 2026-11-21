@@ -520,8 +520,9 @@ it is null on the last one. Installations are in `id` order; jobs and audit rows
 
 #### Writes
 
-`edge/ops/src/writes.ts`. Each passes Access and the CSRF check first (403 `csrf`), then its route (an unknown method
-is 405 with `Allow`), then its body: a JSON object of at most 4 KiB with only the fields listed, else 422
+`edge/ops/src/writes.ts`. Each goes through the request order above: Access, then the writes switch (403
+`writes_disabled` while `OPS_WRITES_ENABLED` is not `"1"`, which it is not in `edge/ops/wrangler.jsonc`), then the
+CSRF check (403 `csrf`), then its route (an unknown method is 405 with `Allow`), then its body: a JSON object of at most 4 KiB with only the fields listed, else 422
 `invalid_body`, with the field as `detail` when one is unknown or not valid. `primary` is refused with 403 `primary`
 by every write: by id before any lookup, and again by its row (`do_name` `primary`). An unknown installation is 404
 `not_found` and a `deleted` one 410 `gone`. Each D1 change and its `operator_audit` row (operator, action,

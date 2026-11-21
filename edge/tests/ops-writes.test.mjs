@@ -451,3 +451,40 @@ test('E6-2 ops: JWKS_FAILURE_MS is 10 s; at 9,999 ms after a failed key fetch it
   assert.equal((await t.go(API + '/config')).status, 200);
   assert.equal(calls.length, 2);
 });
+
+test('E6-3 ops writes: every write route is 403 writes_disabled unless OPS_WRITES_ENABLED is "1", after Access and before CSRF', async () => {
+  const { writesEnabled } = await import('../ops/src/index.ts');
+  const job = "INSERT INTO lifecycle_jobs (id, installation_id, kind, idempotency_key, created_by) VALUES ('j1', 'b', 'suspend', 'suspend:b:nonce-0009', 'o@example.test')";
+  for (const value of ['0', '', undefined, 'true', ' 1']) {
+    const wf = workflowStub();
+    const t = setup({ vars: { ...VARS, OPS_WRITES_ENABLED: value }, lifecycle: wf });
+    t.db.raw.exec(job);
+    assert.equal(writesEnabled(t.env), false, String(value));
+    for (const [method, path, body] of WRITES) {
+      for (const headers of [{ 'X-CSRF': '1', Origin: ORIGIN }, {}]) {
+        const r = await t.send(method, path, body, headers);
+        assert.deepEqual([r.status, r.json], [403, { ok: false, code: 'writes_disabled' }], `${String(value)} ${method} ${path}`);
+      }
+      const anon = await t.go(API + path, { method, token: null, headers: { 'X-CSRF': '1', Origin: ORIGIN }, body: body && JSON.stringify(body) });
+      assert.equal(anon.status, 401, `Access comes first: ${method} ${path}`);
+    }
+    assert.equal(t.db.batches.length, 0);
+    assert.equal(audits(t.db).length, 0);
+    assert.equal(wf.calls.length, 0);
+    for (const path of ['/jobs', '/plans', '/installations/b', '/audit']) assert.equal((await t.go(API + path)).status, 200, `reads stay open: ${path}`);
+  }
+
+  // Gate on: the same requests reach their handlers.
+  const wf = workflowStub();
+  const t = setup({ vars: { ...VARS, OPS_WRITES_ENABLED: '1' }, lifecycle: wf });
+  t.db.raw.exec(job);
+  const expected = { 'PUT /plans/basic/limits': 200, 'PUT /installations/b/subscription': 200, 'POST /jobs': 201, 'POST /jobs/j1/confirm': 200, 'PUT /installations/b/limits/items': 200, 'DELETE /installations/b/limits/items': 200 };
+  for (const [method, path, body] of WRITES) {
+    const r = await t.send(method, path, body);
+    assert.equal(r.status, expected[`${method} ${path}`], `${method} ${path}: ${r.text}`);
+    const noCsrf = await t.send(method, path, body, {});
+    assert.deepEqual([noCsrf.status, noCsrf.json], [403, { ok: false, code: 'csrf' }], `CSRF still applies: ${method} ${path}`);
+  }
+  assert.deepEqual(wf.calls.map((c) => c.id), ['j1']);
+  assert.equal(audits(t.db).length, 6);
+});
