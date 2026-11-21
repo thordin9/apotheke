@@ -240,7 +240,8 @@ Before any step runs (also when an instance resumes), the Workflow entry checks 
 the job or calling any binding. With writes enabled, it reads the job and refuses installation id `primary`, then
 reads the installation and refuses a row whose id or `do_name` is `primary`. These read-only refusals happen before
 `runJob` and any `step.do`; they leave the job's state unchanged. Every lifecycle step still re-checks its target.
-Both Workers ship `OPS_WRITES_ENABLED: "0"`; enabling the console's flag alone cannot let the Workflow act.
+Both Workers declare `OPS_WRITES_ENABLED: "1"` for production. The setting takes effect only after the approved
+apotheke-api and apotheke-ops deploys; changing the console's flag alone cannot let the Workflow act.
 
 - **Created paused.** A job has an `idempotency_key` of `<kind>:<installation_id>:<nonce>` (the nonce comes from the
   console form), so the same request twice returns the same job. It starts in state `paused` and runs only after an
@@ -305,8 +306,33 @@ autofill call can count again after the budget is deleted. `primary` is refused 
   count fails it as `bad_autofill_answer`.
 
 The step is not skipped without the binding: a purge only finishes once the budget is gone. The Workflow's
-environment uses apotheke-api's existing `AUTOFILL` binding (`apotheke-autofill#HostedAutofill`). The `AUTOFILL`
-binding left on `apotheke-ops` is unused for purges.
+environment uses apotheke-api's existing `AUTOFILL` binding (`apotheke-autofill#HostedAutofill`). apotheke-ops has no
+`AUTOFILL` binding; it only starts the Workflow through `LIFECYCLE`.
+
+### Stuck jobs and recovery
+
+The two `OPS_WRITES_ENABLED` flags (apotheke-ops and apotheke-api) are separate, so a job can get stuck when they
+disagree. The console has no endpoint to cancel a job, mark it failed or restart its Workflow instance.
+
+- **Queued, instance errored.** This happens when apotheke-ops has `"1"` and apotheke-api has `"0"`. Confirm sets the
+  job `queued` and creates the instance (its id is the job id). The preflight refuses it as `writes_disabled` before
+  any step, so the instance ends in an error and the job stays `queued`. Confirming again does not help: the
+  instance already exists, so confirm answers 200 without running anything.
+- **Running, instance errored.** This happens when apotheke-api's flag goes to `"0"` while a job runs. The preflight
+  runs again whenever the instance resumes, so a version of apotheke-api deployed with `"0"` refuses the instance. The
+  job stays `running`, with its step and any recorded purge page counts, and confirm answers 409 `not_paused`.
+
+**Recovery.**
+1. Deploy apotheke-api with `OPS_WRITES_ENABLED` `"1"` (a reviewed change) and keep apotheke-ops at `"1"`.
+2. Restart that job's instance on Cloudflare, in the dashboard or with
+   `wrangler workflows instances restart apotheke-lifecycle <job id>`. A restart runs the instance again from the
+   beginning.
+3. Check the job. A queued job moves to `running` at the first step, and a running one carries on. Every step
+   checks the state it would create, so steps that already ran change nothing more.
+
+Without a restart, the only other option is a new job for the same installation. It may be refused by its status
+checks, depending on how far the stuck job got. The stuck job stays `queued` or `running` unless its row is edited
+in D1 by hand, which nothing in the console or the API does.
 
 ## Hosted installations
 
@@ -426,9 +452,8 @@ static assets) and `/api/ops/v1` on its own host, behind Cloudflare Access. It h
 preview URLs in this repository: the host and the Access application are set up outside it (see
 [Deploying the console](#deploying-the-console)). Its bindings are the control-plane D1
 `DB` (the same database as apotheke-api's), `OPS`, apotheke-api's `Ops` entrypoint (see
-[Claim and admin reset from the operator console](#claim-and-admin-reset-from-the-operator-console)), `AUTOFILL`, the
-autofill Worker's `HostedAutofill` entrypoint (left in place, unused for purges), `LIFECYCLE`, the `apotheke-lifecycle`
-Workflow hosted by apotheke-api, and `ASSETS`; it has no R2 or Durable Object bindings. The Workflow's `purge.autofill`
+[Claim and admin reset from the operator console](#claim-and-admin-reset-from-the-operator-console)), `LIFECYCLE`,
+the `apotheke-lifecycle` Workflow hosted by apotheke-api, and `ASSETS`; it has no AUTOFILL, R2 or Durable Object bindings. The Workflow's `purge.autofill`
 step uses apotheke-api's own existing `AUTOFILL` binding. Calls are same-origin. The credential is the Access cookie. There is no app session. The console's API base
 defaults to same-origin `/api/ops/v1` (`<meta name="ops-api-base">` can set another). Responses are JSON unless a
 download says otherwise.
@@ -449,8 +474,7 @@ Every request, the console's files included, goes through the Worker's script (`
    `access_unavailable`, and for the next 10 seconds every request gets that answer without fetching the keys
    again.
 4. While `OPS_WRITES_ENABLED` is not exactly `"1"`, every write (`POST`, `PUT`, `PATCH`, `DELETE`) is 403
-   `writes_disabled`. It is `"0"` in `edge/ops/wrangler.jsonc`: the console ships read-only, and writes are turned on
-   only once they have passed QA.
+   `writes_disabled`. It is `"1"` in `edge/ops/wrangler.jsonc`: writes are enabled after the approved deploy.
 5. A write needs `X-CSRF: 1` and an `Origin` equal to the request's own origin
    (scheme and host); otherwise 403 `csrf`. There is no CSRF token. In the console, `csrfHeaders()` is the only place
    that header is set, so a real token can replace the fixed value later.
@@ -479,8 +503,8 @@ the action succeeded. A claim token or link is never written to D1, an audit row
 ### Implemented
 
 - `GET /config` returns `{"ok":true,"provisioning_enabled":…,"limits_enabled":…,"writes_enabled":…}`:
-  `OPS_PROVISIONING`, `LIMITS_ENABLED` and `OPS_WRITES_ENABLED` of `apotheke-ops` equal to `"1"`. All three are `"0"`
-  in `edge/ops/wrangler.jsonc` and on prod. The console reads it once at startup.
+  `OPS_PROVISIONING`, `LIMITS_ENABLED` and `OPS_WRITES_ENABLED` of `apotheke-ops` equal to `"1"`. Writes are `"1"`;
+  provisioning and limits stay `"0"`. The console reads it once at startup.
 - `POST /installations/:id/claim` with `{"confirm_host":…}` returns `{"ok":true,"link":…,"expires_at":…}` once. The
   link is `https://<confirm_host>/claim#<token>`, built by `apotheke-ops` from the token `claimCreate` returned. The
   console shows the link once and does not store it. Audit action `installation.claim`, `after_json`
@@ -552,7 +576,7 @@ it is null on the last one. Installations are in `id` order; jobs and audit rows
 #### Writes
 
 `edge/ops/src/writes.ts`. Each goes through the request order above: Access, then the writes switch (403
-`writes_disabled` while `OPS_WRITES_ENABLED` is not `"1"`, which it is not in `edge/ops/wrangler.jsonc`), then the
+`writes_disabled` while `OPS_WRITES_ENABLED` is not `"1"`; the config declares `"1"`), then the
 CSRF check (403 `csrf`), then its route (an unknown method is 405 with `Allow`), then its body: a JSON object of at most 4 KiB with only the fields listed, else 422
 `invalid_body`, with the field as `detail` when one is unknown or not valid. `primary` is refused with 403 `primary`
 by every write: by id before any lookup, and again by its row (`do_name` `primary`). An unknown installation is 404
@@ -640,24 +664,31 @@ apotheke-ops edge/ops` (the Worker guard, then `wrangler deploy`).
 | `OPS_ALLOWED_EMAILS` | variable `OPS_ALLOWED_EMAILS` | comma-separated; `<operator email>` for the first deploy |
 
 It refuses (and nothing is deployed) when a value is missing or malformed, when the committed config already has a
-`database_id` or Access values, or when `OPS_PROVISIONING`, `LIMITS_ENABLED` or `OPS_WRITES_ENABLED` is not `"0"`.
+`database_id` or Access values, when `OPS_PROVISIONING` or `LIMITS_ENABLED` is not `"0"`, or when
+`OPS_WRITES_ENABLED` is neither `"0"` nor `"1"`. Both writes settings are accepted, so a reviewed rollback can
+turn console writes off without relaxing the provisioning or limits checks.
 Pull requests run the same script with dummy values, the Worker guard, and `wrangler deploy --dry-run`, and check the
-bindings `DB` (apotheke-api), `OPS` (`apotheke-api#Ops`), `AUTOFILL` (`apotheke-autofill#HostedAutofill`),
-`LIFECYCLE` (`LifecycleWorkflow`, defined in apotheke-api) and `ASSETS`, and the three flags at `"0"`.
+bindings `DB` (apotheke-api), `OPS` (`apotheke-api#Ops`), `LIFECYCLE` (`LifecycleWorkflow`, defined in apotheke-api) and `ASSETS`, with writes at `"1"` and provisioning and limits at `"0"`.
 
 The config has no route and no custom domain (the Worker guard refuses both), and no Cron Trigger (`triggers.crons`
 is empty). The lifecycle Workflow runs on `apotheke-api`: `edge/storage.jsonc` declares `apotheke-lifecycle`, merged
 by `scripts/edge-storage-config.mjs` only with the storage bindings. Ops has only the cross-script `LIFECYCLE`
-binding, no R2 or Durable Object bindings and no import of apotheke-api's code. Its `AUTOFILL` binding is left unused
-for purges; the Workflow uses apotheke-api's own binding. The Workflow's jurisdiction is not set or changed here.
+binding, no AUTOFILL, R2 or Durable Object bindings and no import of apotheke-api's code. Purges use apotheke-api's
+own AUTOFILL binding. The Workflow's jurisdiction is not set or changed here.
 
 **DevOps deployment:** deploy `apotheke-api` with the merged storage config first (the existing D1, EU R2 and both
 Durable Object bindings, plus its existing AUTOFILL), then `apotheke-ops`. The existing Deploy edge job order does
 this, behind its environment approval. The first deploy declares the `apotheke-lifecycle` Workflow on apotheke-api;
 the ops deploy binds it by `script_name`. No new secret, DO migration or data migration is needed. DevOps must
-perform the approved deploy; this config change does not deploy anything itself. Both Workers' writes flags remain
-`"0"`, so jobs cannot be started from the console and even a directly started Workflow refuses without side effects.
-Enabling them is a separate reviewed change; do not start a prod job as a deploy check.
+perform the approved deploy; this config change does not deploy anything itself. Both Workers' writes flags are
+`"1"`: after deploying apotheke-api first and ops second, authorised operators can confirm lifecycle jobs and use the
+other implemented write routes. Access, the email allowlist, CSRF and primary refusals still apply. Provisioning
+and plan limits stay disabled. Do not start a prod job as a deploy check.
+
+**Rollback:** deploy apotheke-ops with `OPS_WRITES_ENABLED: "0"` first to stop new console writes, and review existing
+Workflow instances before changing apotheke-api's flag. A flag change does not undo completed steps, and an instance
+refused mid-job leaves its job `running`. See
+[Stuck jobs and recovery](#stuck-jobs-and-recovery) for queued or running jobs whose instances have errored.
 
 ### Going live
 
@@ -676,10 +707,10 @@ The PM approves the `deploy-edge` environment review.
    `edge/ops/wrangler.jsonc`: CI never adds a route.
 5. Check: without an Access session the host redirects to Access or is denied, with no console content;
    `/api/ops/v1` is denied without Access. Signed in as `<operator email>`, `GET /api/ops/v1/config`
-   answers `"writes_enabled":false`; any other email is 403 `forbidden`.
+   answers `"writes_enabled":true`, `"provisioning_enabled":false` and `"limits_enabled":false`; any other email is 403 `forbidden`.
 
-Writes (`OPS_WRITES_ENABLED` `"1"`), provisioning and limits stay off; each is a reviewed change to
-`edge/ops/wrangler.jsonc`, and the deploy config refuses them until then. To stop deploying, unset
+Writes (`OPS_WRITES_ENABLED` `"1"` on both Workers) are enabled by the approved production deploy. Provisioning and
+limits stay off and remain refused by the deploy config; enabling either needs a separate reviewed change. To stop deploying, unset
 `OPS_DEPLOY_ENABLED`; to take the console offline, remove the custom domain.
 
 ## First-admin claim and admin reset for the hosting side

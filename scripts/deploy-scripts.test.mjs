@@ -366,7 +366,7 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	// sees them.
 	const { SLEEP_AFTER_MS, LIMITS_ENABLED, OPS_WRITES_ENABLED, ...forwarded } = vars;
 	assert.equal(LIMITS_ENABLED, "0");
-	assert.equal(OPS_WRITES_ENABLED, "0");
+	assert.equal(OPS_WRITES_ENABLED, "1");
 	for (const [k, v] of Object.entries(forwarded)) assert.equal(started.env[k], v, k);
 	// Wrangler vars (except SLEEP_AFTER_MS, LIMITS_ENABLED and OPS_WRITES_ENABLED) plus TRUST_PROXY and APOTHEKE_EDGE_CLIENT_IP, set in code.
 	assert.deepEqual(Object.keys(started.env).sort(), [
@@ -613,7 +613,7 @@ test("edge-storage-config: D1 DB, R2 STORAGE (eu) and the Installation Durable O
 			{ tag: "v2", new_sqlite_classes: ["Installation"] },
 		]);
 		assert.deepEqual(c.workflows, [{ name: "apotheke-lifecycle", binding: "LIFECYCLE", class_name: "LifecycleWorkflow" }]);
-		assert.equal(c.vars.OPS_WRITES_ENABLED, "0");
+		assert.equal(c.vars.OPS_WRITES_ENABLED, "1");
 		assert.equal(c.name, "apotheke-api");
 		assert.equal(c.containers.length, 1);
 		// hosted mode: no COOKIE_DOMAIN for the container (ADR-002, decision 5, #203); the other vars stay
@@ -677,7 +677,7 @@ test("deploy-edge.yml: the check job dry-runs the merged storage config with a d
 	assert.match(step, /env\.CORS_ALLOWED_ORIGINS \("https:\/\/getapotheke\.com"\)/);
 	assert.match(step, /env\.AUTOFILL \(apotheke-autofill#HostedAutofill\)/);
 	assert.match(step, /'env\.LIFECYCLE \(LifecycleWorkflow\)'/);
-	assert.match(step, /'env\.OPS_WRITES_ENABLED \("0"\)'/);
+	assert.match(step, /'env\.OPS_WRITES_ENABLED \("1"\)'/);
 	assert.match(step, /env\.COOKIE_DOMAIN/);
 	assert.equal(/- name: /.test(step.slice(1)), false, "it is the last step of the check job");
 	// the dummy id is a UUID the merge accepts
@@ -857,13 +857,12 @@ test("ops-deploy-config: adds the D1 id and the Access vars, keeps every flag an
 		ACCESS_TEAM_DOMAIN: "example-team.cloudflareaccess.com",
 		ACCESS_AUD: OPS_ENV.OPS_ACCESS_AUD,
 		OPS_ALLOWED_EMAILS: "ops@example.invalid",
-		OPS_WRITES_ENABLED: "0",
+		OPS_WRITES_ENABLED: "1",
 		OPS_PROVISIONING: "0",
 		LIMITS_ENABLED: "0",
 	});
 	assert.deepEqual(c.services, [
 		{ binding: "OPS", service: "apotheke-api", entrypoint: "Ops" },
-		{ binding: "AUTOFILL", service: "apotheke-autofill", entrypoint: "HostedAutofill" },
 	]);
 	assert.deepEqual(c.triggers, { crons: [] });
 	// The lifecycle Workflow runs on apotheke-api: here only its binding, and no R2 or Durable Object binding.
@@ -872,7 +871,16 @@ test("ops-deploy-config: adds the D1 id and the Access vars, keeps every flag an
 	for (const v of [OPS_ENV.APOTHEKE_D1_DATABASE_ID, OPS_ENV.OPS_ACCESS_AUD, "ops@example", "example-team"]) assert.ok(!r.stdout.includes(v), "no value printed");
 });
 
-test("ops-deploy-config: refuses missing or malformed values and a committed id, Access value or flag other than 0", () => {
+test("ops-deploy-config: accepts writes off for rollback, leaving provisioning and limits off", () => {
+	const r = opsConfig(OPS_ENV, (t) => t.replace('"OPS_WRITES_ENABLED": "1"', '"OPS_WRITES_ENABLED": "0"'));
+	assert.equal(r.status, 0, r.stdout);
+	const { vars } = JSON.parse(r.out);
+	assert.equal(vars.OPS_WRITES_ENABLED, "0");
+	assert.equal(vars.OPS_PROVISIONING, "0");
+	assert.equal(vars.LIMITS_ENABLED, "0");
+});
+
+test("ops-deploy-config: refuses missing or malformed values and an invalid committed id, Access value or flag", () => {
 	const cases = [
 		[{ ...OPS_ENV, APOTHEKE_D1_DATABASE_ID: "" }, (t) => t, /APOTHEKE_D1_DATABASE_ID/],
 		[{ ...OPS_ENV, APOTHEKE_D1_DATABASE_ID: "not-a-uuid" }, (t) => t, /APOTHEKE_D1_DATABASE_ID/],
@@ -882,7 +890,7 @@ test("ops-deploy-config: refuses missing or malformed values and a committed id,
 		[{ ...OPS_ENV, OPS_ACCESS_AUD: "x y" }, (t) => t, /OPS_ACCESS_AUD/],
 		[{ ...OPS_ENV, OPS_ALLOWED_EMAILS: " , " }, (t) => t, /OPS_ALLOWED_EMAILS is empty/],
 		[{ ...OPS_ENV, OPS_ALLOWED_EMAILS: "a@x.test,not-an-email" }, (t) => t, /not an email/],
-		[OPS_ENV, (t) => t.replace('"OPS_WRITES_ENABLED": "0"', '"OPS_WRITES_ENABLED": "1"'), /OPS_WRITES_ENABLED "0"/],
+		...["true", "", " 1", "2"].map((v) => [OPS_ENV, (t) => t.replace('"OPS_WRITES_ENABLED": "1"', `"OPS_WRITES_ENABLED": "${v}"`), /OPS_WRITES_ENABLED to "0" or "1"/]),
 		[OPS_ENV, (t) => t.replace('"OPS_PROVISIONING": "0"', '"OPS_PROVISIONING": "1"'), /OPS_PROVISIONING "0"/],
 		[OPS_ENV, (t) => t.replace('"LIMITS_ENABLED": "0"', '"LIMITS_ENABLED": "1"'), /LIMITS_ENABLED "0"/],
 		[OPS_ENV, (t) => t.replace('"ACCESS_AUD": ""', '"ACCESS_AUD": "abc"'), /ship ACCESS_AUD empty/],
@@ -911,7 +919,7 @@ test("guard: apotheke-ops is allowlisted, and the real edge/ops/wrangler.jsonc p
 	}
 });
 
-test("deploy-edge.yml: the PR check dry-runs apotheke-ops with dummy values and pins DB, OPS, AUTOFILL, LIFECYCLE and ASSETS", () => {
+test("deploy-edge.yml: the PR check dry-runs apotheke-ops with dummy values and pins DB, OPS, LIFECYCLE and ASSETS", () => {
 	const yml = readFileSync(join(root, ".github/workflows/deploy-edge.yml"), "utf8");
 	const at = yml.indexOf("      - name: apotheke-ops dry run");
 	assert.ok(at > 0);
@@ -922,7 +930,7 @@ test("deploy-edge.yml: the PR check dry-runs apotheke-ops with dummy values and 
 	assert.match(step, /OPS_ACCESS_AUD: '0{64}'\n/);
 	assert.match(step, /node scripts\/ops-deploy-config\.mjs edge\/ops\/wrangler\.jsonc\n/);
 	assert.match(step, /node scripts\/cf-worker-guard\.mjs apotheke-ops edge\/ops\/wrangler\.jsonc -- --dry-run\n/);
-	for (const want of ["env.DB (apotheke-api)", "env.OPS (apotheke-api#Ops)", "env.AUTOFILL (apotheke-autofill#HostedAutofill)", "'env.LIFECYCLE (LifecycleWorkflow (defined in apotheke-api))'", "'env.ASSETS'", 'env.OPS_WRITES_ENABLED ("0")', 'env.OPS_PROVISIONING ("0")', 'env.LIMITS_ENABLED ("0")']) {
+	for (const want of ["env.DB (apotheke-api)", "env.OPS (apotheke-api#Ops)", "'env.LIFECYCLE (LifecycleWorkflow (defined in apotheke-api))'", "'env.ASSETS'", 'env.OPS_WRITES_ENABLED ("1")', 'env.OPS_PROVISIONING ("0")', 'env.LIMITS_ENABLED ("0")']) {
 		assert.ok(step.includes(want), want);
 	}
 	assert.ok(yml.indexOf("      - name: Build the operator console") < at, "the console is built before the dry run");

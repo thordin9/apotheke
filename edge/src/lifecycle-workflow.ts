@@ -15,7 +15,7 @@ export type LifecycleEnv = {
 	APOTHEKE: DurableObjectNamespace<ApothekeContainer>;
 	/** The autofill service's HostedAutofill entrypoint, as on apotheke-api (src/autofill.ts). */
 	AUTOFILL?: Fetcher;
-	/** "1" lets the Workflow act; anything else refuses every instance (edge/wrangler.jsonc ships "0"). */
+	/** "1" lets the Workflow act; anything else refuses every instance (edge/wrangler.jsonc sets "1"). */
 	OPS_WRITES_ENABLED?: string;
 };
 

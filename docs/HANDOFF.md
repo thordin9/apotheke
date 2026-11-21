@@ -19,11 +19,16 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   starts a confirmed job; it does not host the Workflow.
 - The operator console is live at `console.getapotheke.com`, behind Cloudflare Access. Merged notes:
   [log, Pull requests](history/handoff-log.md#pull-requests).
+- Operator console writes: both Worker configs declare `OPS_WRITES_ENABLED=1`; the approved deploy (apotheke-api
+  first, then apotheke-ops) turns on the implemented write routes and lifecycle confirmations. Access, CSRF and the
+  primary refusals stay. `OPS_PROVISIONING=0` and `LIMITS_ENABLED=0` are unchanged; the ops deploy config accepts
+  writes `0` or `1` for rollback and still refuses provisioning or limits. See
+  [deploying the console](operator-console.md#deploying-the-console).
 
 ## Open pull requests
 
-- Drop the unused `AUTOFILL` binding from `apotheke-ops` (branch `cursor/lifecycle-followups`,
-  [#362](https://github.com/thordin9/apotheke/pull/362)).
+- Enable operator console writes in production, and drop the unused `AUTOFILL` binding from `apotheke-ops`
+  (branch `cursor/lifecycle-followups`, [#362](https://github.com/thordin9/apotheke/pull/362)).
 - Repo documentation sweep (branch `docs/repo-sweep`): docs-only updates off v3.68.0. No pull request yet.
 
 ## Next steps
