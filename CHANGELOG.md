@@ -8,12 +8,21 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.68.0] - 2026-11-21
+
 ### Added
 
 - **edge:** the lifecycle Workflow runs on apotheke-api and the operator console binds it, refusing to act while writes are off or for primary ([#359](https://github.com/thordin9/apotheke/pull/359))
 
+### Changed
+
+- **auth:** share the session uid match for one account ([#360](https://github.com/thordin9/apotheke/pull/360))
+
 ### Maintenance
 
+- **console:** docs: say the team runs go-live on the owner go-ahead ([#358](https://github.com/thordin9/apotheke/pull/358))
+- ci: bump wrangler from 4.160.0 to 4.164.0 in /edge ([#343](https://github.com/thordin9/apotheke/pull/343))
+- docs: add Workers migration plan as a future option ([#361](https://github.com/thordin9/apotheke/pull/361))
 - **docs:** say the team runs the operator console go-live steps on the owner's go-ahead ([#358](https://github.com/thordin9/apotheke/pull/358))
 
 ## [3.67.0] - 2026-11-21
@@ -2024,7 +2033,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.67.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.68.0...HEAD
+[3.68.0]: https://github.com/thordin9/apotheke/compare/v3.67.0...v3.68.0
 [3.67.0]: https://github.com/thordin9/apotheke/compare/v3.66.0...v3.67.0
 [3.66.0]: https://github.com/thordin9/apotheke/compare/v3.65.1...v3.66.0
 [3.65.1]: https://github.com/thordin9/apotheke/compare/v3.65.0...v3.65.1
