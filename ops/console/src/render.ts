@@ -1,28 +1,44 @@
-import { OpsError, createClient, type OpsClient } from './api/client.ts';
 import { statsStamp } from './format.ts';
+import { OpsError, createClient, type OpsClient } from './api/client.ts';
 import type {
   AuditQuery,
   InstallationQuery,
   InstallationSummary,
   InstallationUser,
   JobQuery,
+  LifecycleJob,
+  OperatorAudit,
   OpsConfig,
   Overview,
 } from './api/types.ts';
+import { writesAreEnabled } from './writes.ts';
+import {
+  actions,
+  dataTable,
+  el,
+  facts,
+  label,
+  primaryPill,
+  problem,
+  quietControl,
+  statGroup,
+  statusPill,
+  text,
+  writeControl,
+  writesNote,
+} from './render/view.ts';
 
 const STATUSES = ['provisioning', 'active', 'suspended', 'deleting', 'deleted'] as const;
 const JOB_KINDS = ['provision', 'suspend', 'resume', 'export', 'delete', 'purge'] as const;
 const JOB_STATES = ['paused', 'queued', 'running', 'done', 'failed'] as const;
 
-const NAV: { name: string; label: string; path: (id: string) => string }[] = [
-  { name: 'overview', label: 'Overview', path: () => '/overview' },
-  { name: 'installations', label: 'Installations', path: () => '/installations' },
-  { name: 'installation', label: 'Installation', path: (id) => `/installations/${encodeURIComponent(id)}` },
-  { name: 'users', label: 'Users', path: (id) => `/installations/${encodeURIComponent(id)}/users` },
-  { name: 'plans', label: 'Plans and limits', path: () => '/plans' },
-  { name: 'subscriptions', label: 'Subscriptions', path: () => '/subscriptions' },
-  { name: 'jobs', label: 'Jobs', path: () => '/jobs' },
-  { name: 'audit', label: 'Audit log', path: () => '/audit' },
+const NAV: { name: string; label: string; path: string }[] = [
+  { name: 'overview', label: 'Overview', path: '/overview' },
+  { name: 'installations', label: 'Installations', path: '/installations' },
+  { name: 'plans', label: 'Plans and limits', path: '/plans' },
+  { name: 'subscriptions', label: 'Subscriptions', path: '/subscriptions' },
+  { name: 'jobs', label: 'Jobs', path: '/jobs' },
+  { name: 'audit', label: 'Audit log', path: '/audit' },
 ];
 
 type Route =
@@ -48,6 +64,8 @@ const TITLES: Record<Route['name'], string> = {
   missing: 'Not in the console',
 };
 
+const WRITE_SCREENS = new Set<Route['name']>(['installation', 'users', 'plans', 'jobs']);
+
 let generation = 0;
 let lastKey = '';
 let client: OpsClient = createClient();
@@ -55,12 +73,13 @@ let ready = false;
 let bootError: unknown = null;
 let provisioningEnabled = false;
 let limitsEnabled = false;
+let writesEnabled = false;
 let pageKey = '';
 let pageRows: unknown[] = [];
 let pageCursor: string | null = null;
 
-export function appFlags(): { provisioningEnabled: boolean; limitsEnabled: boolean } {
-  return { provisioningEnabled, limitsEnabled };
+export function appFlags(): { provisioningEnabled: boolean; limitsEnabled: boolean; writesEnabled: boolean } {
+  return { provisioningEnabled, limitsEnabled, writesEnabled };
 }
 
 export function start(next: OpsClient = createClient()): void {
@@ -69,6 +88,12 @@ export function start(next: OpsClient = createClient()): void {
   document.addEventListener('click', (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    if (target.closest('#try-again')) {
+      event.preventDefault();
+      if (!ready) void boot();
+      else void show(false);
+      return;
+    }
     if (target.closest('#load-more')) {
       event.preventDefault();
       void loadMore();
@@ -77,7 +102,7 @@ export function start(next: OpsClient = createClient()): void {
     const link = target.closest('a');
     if (!link) return;
     const href = link.getAttribute('href');
-    if (!href || href.startsWith('#') || link.hasAttribute('download') || link.id === 'audit-csv') return;
+    if (!href || href.startsWith('#') || link.hasAttribute('download') || link.id === 'audit-csv' || link.id === 'reload') return;
     const url = new URL(href, location.origin);
     if (url.origin !== location.origin) return;
     event.preventDefault();
@@ -93,8 +118,8 @@ export function start(next: OpsClient = createClient()): void {
     for (let index = 0; index < fields.length; index += 1) {
       const field = fields[index];
       if (!(field instanceof HTMLInputElement) || !field.name) continue;
-      const text = field.value.trim();
-      if (text) params.set(field.name, text);
+      const textValue = field.value.trim();
+      if (textValue) params.set(field.name, textValue);
       else params.delete(field.name);
     }
     params.delete('cursor');
@@ -112,6 +137,7 @@ async function boot(): Promise<void> {
     const config = await client.config();
     rememberConfig(config);
     ready = true;
+    bootError = null;
     await show(false);
   } catch (error) {
     ready = false;
@@ -123,8 +149,12 @@ async function boot(): Promise<void> {
 function rememberConfig(config: OpsConfig): void {
   provisioningEnabled = config.provisioning_enabled;
   limitsEnabled = config.limits_enabled;
+  writesEnabled = writesAreEnabled(config);
   document.body.dataset.provisioningEnabled = String(provisioningEnabled);
   document.body.dataset.limitsEnabled = String(limitsEnabled);
+  document.body.dataset.writesEnabled = String(writesEnabled);
+  const pill = document.querySelector('#read-only');
+  if (pill instanceof HTMLElement) pill.hidden = writesEnabled;
 }
 
 function go(url: string): void {
@@ -175,11 +205,6 @@ function routeKey(route: Route): string {
   return route.name + ('id' in route ? route.id : '');
 }
 
-function selectedId(route: Route): string {
-  if (route.name === 'installation' || route.name === 'users') return route.id;
-  return 'primary';
-}
-
 async function render(changed: boolean): Promise<void> {
   const gen = ++generation;
   const route = parseRoute(location.pathname);
@@ -196,7 +221,13 @@ async function render(changed: boolean): Promise<void> {
   main.append(heading);
   document.title = `${TITLES[route.name]}, Apotheke operator console`;
   if (moveFocus) heading.focus({ focusVisible: true } as FocusOptions);
+  main.setAttribute('aria-busy', 'true');
+  const timer = window.setTimeout(() => {
+    if (gen !== generation) return;
+    main.append(el('p', { class: 'status', role: 'status' }, 'Loading…'));
+  }, 150);
   try {
+    if (WRITE_SCREENS.has(route.name)) main.append(writesNote(writesEnabled));
     if (route.name === 'overview') await paintOverview(main, gen);
     else if (route.name === 'installations') await paintInstallations(main, gen);
     else if (route.name === 'installation') await paintInstallation(main, route.id, gen);
@@ -208,44 +239,103 @@ async function render(changed: boolean): Promise<void> {
     else main.append(el('p', {}, 'This screen comes later.'));
   } catch (error) {
     if (gen !== generation) return;
-    main.append(route.name === 'users' ? usersProblem(error) : problem(error));
+    const title = main.querySelector('#screen-title');
+    main.replaceChildren();
+    if (title) main.append(title);
+    main.append(route.name === 'users' && error instanceof OpsError && error.status === 403 && error.code === 'primary'
+      ? el('p', { role: 'alert' }, "Users of the primary installation aren't shown here.")
+      : problem(error));
+  } finally {
+    window.clearTimeout(timer);
+    if (gen === generation) {
+      main.removeAttribute('aria-busy');
+      main.querySelector(':scope > .status')?.remove();
+    }
   }
 }
 
 function paintNav(route: Route): void {
   const nav = document.querySelector('#nav');
   if (!nav) return;
-  const id = selectedId(route);
   nav.replaceChildren();
   for (const item of NAV) {
     const li = el('li');
-    const link = el('a', { href: item.path(id) }, item.label);
+    const link = el('a', { href: item.path }, item.label);
     if (item.name === route.name) link.setAttribute('aria-current', 'page');
     li.append(link);
     nav.append(li);
   }
 }
 
+function subnav(id: string, current: 'installation' | 'users'): HTMLElement {
+  const nav = el('nav', { class: 'subnav', 'aria-label': 'Installation' });
+  const overview = el('a', { href: `/installations/${encodeURIComponent(id)}` }, 'Overview');
+  const users = el('a', { href: `/installations/${encodeURIComponent(id)}/users` }, 'Users');
+  if (current === 'installation') overview.setAttribute('aria-current', 'page');
+  else users.setAttribute('aria-current', 'page');
+  nav.append(overview, users);
+  return nav;
+}
+
+function crumb(current = ''): HTMLElement {
+  const nav = el('nav', { class: 'crumb', 'aria-label': 'Breadcrumb' });
+  const list = document.createElement('ol');
+  const back = document.createElement('li');
+  back.append(el('a', { href: '/installations' }, 'Installations'));
+  list.append(back);
+  if (current) {
+    const here = document.createElement('li');
+    here.append(el('span', { 'aria-hidden': 'true', class: 'crumb-sep' }, '/'));
+    here.append(el('span', { 'aria-current': 'page' }, current));
+    list.append(here);
+  }
+  nav.append(list);
+  return nav;
+}
+
+function when(value: string | null, empty = ''): Node {
+  const stamp = statsStamp(value);
+  if (!stamp) return document.createTextNode(empty);
+  return el('time', { datetime: stamp.datetime }, stamp.text);
+}
+
+function code(value: string): HTMLElement {
+  return el('span', { class: 'code' }, value);
+}
+
 async function paintOverview(main: HTMLElement, gen: number): Promise<void> {
   const overview = await client.overview();
   if (gen !== generation) return;
-  main.append(el('p', {}, 'Every installation, counted by status and plan.'));
-  main.append(revenueTable(overview));
-  main.append(el('p', { id: 'revenue-note' }, 'Not set'));
   const stamp = statsStamp(overview.as_of);
-  if (!stamp) main.append(el('p', {}, 'Stats not computed yet'));
+  if (!stamp) main.append(el('p', { class: 'muted' }, 'Stats not computed yet'));
   else {
-    const line = el('p');
+    const line = el('p', { class: 'muted' });
     line.append('Figures as of ');
     line.append(el('time', { datetime: stamp.datetime }, stamp.text));
     line.append('.');
     main.append(line);
   }
-  main.append(countTable('Installations by status', ['Status', 'Installations'], overview.installations_by_status.map((item) => [label(item.status), String(item.count)])));
-  main.append(countTable('Installations by plan', ['Plan', 'Installations'], overview.installations_by_plan.map((item) => [item.plan_name, String(item.count)])));
-  main.append(countTable('Subscriptions by status', ['Status', 'Subscriptions'], overview.subscriptions_by_status.map((item) => [label(item.status), String(item.count)])));
-  main.append(countTable('Open jobs', ['State', 'Jobs'], overview.open_jobs_by_state.map((item) => [label(item.state), String(item.count)])));
-  main.append(countTable(`Usage for ${overview.usage_period}`, ['Metric', 'Total'], overview.usage_totals.map((item) => [item.metric, String(item.value)])));
+  main.append(revenueTile(overview));
+  main.append(statGroup('Installations by status', overview.installations_by_status.map((item) => [label(item.status), String(item.count)])));
+  main.append(statGroup('Installations by plan', overview.installations_by_plan.map((item) => [item.plan_name, String(item.count)])));
+  main.append(statGroup('Subscriptions', overview.subscriptions_by_status.map((item) => [label(item.status), String(item.count)])));
+  main.append(statGroup('Open jobs', overview.open_jobs_by_state.map((item) => [label(item.state), String(item.count)])));
+  main.append(statGroup(`Usage for ${overview.usage_period}`, overview.usage_totals.map((item) => [item.metric, String(item.value)])));
+}
+
+function revenueTile(overview: Overview): HTMLElement {
+  const section = el('section', { class: 'stat-group' });
+  section.append(el('h2', {}, 'Revenue'));
+  const grid = el('dl', { class: 'stats' });
+  const item = el('div');
+  item.append(el('dt', { id: 'revenue-note' }, 'Not set'));
+  const amount = el('dd', { id: 'revenue-amount', class: 'num' });
+  amount.setAttribute('aria-describedby', 'revenue-note');
+  amount.textContent = overview.revenue === null ? '' : String(overview.revenue);
+  item.append(amount);
+  grid.append(item);
+  section.append(grid);
+  return section;
 }
 
 async function paintInstallations(main: HTMLElement, gen: number): Promise<void> {
@@ -262,113 +352,177 @@ async function paintInstallations(main: HTMLElement, gen: number): Promise<void>
   if (gen !== generation) return;
   main.append(choiceNav('Status', 'status', [{ id: '', name: 'Any status' }, ...STATUSES.map((status) => ({ id: status, name: label(status) }))], query, '/installations'));
   main.append(choiceNav('Plan', 'plan', [{ id: '', name: 'Any plan' }, ...plans.plans.map((plan) => ({ id: plan.id, name: plan.name }))], query, '/installations'));
-  main.append(searchForm('host-search', '/installations', [{ name: 'q', label: 'Host', value: query.q ?? '' }]));
+  main.append(searchForm('host-search', '/installations', [{ name: 'q', label: 'Host', value: query.q ?? '', type: 'search' }]));
   main.append(installationTable(pageRows as InstallationSummary[]));
   moreButton();
+}
+
+function installationTable(rows: InstallationSummary[]): HTMLElement {
+  const body = rows.map((row) => {
+    const host = document.createElement('span');
+    if (row.primary) host.append(primaryPill());
+    for (const route of row.routes) host.append(el('a', { href: `/installations/${encodeURIComponent(row.installation.id)}` }, route.host));
+    if (row.routes.length === 0) host.append('No host');
+    return [host, code(row.installation.id), statusPill(row.installation.status), row.plan?.name ?? ''];
+  });
+  return dataTable('cap-installations', 'Installations', [
+    { text: 'Host' },
+    { text: 'Installation', code: true },
+    { text: 'Status' },
+    { text: 'Plan' },
+  ], body, 'No installation matches.');
 }
 
 async function paintInstallation(main: HTMLElement, id: string, gen: number): Promise<void> {
   const detail = await client.installation(id);
   if (gen !== generation) return;
-  if (detail.primary) main.append(el('p', { class: 'badge' }, 'primary'));
   const fields = detail.installation;
-  main.append(countTable('Installation', ['Field', 'Value'], [
-    ['Id', fields.id],
+  const title = fields.do_name || fields.id;
+  const heading = main.querySelector('#screen-title');
+  if (heading) heading.textContent = title;
+  document.title = `${title}, Apotheke operator console`;
+  main.append(crumb('Installation'), subnav(id, 'installation'));
+  if (detail.primary) main.append(primaryPill());
+  const section = el('section');
+  section.append(el('h2', {}, 'Facts'));
+  section.append(facts([
+    ['Id', code(fields.id)],
     ['Name', fields.do_name],
-    ['Prefix', fields.r2_prefix],
-    ['Status', label(fields.status)],
+    ['Prefix', code(fields.r2_prefix)],
+    ['Status', statusPill(fields.status)],
     ['Owner', fields.owner_contact ?? ''],
     ['Notes', fields.notes ?? ''],
-    ['Created', fields.created_at],
-    ['Updated', fields.updated_at],
+    ['Created', when(fields.created_at)],
+    ['Updated', when(fields.updated_at)],
   ]));
-  main.append(countTable('Routes', ['Host', 'Created'], detail.routes.map((route) => [route.host, route.created_at])));
+  section.append(actions(writeControl('Claim link'), writeControl('Reset admin')));
+  main.append(section);
+  main.append(dataTable('cap-routes', 'Routes', [
+    { text: 'Host', code: true },
+    { text: 'Created' },
+  ], detail.routes.map((route) => [code(route.host), when(route.created_at)]), 'No route.'));
   const subscription = detail.subscription;
-  main.append(countTable('Subscription', ['Field', 'Value'], subscription ? [
-    ['Plan', detail.plan?.name ?? subscription.plan_id],
-    ['Status', label(subscription.status)],
-    ['Trial end', subscription.trial_end ?? ''],
-    ['Period end', subscription.period_end ?? ''],
-  ] : [['Subscription', 'None']]));
-  main.append(countTable('Plan limits', ['Key', 'Soft', 'Hard'], detail.limits.map((limit) => [limit.limit_key, text(limit.soft_value), text(limit.hard_value)])));
-  main.append(countTable('Usage', ['Period', 'Metric', 'Value'], detail.usage.map((row) => [row.period, row.metric, String(row.value)])));
-  main.append(countTable('Recent jobs', ['Kind', 'State', 'Created'], detail.jobs.map((job) => [job.kind, job.state, job.created_at])));
-  main.append(countTable('Recent audit', ['When', 'Operator', 'Action'], detail.audit.map((row) => [row.at, row.operator, row.action])));
+  const sub = el('section');
+  sub.append(el('h2', {}, 'Subscription'));
+  if (subscription) {
+    sub.append(facts([
+      ['Plan', detail.plan?.name ?? subscription.plan_id],
+      ['Status', label(subscription.status)],
+      ['Trial end', when(subscription.trial_end)],
+      ['Period end', when(subscription.period_end)],
+    ]));
+  } else sub.append(el('p', {}, 'None'));
+  sub.append(writeControl('Change plan or status'));
+  main.append(sub);
+  const limits = el('section');
+  limits.append(el('h2', { id: 'limits-heading' }, 'Plan limits'));
+  limits.append(dataTable('cap-limits', 'Plan limits', [
+    { text: 'Key' },
+    { text: 'Soft', num: true },
+    { text: 'Hard', num: true },
+  ], detail.limits.map((limit) => [limit.limit_key, text(limit.soft_value), text(limit.hard_value)]), 'No limits on this plan.', 'limits-heading'));
+  limits.append(writeControl('Grant limit override'));
+  main.append(limits);
+  const usage = el('section');
+  usage.append(el('h2', { id: 'usage-heading' }, 'Usage'));
+  usage.append(dataTable('cap-usage', 'Usage', [
+    { text: 'Period' },
+    { text: 'Metric' },
+    { text: 'Value', num: true },
+  ], detail.usage.map((row) => [row.period, row.metric, String(row.value)]), 'No usage recorded.', 'usage-heading'));
+  main.append(usage);
+  const jobs = el('section');
+  jobs.append(el('h2', { id: 'recent-jobs-heading' }, 'Recent jobs'));
+  jobs.append(jobTable('cap-recent-jobs', 'Recent jobs', detail.jobs, true, 'recent-jobs-heading'));
+  jobs.append(writeControl('Create job'));
+  main.append(jobs);
+  main.append(dataTable('cap-recent-audit', 'Recent audit', [
+    { text: 'When' },
+    { text: 'Operator' },
+    { text: 'Action' },
+  ], detail.audit.map((row) => [when(row.at), row.operator, row.action]), 'No audit entry matches.'));
 }
 
 async function paintUsers(main: HTMLElement, id: string, gen: number): Promise<void> {
   const list = await client.users(id);
   if (gen !== generation) return;
+  main.append(crumb('Users'), subnav(id, 'users'));
   main.append(el('p', {}, 'Accounts on this installation.'));
-  main.append(userTable(list.users));
+  main.append(userTable(list.users, id !== 'primary'));
 }
 
-function userTable(users: InstallationUser[]): HTMLTableElement {
-  const table = document.createElement('table');
-  table.append(el('caption', {}, users.length === 0 ? 'No account on this installation.' : 'Accounts'));
-  const head = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  for (const name of ['Username', 'Roles', 'Status', 'Active', 'Created', 'Last login']) {
-    headRow.append(el('th', { scope: 'col' }, name));
-  }
-  head.append(headRow);
-  const body = document.createElement('tbody');
-  for (const user of users) {
-    const tr = document.createElement('tr');
-    tr.append(el('td', {}, user.username));
-    tr.append(rolesCell(user.roles));
-    tr.append(el('td', {}, user.status));
-    tr.append(el('td', {}, user.status === 'active' ? 'Yes' : 'No'));
-    tr.append(whenCell(user.created_at, ''));
-    tr.append(whenCell(user.last_login_at, 'never'));
-    body.append(tr);
-  }
-  table.append(head, body);
-  return table;
+function userTable(users: InstallationUser[], controls: boolean): HTMLElement {
+  const rows = users.map((user) => {
+    const action = controls ? writeControl(user.status === 'active' ? 'Disable' : 'Re-enable') : document.createTextNode('');
+    return [
+      user.username,
+      roles(user.roles),
+      statusPill(user.status),
+      user.status === 'active' ? 'Yes' : 'No',
+      when(user.created_at, ''),
+      when(user.last_login_at, 'never'),
+      action,
+    ];
+  });
+  return dataTable('cap-users', 'Accounts', [
+    { text: 'Username' },
+    { text: 'Roles' },
+    { text: 'Status' },
+    { text: 'Active' },
+    { text: 'Created' },
+    { text: 'Last login' },
+    { text: 'Action' },
+  ], rows, 'No account on this installation.');
 }
 
-function rolesCell(roles: string[]): HTMLTableCellElement {
-  const cell = document.createElement('td');
-  if (roles.length === 0) return cell;
+function roles(names: string[]): Node {
+  if (names.length === 0) return document.createTextNode('');
   const list = el('ul');
-  for (const role of roles) list.append(el('li', {}, role));
-  cell.append(list);
-  return cell;
-}
-
-function whenCell(value: string | null, empty: string): HTMLTableCellElement {
-  const cell = document.createElement('td');
-  const stamp = statsStamp(value);
-  if (!stamp) {
-    cell.textContent = empty;
-    return cell;
-  }
-  cell.append(el('time', { datetime: stamp.datetime }, stamp.text));
-  return cell;
+  for (const role of names) list.append(el('li', {}, role));
+  return list;
 }
 
 async function paintPlans(main: HTMLElement, gen: number): Promise<void> {
   const list = await client.plans();
   if (gen !== generation) return;
-  const rows = list.plans.flatMap((plan) => plan.limits.length
-    ? plan.limits.map((limit) => [plan.name, limit.limit_key, text(limit.soft_value), text(limit.hard_value)])
-    : [[plan.name, '', '', '']]);
-  main.append(countTable('Plans', ['Plan', 'Limit', 'Soft', 'Hard'], rows));
+  for (const plan of list.plans) {
+    const section = el('section');
+    const headingId = `plan-${plan.id}-heading`;
+    section.append(el('h2', { id: headingId }, plan.name));
+    const rows = plan.limits.map((limit) => [limit.limit_key, text(limit.soft_value), text(limit.hard_value)]);
+    section.append(dataTable(`cap-plan-${plan.id}`, plan.name, [
+      { text: 'Limit' },
+      { text: 'Soft', num: true },
+      { text: 'Hard', num: true },
+    ], rows, 'No limits on this plan.', headingId));
+    section.append(writeControl('Edit limits'));
+    main.append(section);
+  }
 }
 
 async function paintSubscriptions(main: HTMLElement, gen: number): Promise<void> {
   const due = new URLSearchParams(location.search).get('due') ?? '14d';
   const list = await client.subscriptions(due);
   if (gen !== generation) return;
-  main.append(el('p', {}, `Due within ${list.due_days} days of ${list.now}.`));
+  const dueLine = el('p');
+  dueLine.append(`Due within ${list.due_days} days of `);
+  dueLine.append(when(list.now));
+  dueLine.append('.');
+  main.append(dueLine);
   if (list.truncated) main.append(el('p', {}, 'More subscriptions match than this list shows.'));
-  main.append(countTable('Subscriptions', ['Host', 'Plan', 'Status', 'Due', 'Overdue'], list.subscriptions.map((row) => [
+  main.append(dataTable('cap-due', 'Subscriptions', [
+    { text: 'Host', code: true },
+    { text: 'Plan' },
+    { text: 'Status' },
+    { text: 'Due' },
+    { text: 'Overdue' },
+  ], list.subscriptions.map((row) => [
     row.hosts.join(', '),
     row.plan_name ?? row.plan_id,
     label(row.status),
-    row.due_at,
+    when(row.due_at),
     row.overdue ? 'Yes' : 'No',
-  ])));
+  ]), `No subscription is due in ${list.due_days} days.`));
 }
 
 async function paintJobs(main: HTMLElement, gen: number): Promise<void> {
@@ -383,12 +537,31 @@ async function paintJobs(main: HTMLElement, gen: number): Promise<void> {
   }
   main.append(choiceNav('Kind', 'kind', [{ id: '', name: 'Any kind' }, ...JOB_KINDS.map((kind) => ({ id: kind, name: label(kind) }))], query, '/jobs'));
   main.append(choiceNav('State', 'state', [{ id: '', name: 'Any state' }, ...JOB_STATES.map((state) => ({ id: state, name: label(state) }))], query, '/jobs'));
-  main.append(searchForm('job-search', '/jobs', [{ name: 'installation', label: 'Installation', value: query.installation ?? '' }]));
-  main.append(countTable('Jobs', ['Installation', 'Kind', 'State', 'Created'], (pageRows as JobListRow[]).map((job) => [job.installation_id, job.kind, job.state, job.created_at])));
+  main.append(searchForm('job-search', '/jobs', [{ name: 'installation', label: 'Installation', value: query.installation ?? '', type: 'search' }]));
+  main.append(jobTable('cap-jobs', 'Jobs', pageRows as LifecycleJob[], false));
   moreButton();
 }
 
-type JobListRow = { installation_id: string; kind: string; state: string; created_at: string };
+function jobTable(id: string, caption: string, jobs: LifecycleJob[], recent: boolean, labelId?: string): HTMLElement {
+  const rows = jobs.map((job) => {
+    const cells: (Node | string)[] = [
+      recent ? label(job.kind) : code(job.installation_id),
+      recent ? statusText(job.state) : label(job.kind),
+      recent ? when(job.created_at) : statusText(job.state),
+    ];
+    if (!recent) cells.push(when(job.created_at));
+    cells.push(job.state === 'paused' ? writeControl('Confirm') : document.createTextNode(''));
+    return cells;
+  });
+  const heads: { text: string; code?: boolean }[] = recent
+    ? [{ text: 'Kind' }, { text: 'State' }, { text: 'Created' }, { text: 'Action' }]
+    : [{ text: 'Installation', code: true }, { text: 'Kind' }, { text: 'State' }, { text: 'Created' }, { text: 'Action' }];
+  return dataTable(id, caption, heads, rows, 'No job matches these filters.', labelId);
+}
+
+function statusText(state: string): string {
+  return label(state);
+}
 
 async function paintAudit(main: HTMLElement, gen: number): Promise<void> {
   const query = readParams() as AuditQuery;
@@ -401,16 +574,22 @@ async function paintAudit(main: HTMLElement, gen: number): Promise<void> {
     pageCursor = first.next_cursor;
   }
   main.append(searchForm('audit-search', '/audit', [
-    { name: 'installation', label: 'Installation', value: query.installation ?? '' },
-    { name: 'operator', label: 'Operator', value: query.operator ?? '' },
-    { name: 'action', label: 'Action', value: query.action ?? '' },
-    { name: 'from', label: 'From', value: query.from ?? '' },
-    { name: 'to', label: 'To', value: query.to ?? '' },
+    { name: 'installation', label: 'Installation', value: query.installation ?? '', type: 'search' },
+    { name: 'operator', label: 'Operator', value: query.operator ?? '', type: 'search' },
+    { name: 'action', label: 'Action', value: query.action ?? '', type: 'search' },
+    { name: 'from', label: 'From', value: query.from ?? '', type: 'date' },
+    { name: 'to', label: 'To', value: query.to ?? '', type: 'date' },
   ]));
-  const exportLink = el('a', { id: 'audit-csv', href: client.auditExportUrl(query) }, 'Export CSV');
-  main.append(exportLink);
+  main.append(quietControl('a', { id: 'audit-csv', href: client.auditExportUrl(query) }, 'Export CSV'));
   main.append(el('p', {}, 'When more than 10,000 rows match, the download\'s X-Truncated header is 1.'));
-  main.append(countTable('Audit', ['When', 'Operator', 'Action', 'Installation', 'Detail'], (pageRows as { at: string; operator: string; action: string; installation_id: string | null; before_json: string | null }[]).map((row) => [row.at, row.operator, row.action, row.installation_id ?? '', row.before_json ?? ''])));
+  const rows = (pageRows as OperatorAudit[]).map((row) => [when(row.at), row.operator, row.action, row.installation_id ?? '', row.before_json ?? '']);
+  main.append(dataTable('cap-audit', 'Audit', [
+    { text: 'When' },
+    { text: 'Operator' },
+    { text: 'Action' },
+    { text: 'Installation', code: true },
+    { text: 'Detail' },
+  ], rows, 'No audit entry matches.'));
   moreButton();
 }
 
@@ -440,43 +619,7 @@ async function loadMore(): Promise<void> {
 function moreButton(): void {
   const main = document.querySelector('#main');
   if (!(main instanceof HTMLElement) || !pageCursor) return;
-  main.append(el('button', { id: 'load-more', type: 'button' }, 'Load more'));
-}
-
-function revenueTable(overview: Overview): HTMLTableElement {
-  const table = document.createElement('table');
-  table.append(el('caption', {}, 'Revenue'));
-  const body = document.createElement('tbody');
-  const tr = document.createElement('tr');
-  tr.append(el('th', { scope: 'row' }, 'Amount'));
-  const amount = el('td', { id: 'revenue-amount' });
-  amount.setAttribute('aria-describedby', 'revenue-note');
-  amount.textContent = overview.revenue === null ? '' : String(overview.revenue);
-  tr.append(amount);
-  body.append(tr);
-  table.append(body);
-  return table;
-}
-
-function installationTable(rows: InstallationSummary[]): HTMLTableElement {
-  const table = document.createElement('table');
-  table.append(el('caption', {}, rows.length === 0 ? 'No installation matches.' : 'Installations'));
-  const head = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  for (const name of ['Host', 'Installation', 'Status', 'Plan']) headRow.append(el('th', { scope: 'col' }, name));
-  head.append(headRow);
-  const body = document.createElement('tbody');
-  for (const row of rows) {
-    const tr = document.createElement('tr');
-    const hostCell = document.createElement('td');
-    if (row.primary) hostCell.append(el('span', { class: 'badge' }, 'primary'));
-    for (const route of row.routes) hostCell.append(el('a', { href: `/installations/${encodeURIComponent(row.installation.id)}` }, route.host));
-    if (row.routes.length === 0) hostCell.append('No host');
-    tr.append(hostCell, el('td', {}, row.installation.id), el('td', {}, label(row.installation.status)), el('td', {}, row.plan?.name ?? ''));
-    body.append(tr);
-  }
-  table.append(head, body);
-  return table;
+  main.append(quietControl('button', { id: 'load-more', type: 'button' }, 'Load more'));
 }
 
 function choiceNav(legend: string, key: string, options: { id: string; name: string }[], query: object, path: string): HTMLElement {
@@ -498,38 +641,18 @@ function choiceNav(legend: string, key: string, options: { id: string; name: str
   return group;
 }
 
-function searchForm(id: string, action: string, fields: { name: string; label: string; value: string }[]): HTMLFormElement {
+function searchForm(id: string, action: string, fields: { name: string; label: string; value: string; type: string }[]): HTMLFormElement {
   const form = el('form', { id, method: 'get', action }) as HTMLFormElement;
   for (const field of fields) {
     const inputId = `${id}-${field.name}`;
-    form.append(el('label', { for: inputId }, field.label));
-    const input = el('input', { id: inputId, name: field.name, type: 'search', value: field.value }) as HTMLInputElement;
+    const labelNode = el('label', { for: inputId }, field.label);
+    const input = el('input', { id: inputId, name: field.name, type: field.type, value: field.value }) as HTMLInputElement;
     input.value = field.value;
-    form.append(input);
+    labelNode.append(input);
+    form.append(labelNode);
   }
   form.append(el('button', { type: 'submit' }, 'Show'));
   return form;
-}
-
-function countTable(caption: string, heads: string[], rows: string[][]): HTMLTableElement {
-  const table = document.createElement('table');
-  table.append(el('caption', {}, caption));
-  const head = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  for (const name of heads) headRow.append(el('th', { scope: 'col' }, name));
-  head.append(headRow);
-  const body = document.createElement('tbody');
-  for (const row of rows) {
-    const tr = document.createElement('tr');
-    row.forEach((value, index) => {
-      const cell = el('td', {}, value);
-      if (index > 0 && /^\d+$/.test(value)) cell.className = 'num';
-      tr.append(cell);
-    });
-    body.append(tr);
-  }
-  table.append(head, body);
-  return table;
 }
 
 function readParams(): Record<string, string> {
@@ -555,35 +678,4 @@ function paintFailure(error: unknown, moveFocus: boolean): void {
   main.append(heading, problem(error));
   document.title = 'Operator console, Apotheke';
   if (moveFocus) heading.focus({ focusVisible: true } as FocusOptions);
-}
-
-function usersProblem(error: unknown): HTMLElement {
-  if (error instanceof OpsError && error.status === 403 && error.code === 'primary') {
-    return el('p', { role: 'alert' }, "Users of the primary installation aren't shown here.");
-  }
-  return problem(error);
-}
-
-function problem(error: unknown): HTMLElement {
-  const message = error instanceof Error ? error.message : 'The console could not reach the API.';
-  return el('p', { role: 'alert' }, message);
-}
-
-function label(value: string): string {
-  if (!value) return value;
-  return value.charAt(0).toUpperCase() + value.slice(1).replaceAll('_', ' ');
-}
-
-function text(value: number | null): string {
-  return value === null ? '' : String(value);
-}
-
-function el(tag: string, attrs: Record<string, string> = {}, textContent?: string): HTMLElement {
-  const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(attrs)) {
-    if (key === 'class') node.className = value;
-    else node.setAttribute(key, value);
-  }
-  if (textContent !== undefined) node.textContent = textContent;
-  return node;
 }

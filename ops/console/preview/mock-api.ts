@@ -23,14 +23,14 @@ export interface MockResult {
   headers?: Record<string, string>;
 }
 
-export function handleMock(method: string, url: URL, fault = ''): MockResult {
+export function handleMock(method: string, url: URL, fault = '', writes = false): MockResult {
   if (!url.pathname.startsWith('/api/ops/v1')) return fail(404, 'not_found');
   if (fault === '401' || fault === '410' || fault === '503') return fail(Number(fault), fault === '401' ? 'unauthorized' : fault === '410' ? 'gone' : 'not_configured');
   const verb = method.toUpperCase();
   if (verb !== 'GET' && verb !== 'HEAD') return fail(405, 'method_not_allowed');
   const path = url.pathname.slice('/api/ops/v1'.length);
   try {
-    if (path === '/config') return ok({ provisioning_enabled: false, limits_enabled: false });
+    if (path === '/config') return ok({ provisioning_enabled: false, limits_enabled: false, writes_enabled: writes });
     if (path === '/overview') return ok(overview());
     if (path === '/installations') return ok(listInstallations(url));
     if (path === '/plans') return ok(listPlans());

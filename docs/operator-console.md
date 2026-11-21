@@ -638,10 +638,11 @@ and `POST /jobs/:id/retry`.
 The local preview in `ops/console` answers the reads above with made-up rows (`primary.example.test`, never a
 real host), and can answer 401, 503 and 410 so the error screens can be checked. It is not part of the production
 build. The users screen calls `GET /installations/:id/users` and stays read-only: it shows the username (there is
-no display name), the roles, the raw status, and the created and last sign-in times. A status other than `active`
-is inactive, and a null last sign-in is "never". Primary is 403 and the screen says those users are not shown
-here. An installation that is not running or has no host is 409. The Worker route is the read above;
-the screen and the preview use that response shape.
+no display name), the roles, a status pill, and an Active column that is Yes only when the status is `active`
+(otherwise No). Created and last sign-in are times; a null last sign-in is "never". The header shows Read-only
+while writes are off. Disable and Re-enable are drawn and disabled; writes are not wired yet. Primary is 403
+and the screen says those users are not shown here. An installation that is not running or has no host is 409.
+The Worker route is the read above; the screen and the preview use that response shape.
 
 ## Deploying the console
 
