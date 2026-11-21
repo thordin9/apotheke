@@ -8,6 +8,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.70.0] - 2026-11-21
+
+### Added
+
+- **ops:** clearer console layout and read-only writes ([#364](https://github.com/thordin9/apotheke/pull/364))
+
 ### Changed
 
 - **ops:** the operator console lays counts out as tiles, scrolls wide tables, and keeps write controls visibly off ([#364](https://github.com/thordin9/apotheke/pull/364))
@@ -2050,7 +2056,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.69.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.70.0...HEAD
+[3.70.0]: https://github.com/thordin9/apotheke/compare/v3.69.0...v3.70.0
 [3.69.0]: https://github.com/thordin9/apotheke/compare/v3.68.0...v3.69.0
 [3.68.0]: https://github.com/thordin9/apotheke/compare/v3.67.0...v3.68.0
 [3.67.0]: https://github.com/thordin9/apotheke/compare/v3.66.0...v3.67.0
