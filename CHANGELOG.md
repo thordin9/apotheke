@@ -8,13 +8,19 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-### Changed
+## [3.62.0] - 2026-11-21
 
-- **frontend:** the landing, privacy, 404 and app shell are lighter and tighter, with a paper header in the light theme ([#353](https://github.com/thordin9/apotheke/pull/353))
+### Added
+
+- **frontend:** lighter, tighter landing and app shell ([#353](https://github.com/thordin9/apotheke/pull/353))
 
 ### Maintenance
 
 - **edge:** deploy wiring for the operator console Worker `apotheke-ops`: a PR dry run, and a deploy job that stays off until `OPS_DEPLOY_ENABLED` is 1; the console ships read-only (`OPS_WRITES_ENABLED` "0") and only for the emails in `OPS_ALLOWED_EMAILS` ([#352](https://github.com/thordin9/apotheke/pull/352))
+
+### Changed
+
+- **frontend:** the landing, privacy, 404 and app shell are lighter and tighter, with a paper header in the light theme ([#353](https://github.com/thordin9/apotheke/pull/353))
 
 ## [3.61.0] - 2026-11-20
 
@@ -1964,7 +1970,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.61.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.62.0...HEAD
+[3.62.0]: https://github.com/thordin9/apotheke/compare/v3.61.0...v3.62.0
 [3.61.0]: https://github.com/thordin9/apotheke/compare/v3.60.0...v3.61.0
 [3.60.0]: https://github.com/thordin9/apotheke/compare/v3.59.0...v3.60.0
 [3.59.0]: https://github.com/thordin9/apotheke/compare/v3.58.0...v3.59.0
