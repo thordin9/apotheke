@@ -370,7 +370,16 @@ final class SettingsSchema
             $h = $h[0] . $h[0] . $h[1] . $h[1] . $h[2] . $h[2];
         }
 
-        return '#' . strtolower($h) === strtolower(self::ACCENT_DEFAULT) ? self::ACCENT_DEFAULT : '#' . strtoupper($h);
+        $lower = '#' . strtolower($h);
+        if ($lower === strtolower(self::ACCENT_DEFAULT)) {
+            return self::ACCENT_DEFAULT;
+        }
+        // The previous default stays in the spelling 2.6.x stored, so an upgrade does not rewrite the row.
+        if ($lower === '#4f46e5') {
+            return '#4f46e5';
+        }
+
+        return '#' . strtoupper($h);
     }
 
     private function url(string $label, ?string $str): string
