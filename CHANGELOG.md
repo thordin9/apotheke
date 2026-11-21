@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **frontend:** the landing consent bar takes its own height, the hero shot is capped, and the product shots are light and dark ([#365](https://github.com/thordin9/apotheke/pull/365))
+
 ## [3.68.0] - 2026-11-21
 
 ### Added
