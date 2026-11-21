@@ -1,0 +1,28 @@
+# QA 2 review: apotheke #359, host the lifecycle Workflow on apotheke-api
+
+- PR: https://github.com/thordin9/apotheke/pull/359 (Coder)
+- Reviewed head: `2e91622a106c1030891a5675d4c4c1d5b4a4030a`, 0 behind main `7811b980` (#360, after v3.67.0). Content reviewed at `2c0dd100` (`b70e642` feat, `2c0dd10` docs(changelog)) on `97d5e6e7` (v3.67.0), then caught up by plain merges: `cf9fb8e` (parents `[2c0dd10, 4f28784d]`, #358; only `CHANGELOG.md` hand-resolved, both `[Unreleased]` bullets kept), `1bcdbc0` (parents `[cf9fb8e, 98135012]`, #343; only `edge/worker-configuration.d.ts` and `edge/ops/worker-configuration.d.ts` hand-resolved, regenerated with wrangler 4.164.0, and they differ from main only by #359's `OPS_WRITES_ENABLED` and `LIFECYCLE` lines and header hashes) and `2e91622` (parents `[1bcdbc0, 7811b980]`, #360; equal to its `merge-tree`). VERSION 3.67.0 as main.
+- CI on `2c0dd100`: CI 44899104973, Deploy edge 44899104949 (includes Check and dry run (apotheke-api)), CodeQL 44899100573, all green (the three Deploy jobs skipped). On `2e91622a`: CI 44905644664, Deploy edge 44905644570, CodeQL 44905641632, green.
+- Gate: full (code and deploy config of a write path). Reviewed by QA 2 on 2026-11-21 (UTC+2).
+
+## Checklist
+
+- [x] Scope (main...head): 15 files, +177/−51. apotheke-api: `edge/storage.jsonc` declares `workflows: [{name apotheke-lifecycle, binding LIFECYCLE, class_name LifecycleWorkflow}]`; `edge/wrangler.jsonc` adds var `OPS_WRITES_ENABLED: "0"`; `edge/src/index.ts` exports `LifecycleWorkflow`. ops: `edge/ops/wrangler.jsonc` adds only the cross-script `LIFECYCLE` binding (`script_name: apotheke-api`), no R2, Durable Object or migration. `scripts/edge-storage-config.mjs` merges `workflows`. Regenerated `worker-configuration.d.ts` for edge and ops; `deploy-edge.yml` dry-run binding lists; tests; `docs/operator-console.md`; CHANGELOG.
+- [x] Gate (PM requirement 1): `preflight()` is the first statement of `LifecycleWorkflow.run()`, outside any `step.do`, so it runs before `runJob` and again on every replay. `OPS_WRITES_ENABLED !== "1"` throws `writes_disabled` before any DB read; then a job `installation_id` of `primary`, or an installations row whose `id` or `do_name` is `primary`, throws `refused`. `LifecycleError` extends `NonRetryableError`, so a refusal fails the instance terminally with no state change. Reads only.
+- [x] Container isolation: the container `env` in `ApothekeContainer` is an explicit object, which does not include `OPS_WRITES_ENABLED`; only `lifecycle-workflow.ts` reads it.
+- [x] Deploy path: the Workflow is declared only in `storage.jsonc`, merged by `edge-storage-config.mjs` in the deploy job behind `EDGE_STORAGE_READY`; `deploy-ops` `needs: [check, deploy]`, so apotheke-api (and the Workflow) deploys before ops binds it. The merge requires each workflow to have exactly `binding`, `name` and `class_name`, refuses an already-used binding name, refuses `workflows` already in the config, and `KNOWN` still refuses unknown keys. Both Workers ship the flag at `"0"`.
+- [x] Tests (Node 24, as CI): 327/327 at `2c0dd100`; `tsc --noEmit` clean and `wrangler types --check` up to date in `edge` and `edge/ops` (locked wrangler 4.160.0); again at `1bcdbc07` on wrangler 4.164.0: 327/327, `tsc` and `types --check` clean in both.
+- [x] Mutants, 14 of 15 killed: flag `=== "0"`, flag trimmed, no job-id primary check, no row-id check, no `do_name` check, missing job returns, `preflight` removed, `preflight` after `runJob`, plain `Error` instead of `LifecycleError`, workflow key check removed, workflow binding not in the duplicate check, `workflows` not in `KNOWN`, `workflows` not merged, export removed. Survivor: N-2553.
+- [x] Docs: `docs/operator-console.md` describes the host, the cross-script binding, `preflight`, both flags at `"0"`, the deploy order and the unused ops `AUTOFILL`. CHANGELOG bullet under `[Unreleased]` / Added links the full PR URL. Commit subjects are Conventional; squash subject is 62 characters.
+- [x] Secrets and ids: no secret, token, account id or D1 id in the diff; placeholders only.
+- [x] Cloudflare phase: storage stays behind the D1, R2, Durable Object and Workflow bindings; no per-request global state; no new DSN or DB config.
+
+## Findings
+
+- **L-2554 (Low, follow-up):** the two stuck states Coder lists are not in the docs. With apotheke-api's flag at `"0"` and the console's at `"1"`, a confirm creates an instance that fails as `writes_disabled` and the job stays `queued`; flipping apotheke-api's flag to `"0"` mid-job stops the job at its next replay and leaves it `running`. Neither has a documented recovery (a re-confirm of a `queued` job finds the existing, errored instance). Document both and the recovery before the flags are enabled.
+- **N-2553 (Nit):** removing `preflight`'s `if (!row) … not_found` survives, because `runJob` refuses a missing installation the same way. Add a test that calls `preflight` directly with a job whose installation row is missing.
+- **N-2555 (Nit):** `apotheke-ops` keeps its `AUTOFILL` binding though nothing on ops uses it now. Drop it in a later change so the operator Worker holds no binding it does not need.
+
+## Verdict
+
+**PASS** at `2e91622a`, 0 behind main `7811b980`. No High or Medium findings. This doc lands byte-exact as the last commit ("docs(qa): add QA 2 review for #359"), followed by the hash check and green CI on that head. Squash as "feat(edge): host the lifecycle Workflow on apotheke-api (#359)". As a `feat`, this cuts a minor release; the first approved deploy declares the Workflow on prod apotheke-api with both flags at `"0"`.
