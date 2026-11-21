@@ -7,7 +7,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 const { createJob, confirmJob, runJob, steps, PURGE_PAGE, LifecycleError, LifecycleRetry, EXPORT_STEP, lifecycleCode } = await import('../src/lifecycle.ts');
 const { NonRetryableError } = await import('cloudflare:workflows');
-const { lifecycleDeps, LifecycleWorkflow } = await import('../src/lifecycle-workflow.ts');
+const { lifecycleDeps, LifecycleWorkflow, deleteAutofillBudget } = await import('../src/lifecycle-workflow.ts');
 const { lifecycleName, Installation } = await import('../src/installation.ts');
 const { ApothekeContainer } = await import('../src/index.ts');
 const { multipartMarkerKey } = await import('../src/r2.ts');
@@ -82,11 +82,20 @@ function world() {
   };
   const claims = new Set();
   const purged = [];
+  /** The autofill service's budgets by installation, and every delete call with what was gone by then. */
+  const autofill = {
+    budgets: new Map([['primary', 9], ['tenant-a', 3], ['tenant-b', 2]]), calls: [],
+    async delete(n) {
+      this.calls.push({ n, status: raw.prepare('SELECT status FROM installations WHERE do_name = ?').get(n)?.status, containerGone: !container.storage.has(n) && !container.running.has(n), dbGone: !doStorage.has(n) });
+      const deleted = this.budgets.get(n) ?? 0; this.budgets.delete(n); return { deleted };
+    },
+  };
   const deps = {
     db: d1(raw), bucket, container,
     installation: { purge: async (n) => { doStorage.delete(n); } },
     claim: { create: async (n, job) => { claims.add(`${n}:${job}`); } },
     routeCache: { purge: async (hosts) => { purged.push(...hosts); } },
+    autofill,
   };
   const tables = raw.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`).all().map((r) => r.name);
   /** Everything a step could change, including SQLite's count of written rows (a no-op UPDATE still counts). */
@@ -96,8 +105,9 @@ function world() {
     objects: [...bucket.objects.keys()].sort(), uploads: [...bucket.uploads.entries()].sort(),
     doStorage: [...doStorage.keys()].sort(), running: [...container.running].sort(), containerStorage: [...container.storage.keys()].sort(),
     booted: [...container.booted], backups: [...container.backups.entries()], claims: [...claims],
+    budgets: [...autofill.budgets.entries()].sort(),
   });
-  return { raw, bucket, container, doStorage, claims, purged, deps, snapshot };
+  return { raw, bucket, container, doStorage, claims, purged, autofill, deps, snapshot };
 }
 
 /** A Workflow step runner that runs every step twice and checks the second run changed nothing and returned the same. */
@@ -145,7 +155,7 @@ const forcedPurge = (w, id = 't-a', jobId = 'forced-purge') => {
     VALUES ('${jobId}', '${id}', 'purge', 'purge:${id}:${jobId}', 'running', 'op@example.test', 'op@example.test')`);
   return jobId;
 };
-const purgeSteps = (w, jobId) => [steps.purgeUploads(w.deps, jobId, 0), steps.purgeObjects(w.deps, jobId, 0), steps.purgeStorage(w.deps, jobId), steps.purgeStatus(w.deps, jobId)];
+const purgeSteps = (w, jobId) => [steps.purgeUploads(w.deps, jobId, 0), steps.purgeObjects(w.deps, jobId, 0), steps.purgeStorage(w.deps, jobId), steps.purgeAutofill(w.deps, jobId), steps.purgeStatus(w.deps, jobId)];
 const withoutJobs = (x) => ({ ...x, db: { ...x.db, lifecycle_jobs: [] }, writes: 0 });
 
 test('E4 jobs: the same idempotency key gives the same job; a job is created paused and never runs unconfirmed', async () => {
@@ -306,7 +316,12 @@ test('E4 purge: 0 objects, markers and unfinished uploads under the prefix, empt
   assert.equal(status(w, 't-b'), 'active');
   assert.equal(w.raw.prepare(`SELECT do_name FROM installations WHERE id = 't-a'`).get().do_name, 'tenant-a');
   assert.deepEqual(names, ['start', 'purge.uploads.0', 'purge.uploads.1', 'purge.uploads.2', 'purge.objects.0', 'purge.objects.1',
-    'purge.objects.2', 'purge.objects.3', 'purge.storage', 'purge.status', 'done']);
+    'purge.objects.2', 'purge.objects.3', 'purge.storage', 'purge.autofill', 'purge.status', 'done']);
+  // The budget is deleted once (the second run of the step reads the recorded count), after the container is gone and
+  // while the installation is still deleting; the other installation's budget stays.
+  assert.deepEqual(w.autofill.calls, [{ n: 'tenant-a', status: 'deleting', containerGone: true, dbGone: true }]);
+  assert.deepEqual(w.snapshot().budgets, [['primary', 9], ['tenant-b', 2]]);
+  assert.equal(JSON.parse(jobRow(w, purge.id).result_json)['purge.autofill'], 3);
   assert.equal(jobRow(w, purge.id).state, 'done');
   assert.deepEqual(audits(w).slice(-2), ['lifecycle.purge.confirm', 'lifecycle.purge.status.deleted']);
   // The name stays taken: a new installation can never reuse it.
@@ -367,6 +382,7 @@ test('E4 primary is refused by every step, whatever its status, and nothing chan
   }
   assert.ok(w.snapshot().objects.includes('installations/primary/photo.jpg'));
   assert.ok(w.snapshot().doStorage.includes('primary') && w.snapshot().running.includes('primary'));
+  assert.deepEqual(w.autofill.calls, []);
 });
 
 test('E4 a row that names the primary objects under another id is refused too', async () => {
@@ -388,6 +404,7 @@ test('E4 a row that names the primary objects under another id is refused too', 
     await assert.rejects(runJob(deps, `j-${id}`, once), refusedAs('refused'));
     for (const fn of Object.values(steps)) await assert.rejects(fn(deps, `j-${id}`, 0), refusedAs('refused'));
   }
+  assert.deepEqual(w.autofill.calls, []);
   assert.deepEqual(raw.prepare(`SELECT status FROM installations`).all().map((r) => r.status), ['deleting', 'deleting', 'deleting']);
   assert.equal(w.bucket.batches.length, 0);
 });
@@ -678,4 +695,92 @@ test('N-2263/M04: a stop that throws does not hide the backup error', async () =
   const exp = await confirmed(w, 'export');
   await assert.rejects(runJob(w.deps, exp.id, workflowOnce()), (e) => e.message === 'NonRetryableError: lifecycle: backup_404');
   assert.equal(jobRow(w, exp.id).error_code, 'backup_404');
+});
+
+/** A soft-deleted installation whose retention is over, and a confirmed purge job for it. */
+async function readyToPurge(w) {
+  const del = await confirmed(w, 'delete', 't-a', { retentionDays: 1 });
+  await runJob(w.deps, del.id, once);
+  age(w, del.id, 1);
+  return confirmed(w, 'purge', 't-a', { confirmHost: 'a.example.test' });
+}
+
+/** A fake HostedAutofill binding: records each request and answers with `answer(request)`. */
+function autofillBinding(answer) {
+  const calls = [];
+  return { calls, fetch: async (input, init) => { const r = new Request(input, init); calls.push([r.method, new URL(r.url).pathname, [...r.headers.keys()]]); return answer(r); } };
+}
+const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+test('A2 purge.autofill: DELETE /v1/installations/<do_name>/budget on the binding; 200 gives the deleted count', async () => {
+  const binding = autofillBinding(() => json(200, { ok: true, installation: 'tenant-a', deleted: 4 }));
+  assert.deepEqual(await deleteAutofillBudget(binding, 'tenant-a'), { deleted: 4 });
+  assert.deepEqual(binding.calls, [['DELETE', '/v1/installations/tenant-a/budget', []]]);
+  // Through the Workflow's deps, with the job: the call comes after the container and database objects are purged.
+  const w = world();
+  const order = [];
+  const env = { DB: w.deps.db, STORAGE: w.bucket,
+    INSTALLATION: { jurisdiction: () => ({ idFromName: (n) => ({ name: n }), get: () => ({ purge: async () => order.push('installation') }) }) },
+    APOTHEKE: { getByName: () => ({ stopContainer: async () => order.push('stop'), purge: async () => order.push('container') }) },
+    AUTOFILL: autofillBinding((r) => { order.push(`autofill ${r.method} ${new URL(r.url).pathname}`); return json(200, { ok: true, installation: 'tenant-a', deleted: 0 }); }) };
+  const job = await readyToPurge(w);
+  const names = [];
+  await runJob({ ...lifecycleDeps(env), routeCache: w.deps.routeCache }, job.id, twice(w, names));
+  assert.deepEqual(order, ['installation', 'container', 'installation', 'container', 'autofill DELETE /v1/installations/tenant-a/budget']);
+  assert.ok(names.indexOf('purge.autofill') === names.indexOf('purge.storage') + 1 && names.indexOf('purge.status') === names.indexOf('purge.autofill') + 1);
+  assert.equal(status(w), 'deleted');
+  assert.equal(jobRow(w, job.id).state, 'done');
+});
+
+test('A2 purge.autofill never calls the service for primary', async () => {
+  const binding = autofillBinding(() => json(200, { ok: true, deleted: 0 }));
+  await assert.rejects(deleteAutofillBudget(binding, 'primary'), (e) => e instanceof NonRetryableError && e.code === 'refused');
+  assert.deepEqual(binding.calls, []);
+});
+
+test('A2 purge.autofill: 503, 5xx, a call that did not finish and no binding are retried; the purge waits, status stays deleting', async () => {
+  for (const [binding, code] of [
+    [autofillBinding(() => json(503, { error: { code: 'backend_unavailable' } })), 'autofill_503'],
+    [autofillBinding(() => json(500, {})), 'autofill_500'],
+    [autofillBinding(() => { throw new Error('network'); }), 'autofill_unreachable'],
+    [undefined, 'autofill_not_configured'],
+  ]) {
+    const e = await deleteAutofillBudget(binding, 'tenant-a').then(() => null, (x) => x);
+    assert.ok(e instanceof LifecycleRetry && !(e instanceof NonRetryableError), code);
+    assert.equal(e.code, code);
+  }
+  // In the job: retried by the Workflow, then a success carries on; with every attempt failing the job records the code.
+  const w = world();
+  let fail = 2;
+  w.deps.autofill = { delete: (n) => deleteAutofillBudget(autofillBinding(() => (fail-- > 0 ? json(503, {}) : json(200, { deleted: 1 }))), n) };
+  const job = await readyToPurge(w);
+  const retrying = { async do(_name, config, f) { const fn = f ?? config; for (let a = 1; ; a++) { try { return await fn(); } catch (e) { if (a >= 3) throw e; } } } };
+  await runJob(w.deps, job.id, retrying);
+  assert.equal(status(w), 'deleted');
+  assert.equal(JSON.parse(jobRow(w, job.id).result_json)['purge.autofill'], 1);
+
+  const w2 = world();
+  w2.deps.autofill = { delete: (n) => deleteAutofillBudget(undefined, n) };
+  const job2 = await readyToPurge(w2);
+  const seen = [];
+  await assert.rejects(runJob(w2.deps, job2.id, workflowOnce(seen)));
+  assert.deepEqual(jobRow(w2, job2.id).state, 'failed');
+  assert.equal(jobRow(w2, job2.id).error_code, 'autofill_not_configured');
+  assert.equal(status(w2), 'deleting');
+  assert.ok(!seen.includes('purge.status'));
+});
+
+test('A2 purge.autofill: a 4xx or a 200 without a count fails the job at once with its code', async () => {
+  for (const [answer, code] of [[() => json(400, { error: { code: 'bad_request' } }), 'autofill_400'], [() => json(404, {}), 'autofill_404'],
+    [() => json(200, { ok: true }), 'bad_autofill_answer'], [() => new Response('nope', { status: 200 }), 'bad_autofill_answer']]) {
+    const e = await deleteAutofillBudget(autofillBinding(answer), 'tenant-a').then(() => null, (x) => x);
+    assert.ok(e instanceof NonRetryableError, code);
+    assert.equal(e.code, code);
+  }
+  const w = world();
+  w.deps.autofill = { delete: (n) => deleteAutofillBudget(autofillBinding(() => json(400, {})), n) };
+  const job = await readyToPurge(w);
+  await assert.rejects(runJob(w.deps, job.id, workflowOnce()));
+  assert.deepEqual([jobRow(w, job.id).state, jobRow(w, job.id).error_code], ['failed', 'autofill_400']);
+  assert.equal(status(w), 'deleting');
 });
