@@ -37,6 +37,9 @@ main { padding: var(--space-lg); min-width: 0; }
 .subnav a { display: inline-flex; align-items: center; min-height: var(--hit); padding: 0 var(--space-sm); text-decoration: none; }
 .subnav a[aria-current="page"] { background: var(--color-accent-soft); color: var(--color-accent-soft-ink); }
 .crumb { margin-bottom: var(--space-sm); }
+.crumb ol { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs); list-style: none; margin: 0; padding: 0; }
+.crumb a, .crumb [aria-current="page"] { display: inline-flex; align-items: center; min-height: var(--hit); }
+.crumb-sep { color: var(--color-muted); }
 .filters { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; margin-bottom: var(--space-lg); }
 .filter-label { margin: 0; font-size: var(--app-text-sm); color: var(--color-ink-2); }
 .filters ul { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }

@@ -305,12 +305,51 @@ test('the page sends only GET and HEAD, including load more and csv', async ({ p
   expect(methods).toEqual([]);
 });
 
-test('writes on still disables the controls', async ({ context, page }) => {
+test('writes on still disables every control', async ({ context, page }) => {
+  const methods: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'GET' && request.method() !== 'HEAD') methods.push(`${request.method()} ${request.url()}`);
+  });
   await context.addCookies([{ name: 'ops_preview_writes', value: '1', url: 'http://127.0.0.1:4181' }]);
+  const screens = ['/installations/north', '/plans', '/jobs', '/installations/north/users'];
+  for (const path of screens) {
+    await page.goto(path);
+    await expect(page.locator('#read-only')).toBeHidden();
+    await expect(page.locator('#writes-off')).toHaveText('Changes come in a later release.');
+    await expect(page.locator('body')).toHaveAttribute('data-writes-enabled', 'true');
+    const buttons = page.locator('button.write');
+    const count = await buttons.count();
+    expect(count).toBeGreaterThan(0);
+    const before = await page.locator('#main').innerText();
+    const url = page.url();
+    for (let index = 0; index < count; index += 1) {
+      const button = buttons.nth(index);
+      await expect(button).toHaveAttribute('aria-disabled', 'true');
+      await expect(button).toHaveAttribute('aria-describedby', 'writes-off');
+      await button.click({ force: true });
+      await button.focus();
+      await page.keyboard.press('Enter');
+      await page.keyboard.press(' ');
+    }
+    expect(page.url()).toBe(url);
+    expect(await page.locator('#main').innerText()).toBe(before);
+  }
+  expect(methods).toEqual([]);
+});
+
+test('a config without writes_enabled stays read-only', async ({ page }) => {
+  await page.route('**/api/ops/v1/config', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, provisioning_enabled: false, limits_enabled: false }),
+    });
+  });
   await page.goto('/installations/north');
-  await expect(page.locator('#read-only')).toBeHidden();
-  await expect(page.locator('#writes-off')).toHaveText('Changes come in a later release.');
-  await expect(page.locator('body')).toHaveAttribute('data-writes-enabled', 'true');
+  await expect(page.locator('#read-only')).toBeVisible();
+  await expect(page.locator('#read-only')).toHaveText('Read-only');
+  await expect(page.locator('#writes-off')).toHaveText('Changes are turned off on this console.');
+  await expect(page.locator('body')).toHaveAttribute('data-writes-enabled', 'false');
   await expect(page.getByRole('button', { name: 'Claim link' })).toHaveAttribute('aria-disabled', 'true');
 });
 
@@ -343,7 +382,10 @@ for (const viewport of viewports) {
         await expect(page.locator('caption', { hasText: 'Plan limits' })).toHaveCount(0);
         await expect(page.locator('caption', { hasText: 'Usage' })).toHaveCount(0);
         await expect(page.locator('caption', { hasText: 'Recent jobs' })).toHaveCount(0);
-        await expect(page.locator('.crumb')).toContainText('Installation');
+        const trail = page.getByRole('navigation', { name: 'Breadcrumb' });
+        await expect(trail.getByRole('link', { name: 'Installations' })).toBeVisible();
+        await expect(trail.locator('[aria-current="page"]')).toHaveText('Installation');
+        await expect(trail.locator('.crumb-sep')).toHaveAttribute('aria-hidden', 'true');
       }
       if (viewport.width === 320 && route.path === '/audit') {
         const nowrap = await page.locator('.table-scroll time').first().evaluate((node) => getComputedStyle(node).whiteSpace);

@@ -11,6 +11,7 @@ import type {
   OpsConfig,
   Overview,
 } from './api/types.ts';
+import { writesAreEnabled } from './writes.ts';
 import {
   actions,
   dataTable,
@@ -148,7 +149,7 @@ async function boot(): Promise<void> {
 function rememberConfig(config: OpsConfig): void {
   provisioningEnabled = config.provisioning_enabled;
   limitsEnabled = config.limits_enabled;
-  writesEnabled = config.writes_enabled === true;
+  writesEnabled = writesAreEnabled(config);
   document.body.dataset.provisioningEnabled = String(provisioningEnabled);
   document.body.dataset.limitsEnabled = String(limitsEnabled);
   document.body.dataset.writesEnabled = String(writesEnabled);
@@ -276,11 +277,20 @@ function subnav(id: string, current: 'installation' | 'users'): HTMLElement {
   return nav;
 }
 
-function crumb(context = ''): HTMLElement {
-  const line = el('p', { class: 'crumb' });
-  line.append(el('a', { href: '/installations' }, 'Installations'));
-  if (context) line.append(el('span', {}, context));
-  return line;
+function crumb(current = ''): HTMLElement {
+  const nav = el('nav', { class: 'crumb', 'aria-label': 'Breadcrumb' });
+  const list = document.createElement('ol');
+  const back = document.createElement('li');
+  back.append(el('a', { href: '/installations' }, 'Installations'));
+  list.append(back);
+  if (current) {
+    const here = document.createElement('li');
+    here.append(el('span', { 'aria-hidden': 'true', class: 'crumb-sep' }, '/'));
+    here.append(el('span', { 'aria-current': 'page' }, current));
+    list.append(here);
+  }
+  nav.append(list);
+  return nav;
 }
 
 function when(value: string | null, empty = ''): Node {
@@ -436,7 +446,7 @@ async function paintInstallation(main: HTMLElement, id: string, gen: number): Pr
 async function paintUsers(main: HTMLElement, id: string, gen: number): Promise<void> {
   const list = await client.users(id);
   if (gen !== generation) return;
-  main.append(crumb(), subnav(id, 'users'));
+  main.append(crumb('Users'), subnav(id, 'users'));
   main.append(el('p', {}, 'Accounts on this installation.'));
   main.append(userTable(list.users, id !== 'primary'));
 }
