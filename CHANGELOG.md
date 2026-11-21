@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **ops:** the operator console lays counts out as tiles, scrolls wide tables, and keeps write controls visibly off ([#364](https://github.com/thordin9/apotheke/pull/364))
+
 ## [3.69.0] - 2026-11-21
 
 ### Added

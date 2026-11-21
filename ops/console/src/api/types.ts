@@ -106,6 +106,7 @@ export interface OpsConfig {
   ok: true;
   provisioning_enabled: boolean;
   limits_enabled: boolean;
+  writes_enabled: boolean;
 }
 
 export interface StatusCount {

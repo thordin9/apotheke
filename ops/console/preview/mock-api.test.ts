@@ -15,8 +15,8 @@ test('overview matches the read shape and leaves revenue and the stamp empty', (
   assert.equal(body.revenue, null);
   assert.equal(body.as_of, null);
   assert.equal(body.usage_period, '2026-11');
-  assert.equal(body.installations_by_status.find((item) => item.status === 'active')?.count, 2);
-  assert.equal(body.open_jobs_by_state.find((item) => item.state === 'paused')?.count, 1);
+  assert.equal(body.installations_by_status.find((item) => item.status === 'active')?.count, 3);
+  assert.equal(body.open_jobs_by_state.find((item) => item.state === 'paused')?.count, 2);
   assert.deepEqual(body.usage_totals, [
     { metric: 'items', value: 19 },
     { metric: 'photos', value: 3 },
@@ -31,7 +31,10 @@ test('the list pages by id and marks primary', () => {
   assert.ok(page.next_cursor);
   const next = get(`/api/ops/v1/installations?limit=2&cursor=${page.next_cursor}`).body as InstallationList;
   assert.deepEqual(next.installations.map((item) => item.installation.id), ['south', 'west']);
-  assert.equal(next.next_cursor, null);
+  assert.ok(next.next_cursor);
+  const last = get(`/api/ops/v1/installations?limit=2&cursor=${next.next_cursor}`).body as InstallationList;
+  assert.deepEqual(last.installations.map((item) => item.installation.id), ['yard']);
+  assert.equal(last.next_cursor, null);
 });
 
 test('installation detail is newest usage first and has no token', () => {
@@ -86,6 +89,23 @@ test('installation users are a read-only list', () => {
   assert.equal((get('/api/ops/v1/installations/unread/users').body as { detail: string }).detail, 'read_failed');
   assert.equal((get('/api/ops/v1/installations/unconfigured/users').body as { code: string }).code, 'not_configured');
   assert.equal(handleMock('POST', new URL('/api/ops/v1/installations/north/users', 'http://127.0.0.1')).status, 405);
+});
+
+test('config is read-only unless the preview writes cookie is set', () => {
+  const off = get('/api/ops/v1/config').body as { writes_enabled: boolean };
+  assert.equal(off.writes_enabled, false);
+  const on = handleMock('GET', new URL('/api/ops/v1/config', 'http://127.0.0.1'), '', true).body as { writes_enabled: boolean };
+  assert.equal(on.writes_enabled, true);
+});
+
+test('a failed job filter matches nothing', () => {
+  const jobs = get('/api/ops/v1/jobs?state=failed').body as { jobs: unknown[] };
+  assert.deepEqual(jobs.jobs, []);
+});
+
+test('yard has no accounts', () => {
+  const body = get('/api/ops/v1/installations/yard/users').body as { users: unknown[] };
+  assert.deepEqual(body.users, []);
 });
 
 test('writes are not implemented', () => {

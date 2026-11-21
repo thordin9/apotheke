@@ -31,6 +31,7 @@ export const installations: Installation[] = [
   row('north', 'active', '<img src=x onerror=alert(1)>'),
   row('south', 'suspended', 'south@example.test'),
   row('west', 'provisioning', 'west@example.test'),
+  row('yard', 'active', 'yard@example.test'),
 ];
 
 export const routes: InstallationRoute[] = [
@@ -39,6 +40,7 @@ export const routes: InstallationRoute[] = [
   { host: '<b>x</b>', installation_id: 'north', created_at: at },
   { host: 'south.example.test', installation_id: 'south', created_at: at },
   { host: 'west.example.test', installation_id: 'west', created_at: at },
+  { host: 'yard.example.test', installation_id: 'yard', created_at: at },
 ];
 
 export const subscriptions: Subscription[] = [
@@ -61,6 +63,7 @@ export const jobs: LifecycleJob[] = [
   job('job-north', 'north', 'provision', 'done', '2026-11-02T00:00:00Z'),
   job('job-south', 'south', 'suspend', 'paused', '2026-11-18T00:00:00Z'),
   job('job-west', 'west', 'provision', 'queued', '2026-11-19T00:00:00Z'),
+  job('job-yard', 'yard', 'export', 'paused', '2026-11-17T00:00:00Z'),
 ];
 
 export const audit: OperatorAudit[] = [
