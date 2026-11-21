@@ -305,8 +305,8 @@ autofill call can count again after the budget is deleted. `primary` is refused 
   count fails it as `bad_autofill_answer`.
 
 The step is not skipped without the binding: a purge only finishes once the budget is gone. The Workflow's
-environment uses apotheke-api's existing `AUTOFILL` binding (`apotheke-autofill#HostedAutofill`). The `AUTOFILL`
-binding left on `apotheke-ops` is unused for purges.
+environment uses apotheke-api's existing `AUTOFILL` binding (`apotheke-autofill#HostedAutofill`). apotheke-ops has no
+`AUTOFILL` binding; it only starts the Workflow through `LIFECYCLE`.
 
 ### Stuck jobs and recovery
 
@@ -451,9 +451,8 @@ static assets) and `/api/ops/v1` on its own host, behind Cloudflare Access. It h
 preview URLs in this repository: the host and the Access application are set up outside it, and the deploy is off
 until it is switched on (see [Deploying the console](#deploying-the-console)). Its bindings are the control-plane D1
 `DB` (the same database as apotheke-api's), `OPS`, apotheke-api's `Ops` entrypoint (see
-[Claim and admin reset from the operator console](#claim-and-admin-reset-from-the-operator-console)), `AUTOFILL`, the
-autofill Worker's `HostedAutofill` entrypoint (left in place, unused for purges), `LIFECYCLE`, the `apotheke-lifecycle`
-Workflow hosted by apotheke-api, and `ASSETS`; it has no R2 or Durable Object bindings. The Workflow's `purge.autofill`
+[Claim and admin reset from the operator console](#claim-and-admin-reset-from-the-operator-console)), `LIFECYCLE`,
+the `apotheke-lifecycle` Workflow hosted by apotheke-api, and `ASSETS`; it has no AUTOFILL, R2 or Durable Object bindings. The Workflow's `purge.autofill`
 step uses apotheke-api's own existing `AUTOFILL` binding. Calls are same-origin. The credential is the Access cookie. There is no app session. The console's API base
 defaults to same-origin `/api/ops/v1` (`<meta name="ops-api-base">` can set another). Responses are JSON unless a
 download says otherwise.
@@ -667,14 +666,13 @@ apotheke-ops edge/ops` (the Worker guard, then `wrangler deploy`).
 It refuses (and nothing is deployed) when a value is missing or malformed, when the committed config already has a
 `database_id` or Access values, or when `OPS_PROVISIONING`, `LIMITS_ENABLED` or `OPS_WRITES_ENABLED` is not `"0"`.
 Pull requests run the same script with dummy values, the Worker guard, and `wrangler deploy --dry-run`, and check the
-bindings `DB` (apotheke-api), `OPS` (`apotheke-api#Ops`), `AUTOFILL` (`apotheke-autofill#HostedAutofill`),
-`LIFECYCLE` (`LifecycleWorkflow`, defined in apotheke-api) and `ASSETS`, and the three flags at `"0"`.
+bindings `DB` (apotheke-api), `OPS` (`apotheke-api#Ops`), `LIFECYCLE` (`LifecycleWorkflow`, defined in apotheke-api) and `ASSETS`, and the three flags at `"0"`.
 
 The config has no route and no custom domain (the Worker guard refuses both), and no Cron Trigger (`triggers.crons`
 is empty). The lifecycle Workflow runs on `apotheke-api`: `edge/storage.jsonc` declares `apotheke-lifecycle`, merged
 by `scripts/edge-storage-config.mjs` only with the storage bindings. Ops has only the cross-script `LIFECYCLE`
-binding, no R2 or Durable Object bindings and no import of apotheke-api's code. Its `AUTOFILL` binding is left unused
-for purges; the Workflow uses apotheke-api's own binding. The Workflow's jurisdiction is not set or changed here.
+binding, no AUTOFILL, R2 or Durable Object bindings and no import of apotheke-api's code. Purges use apotheke-api's
+own AUTOFILL binding. The Workflow's jurisdiction is not set or changed here.
 
 **DevOps deployment:** deploy `apotheke-api` with the merged storage config first (the existing D1, EU R2 and both
 Durable Object bindings, plus its existing AUTOFILL), then `apotheke-ops`. The existing Deploy edge job order does

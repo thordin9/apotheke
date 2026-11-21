@@ -119,7 +119,7 @@ jobs:
           log="$RUNNER_TEMP/ops-dry-run.log"
           (cd edge/ops && npx --no-install wrangler deploy --dry-run --config wrangler.jsonc --outdir "$RUNNER_TEMP/ops-bundle") 2>&1 | tee "$log"
           sed -i 's/\x1b\[[0-9;]*m//g' "$log"
-          for want in 'env.DB (apotheke-api)' 'env.OPS (apotheke-api#Ops)' 'env.AUTOFILL (apotheke-autofill#HostedAutofill)' \
+          for want in 'env.DB (apotheke-api)' 'env.OPS (apotheke-api#Ops)' \
             'env.LIFECYCLE (LifecycleWorkflow (defined in apotheke-api))' 'env.ASSETS' 'env.OPS_WRITES_ENABLED ("0")' 'env.OPS_PROVISIONING ("0")' 'env.LIMITS_ENABLED ("0")'; do
             if ! grep -qF "$want" "$log"; then
               echo "::error title=apotheke-ops dry run::the dry run does not list $want"

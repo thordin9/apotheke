@@ -362,7 +362,6 @@ test('E6-1 ops: wrangler.jsonc ships with no routes, no workers.dev or preview U
   assert.deepEqual(config.vars, { ACCESS_TEAM_DOMAIN: '', ACCESS_AUD: '', OPS_ALLOWED_EMAILS: '', OPS_WRITES_ENABLED: '0', OPS_PROVISIONING: '0', LIMITS_ENABLED: '0' });
   assert.deepEqual(config.services, [
     { binding: 'OPS', service: 'apotheke-api', entrypoint: 'Ops' },
-    { binding: 'AUTOFILL', service: 'apotheke-autofill', entrypoint: 'HostedAutofill' },
   ]);
   assert.deepEqual(config.triggers, { crons: [] }, 'no Cron Trigger');
   for (const k of ['queues', 'custom_domains', 'r2_buckets', 'durable_objects', 'migrations']) assert.equal(config[k], undefined, k);

@@ -863,7 +863,6 @@ test("ops-deploy-config: adds the D1 id and the Access vars, keeps every flag an
 	});
 	assert.deepEqual(c.services, [
 		{ binding: "OPS", service: "apotheke-api", entrypoint: "Ops" },
-		{ binding: "AUTOFILL", service: "apotheke-autofill", entrypoint: "HostedAutofill" },
 	]);
 	assert.deepEqual(c.triggers, { crons: [] });
 	// The lifecycle Workflow runs on apotheke-api: here only its binding, and no R2 or Durable Object binding.
@@ -911,7 +910,7 @@ test("guard: apotheke-ops is allowlisted, and the real edge/ops/wrangler.jsonc p
 	}
 });
 
-test("deploy-edge.yml: the PR check dry-runs apotheke-ops with dummy values and pins DB, OPS, AUTOFILL, LIFECYCLE and ASSETS", () => {
+test("deploy-edge.yml: the PR check dry-runs apotheke-ops with dummy values and pins DB, OPS, LIFECYCLE and ASSETS", () => {
 	const yml = readFileSync(join(root, ".github/workflows/deploy-edge.yml"), "utf8");
 	const at = yml.indexOf("      - name: apotheke-ops dry run");
 	assert.ok(at > 0);
@@ -922,7 +921,7 @@ test("deploy-edge.yml: the PR check dry-runs apotheke-ops with dummy values and 
 	assert.match(step, /OPS_ACCESS_AUD: '0{64}'\n/);
 	assert.match(step, /node scripts\/ops-deploy-config\.mjs edge\/ops\/wrangler\.jsonc\n/);
 	assert.match(step, /node scripts\/cf-worker-guard\.mjs apotheke-ops edge\/ops\/wrangler\.jsonc -- --dry-run\n/);
-	for (const want of ["env.DB (apotheke-api)", "env.OPS (apotheke-api#Ops)", "env.AUTOFILL (apotheke-autofill#HostedAutofill)", "'env.LIFECYCLE (LifecycleWorkflow (defined in apotheke-api))'", "'env.ASSETS'", 'env.OPS_WRITES_ENABLED ("0")', 'env.OPS_PROVISIONING ("0")', 'env.LIMITS_ENABLED ("0")']) {
+	for (const want of ["env.DB (apotheke-api)", "env.OPS (apotheke-api#Ops)", "'env.LIFECYCLE (LifecycleWorkflow (defined in apotheke-api))'", "'env.ASSETS'", 'env.OPS_WRITES_ENABLED ("0")', 'env.OPS_PROVISIONING ("0")', 'env.LIMITS_ENABLED ("0")']) {
 		assert.ok(step.includes(want), want);
 	}
 	assert.ok(yml.indexOf("      - name: Build the operator console") < at, "the console is built before the dry run");
