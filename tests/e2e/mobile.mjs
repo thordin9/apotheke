@@ -45,9 +45,9 @@ try {
     ok(await p.evaluate(() => document.documentElement.dataset.theme === 'dark'), 'dark applied instantly');
     ok(await p.evaluate(() => localStorage.getItem('theme') === 'dark'), 'stored in localStorage');
     const bg = await p.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    ok(bg === 'rgb(17, 17, 19)', 'dark palette in effect (' + bg + ')');
+    ok(bg === 'rgb(15, 37, 44)', 'dark palette in effect (' + bg + ')');
     await p.reload({ waitUntil: 'networkidle0' });
-    ok(await p.evaluate(() => document.documentElement.dataset.theme === 'dark' && document.querySelector('meta[name=theme-color]').content === '#111113'), 'persists across reload (server-rendered, no flash)');
+    ok(await p.evaluate(() => document.documentElement.dataset.theme === 'dark' && document.querySelector('meta[name=theme-color]').content === '#07161c'), 'persists across reload (server-rendered, no flash)');
     await p.keyboard.press('Escape');
     await p.tap('#menu-btn'); await pause(300); await p.tap('.seg-btn[value="auto"]'); await pause(100);
     ok(await p.evaluate(() => document.documentElement.dataset.theme === 'auto'), 'back to auto');

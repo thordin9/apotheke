@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **frontend:** the self-hosted stylesheet uses the shared colour, type, space and radius tokens, with a paper header in the light theme. The default accent is now plum (`#5b3b8e`); an install with a saved accent, including the old indigo default, keeps it, and Reset gives plum ([#357](https://github.com/thordin9/apotheke/pull/357))
+
 ## [3.63.0] - 2026-11-21
 
 ### Added

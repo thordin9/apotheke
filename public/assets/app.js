@@ -58,7 +58,7 @@
   });
 
   /* ---------- theme switch (Auto / Light / Dark): instant, persisted in localStorage + cookie ---------- */
-  const DARK = '#111113', LIGHT = '#f5f5f7';
+  const DARK = '#07161c', LIGHT = '#fdfcfa';
   function applyTheme(t) {
     const d = document.documentElement;
     d.setAttribute('data-theme', t);
@@ -982,14 +982,15 @@
     const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
     const mix = (h, to, t) => { const a = rgb(h), b = rgb(to); return hex(a.map((v, i) => v + (b[i] - v) * t)); };
     const fit = (h, bgs, to) => { for (let i = 0; i <= 50; i++) { const c = mix(h, to, i / 50); if (Math.min(...bgs.map(b => ratio(c, b))) >= 4.5) return c; } return to; };
-    const modes = { light: [['#f5f5f7', '#ffffff'], '#000000', 0.10], dark: [['#111113', '#1c1c20'], '#ffffff', 0.16] };
+    const modes = { light: [['#fdfcfa', '#f6f4f0'], '#000000', 0.10], dark: [['#0f252c', '#152e36'], '#ffffff', 0.16] };
     const update = () => {
       const v = normHex(accentIn.value);
       if (!v) return;
       const warn = [];
       for (const [m, [bgs, to, soft]] of Object.entries(modes)) {
         const raw = Math.min(...bgs.map(b => ratio(v.toLowerCase(), b)));
-        const c = m === 'dark' && v === '#4F46E5' ? '#8b93ff' : fit(v.toLowerCase(), bgs, to);
+        const picked = { '#5B3B8E': '#b7a0e6', '#4F46E5': '#8b93ff' };
+        const c = m === 'dark' && picked[v] ? picked[v] : fit(v.toLowerCase(), bgs, to);
         const ink = ratio(c, '#ffffff') >= ratio(c, '#0b0b10') ? '#ffffff' : '#0b0b10';
         const pane = $('#pv-' + m);
         pane.style.setProperty('--accent', c);
@@ -997,7 +998,7 @@
         pane.style.setProperty('--accent-soft', 'rgba(' + rgb(c).join(',') + ',' + soft + ')');
         const r = Math.min(...bgs.map(b => ratio(c, b)));
         $('.pv-ratio', pane).textContent = r.toFixed(2) + ':1 ' + (r >= 4.5 ? '✓ AA' : '✗');
-        if (c !== v.toLowerCase() && v !== '#4F46E5') warn.push(v + ' is ' + raw.toFixed(2) + ':1 on the ' + m + ' background (WCAG AA needs 4.5:1) – ' + m[0].toUpperCase() + m.slice(1) + ' mode uses ' + c + ' instead.');
+        if (c !== v.toLowerCase() && !picked[v]) warn.push(v + ' is ' + raw.toFixed(2) + ':1 on the ' + m + ' background (WCAG AA needs 4.5:1) – ' + m[0].toUpperCase() + m.slice(1) + ' mode uses ' + c + ' instead.');
       }
       const ul = $('#accent-warn');
       ul.textContent = '';

@@ -73,7 +73,7 @@ final class Branding
             'description' => $name . ', ' . (string)$s->get('app_tagline'),
             'start_url' => '/', 'scope' => '/', 'display' => 'standalone',
             'background_color' => $custom ? (string)$s->get('icon_background') : '#FBF1E3',
-            'theme_color' => strcasecmp($accent, SettingsSchema::ACCENT_DEFAULT) === 0 ? '#C8502D' : Accent::variants($accent)['light']['accent'],
+            'theme_color' => strcasecmp($accent, SettingsSchema::ACCENT_DEFAULT) === 0 ? '#fdfcfa' : Accent::variants($accent)['light']['accent'],
             'icons' => $icons,
         ];
     }
