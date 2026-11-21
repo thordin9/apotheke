@@ -101,6 +101,8 @@ test.describe('operator console', () => {
     await expect(page.getByRole('link', { name: 'south.example.test' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Load more' }).click();
     await expect(page.getByRole('link', { name: 'south.example.test' })).toBeVisible();
+    await page.getByRole('button', { name: 'Load more' }).click();
+    await expect(page.getByRole('link', { name: 'yard.example.test' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
   });
 
@@ -150,7 +152,7 @@ test.describe('operator console', () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Installation');
     await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
 
-    const users = page.getByRole('navigation', { name: 'Console' }).getByRole('link', { name: 'Users' });
+    const users = page.getByRole('navigation', { name: 'Installation' }).getByRole('link', { name: 'Users' });
     await tabTo(page, users);
     await expectFocusRing(page);
     await page.keyboard.press('Enter');
@@ -181,14 +183,13 @@ test('hostile markup is text and creates no element', async ({ page }) => {
   await expect(page.getByRole('link', { name: '<b>x</b>' })).toBeVisible();
   expect(await page.locator('b').count()).toBe(0);
   await page.goto('/installations/north');
-  await expect(page.getByRole('cell', { name: '<img src=x onerror=alert(1)>' })).toBeVisible();
-  expect(await page.locator('img').count()).toBe(0);
+  await expect(page.getByText('<img src=x onerror=alert(1)>')).toBeVisible();
+  expect(await page.locator('#main img, #main b').count()).toBe(0);
   await page.goto('/audit');
   await expect(page.getByRole('cell', { name: '<img src=x onerror=alert(1)>' })).toBeVisible();
   await page.goto('/installations/north/users');
   await expect(page.getByRole('cell', { name: '<b>x</b>' })).toBeVisible();
-  expect(await page.locator('b').count()).toBe(0);
-  expect(await page.locator('img').count()).toBe(0);
+  expect(await page.locator('#main b, #main img').count()).toBe(0);
 });
 
 test('the header is paper in light and dark only in the dark scheme', async ({ page }) => {
@@ -253,3 +254,170 @@ for (const fault of faults) {
     await axe(page);
   });
 }
+
+test('writes off keeps every control inert', async ({ page }) => {
+  const methods: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'GET' && request.method() !== 'HEAD') methods.push(request.method());
+  });
+  await page.goto('/installations/north');
+  await expect(page.locator('#read-only')).toHaveText('Read-only');
+  await expect(page.locator('#writes-off')).toHaveText('Changes are turned off on this console.');
+  await expect(page.locator('body')).toHaveAttribute('data-writes-enabled', 'false');
+  for (const name of ['Change plan or status', 'Grant limit override', 'Create job', 'Claim link', 'Reset admin']) {
+    const button = page.getByRole('button', { name, exact: true });
+    await expect(button).toHaveAttribute('aria-disabled', 'true');
+    await expect(button).toHaveAttribute('aria-describedby', 'writes-off');
+    await button.click({ force: true });
+    await button.focus();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press(' ');
+  }
+  await page.goto('/plans');
+  await expect(page.getByRole('button', { name: 'Edit limits' })).toHaveCount(3);
+  await page.goto('/jobs');
+  const confirm = page.getByRole('button', { name: 'Confirm' }).first();
+  await expect(confirm).toHaveAttribute('aria-disabled', 'true');
+  await confirm.click({ force: true });
+  await page.goto('/installations/north/users');
+  await expect(page.getByRole('cell', { name: 'Yes', exact: true })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'No', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Disable' }).click({ force: true });
+  await page.getByRole('button', { name: 'Re-enable' }).click({ force: true });
+  expect(methods).toEqual([]);
+});
+
+test('the page sends only GET and HEAD, including load more and csv', async ({ page }) => {
+  const methods: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'GET' && request.method() !== 'HEAD') methods.push(`${request.method()} ${request.url()}`);
+  });
+  for (const route of routes) {
+    await page.goto(route.path);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(route.heading);
+  }
+  await page.goto('/installations?limit=2');
+  await page.getByRole('button', { name: 'Load more' }).click();
+  await page.goto('/audit?installation=north');
+  const csv = page.locator('#audit-csv');
+  await expect(csv).toHaveAttribute('href', /\/api\/ops\/v1\/audit\.csv\?installation=north/);
+  await csv.click();
+  expect(methods).toEqual([]);
+});
+
+test('writes on still disables the controls', async ({ context, page }) => {
+  await context.addCookies([{ name: 'ops_preview_writes', value: '1', url: 'http://127.0.0.1:4181' }]);
+  await page.goto('/installations/north');
+  await expect(page.locator('#read-only')).toBeHidden();
+  await expect(page.locator('#writes-off')).toHaveText('Changes come in a later release.');
+  await expect(page.locator('body')).toHaveAttribute('data-writes-enabled', 'true');
+  await expect(page.getByRole('button', { name: 'Claim link' })).toHaveAttribute('aria-disabled', 'true');
+});
+
+const viewports: { width: number; height: number; scheme: 'light' | 'dark' }[] = [
+  { width: 1440, height: 900, scheme: 'light' },
+  { width: 1440, height: 900, scheme: 'dark' },
+  { width: 320, height: 640, scheme: 'light' },
+  { width: 768, height: 900, scheme: 'light' },
+];
+
+for (const viewport of viewports) {
+  test(`axe and fit at ${viewport.width} ${viewport.scheme}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.emulateMedia({ colorScheme: viewport.scheme, reducedMotion: 'reduce' });
+    for (const route of routes) {
+      if (!route.shot) continue;
+      await page.goto(route.path);
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(route.heading);
+      const fit = await page.evaluate(() => document.documentElement.scrollWidth === window.innerWidth);
+      expect(fit).toBe(true);
+      const loose = await page.locator('table').evaluateAll((tables) => tables.filter((table) => {
+        const region = table.parentElement;
+        return region?.classList.contains('table-scroll') !== true || region.getAttribute('tabindex') !== '0';
+      }).length);
+      expect(loose).toBe(0);
+      const iso = await page.locator('#main').innerText();
+      expect(iso).not.toMatch(/T\d{2}:\d{2}:\d{2}Z/);
+      await axe(page);
+    }
+    if (viewport.width === 320 && viewport.scheme === 'light') {
+      await page.goto('/overview');
+      const top = await page.locator('.stats').first().evaluate((node) => node.getBoundingClientRect().top);
+      expect(top).toBeLessThan(640);
+    }
+  });
+}
+
+test('empty lists name what is missing', async ({ page }) => {
+  await page.goto('/jobs?state=failed');
+  await expect(page.getByText('No job matches these filters.')).toBeVisible();
+  await page.goto('/audit?action=not-real');
+  await expect(page.getByText('No audit entry matches.')).toBeVisible();
+  await page.goto('/installations/yard/users');
+  await expect(page.getByText('No account on this installation.')).toBeVisible();
+  await page.goto('/installations/yard');
+  await expect(page.getByText('No usage recorded.')).toBeVisible();
+  await expect(page.getByText('No limits on this plan.')).toBeVisible();
+  await page.goto('/plans');
+  await expect(page.getByText('No limits on this plan.')).toBeVisible();
+  await page.route('**/api/ops/v1/installations/north', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.routes = [];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  await page.goto('/installations/north');
+  await expect(page.getByText('No route.')).toBeVisible();
+  await page.unroute('**/api/ops/v1/installations/north');
+  await page.route('**/api/ops/v1/subscriptions**', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.subscriptions = [];
+    body.due_days = 2;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  await page.goto('/subscriptions');
+  await expect(page.getByText('No subscription is due in 2 days.')).toBeVisible();
+  await axe(page);
+});
+
+test('loading announces itself and then clears', async ({ page }) => {
+  await page.goto('/jobs');
+  await page.route('**/api/ops/v1/overview', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.continue();
+  });
+  await page.getByRole('navigation', { name: 'Console' }).getByRole('link', { name: 'Overview' }).click();
+  await expect(page.locator('#main')).toHaveAttribute('aria-busy', 'true');
+  await expect(page.getByRole('status')).toHaveText('Loading…');
+  await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
+  await expect(page.getByRole('status')).toHaveCount(0);
+  await expect(page.locator('#main')).not.toHaveAttribute('aria-busy');
+});
+
+test('401 offers reload and 503 try again fetches again', async ({ context, page }) => {
+  await context.addCookies([{ name: 'ops_preview_fault', value: '401', url: 'http://127.0.0.1:4181' }]);
+  await page.goto('/');
+  await expect(page.getByText('Signed out of Access')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Reload' })).toHaveAttribute('href', '/');
+  await context.clearCookies();
+  await context.addCookies([{ name: 'ops_preview_fault', value: '503', url: 'http://127.0.0.1:4181' }]);
+  await page.goto('/');
+  await expect(page.getByText('The operator API is not configured', { exact: true })).toBeVisible();
+  const again = page.getByRole('button', { name: 'Try again' });
+  await again.focus();
+  await expectFocusRing(page);
+  await context.clearCookies();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview');
+});
+
+test('keyboard reaches the installation tabs and a scroll region', async ({ page }) => {
+  await page.goto('/installations/north');
+  const users = page.getByRole('navigation', { name: 'Installation' }).getByRole('link', { name: 'Overview' });
+  await tabTo(page, users);
+  await expect(users).toHaveAttribute('aria-current', 'page');
+  const region = page.locator('.table-scroll').first();
+  await tabTo(page, region);
+  await expectFocusRing(page);
+});

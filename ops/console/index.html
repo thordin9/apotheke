@@ -3,14 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Apotheke operator console. A read-only view of installations, plans, jobs and the audit log.">
+  <meta name="robots" content="noindex">
   <meta name="ops-api-base" content="">
+  <link rel="icon" href="/mark-small.svg" type="image/svg+xml">
   <title>Apotheke operator console</title>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <header class="top">
-    <p class="mark">Apotheke</p>
-    <p class="where">Operator console</p>
+    <div class="bar">
+      <a class="brand" href="/overview">
+        <img src="/mark-small.svg" width="28" height="28" alt="">
+        <span class="mark">Apotheke</span>
+      </a>
+      <p class="where">Operator console</p>
+      <p class="readout" id="read-only">Read-only</p>
+    </div>
   </header>
   <div class="shell">
     <nav aria-label="Console">

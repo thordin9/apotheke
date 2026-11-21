@@ -16,7 +16,11 @@ const file = args.find((a) => !a.startsWith('--')) ?? resolve(dirname(fileURLToP
 export const PAIRS = [
   ['ink', 'paper', 4.5, 'body text'], ['ink', 'paper-2', 4.5, 'text on panels'], ['ink', 'paper-3', 4.5, 'text on wells'],
   ['ink-2', 'paper', 4.5, 'secondary text'], ['ink-2', 'paper-2', 4.5, 'secondary text on panels'],
-  ['muted', 'paper', 4.5, 'hints'], ['muted', 'paper-2', 4.5, 'hints on panels'], ['muted', 'paper-3', 4.5, 'hints on wells'],
+  ['muted', 'paper', 4.5, 'hints'], ['muted', 'paper-2', 4.5, 'hints on panels'], ['muted', 'paper-3', 4.5, 'console write control and hints on wells'],
+  ['success', 'paper-2', 4.5, 'console active status pill'], ['success', 'paper', 4.5, 'console active status on paper'],
+  ['--color-muted', '--color-header', 4.5, 'console subtitle on the header'],
+  ['ink', 'error-soft', 4.5, 'console error notice title'], ['error', 'error-soft', 4.5, 'console error notice message'],
+  ['accent', 'paper', 3, 'console selected chip border'],
   ['paper', 'ink', 4.5, 'primary button, slab nav'],
   ['--color-header-ink', '--color-header', 4.5, 'wordmark and header links, including hover'],
   ['accent', 'paper', 4.5, 'accent text and links'], ['accent', 'paper-2', 4.5, 'accent text on panels'],
