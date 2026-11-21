@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Changed
+
+- **frontend:** the landing, privacy, 404 and app shell are lighter and tighter, with a paper header in the light theme ([#353](https://github.com/thordin9/apotheke/pull/353))
+
 ### Maintenance
 
 - **edge:** deploy wiring for the operator console Worker `apotheke-ops`: a PR dry run, and a deploy job that stays off until `OPS_DEPLOY_ENABLED` is 1; the console ships read-only (`OPS_WRITES_ENABLED` "0") and only for the emails in `OPS_ALLOWED_EMAILS` ([#352](https://github.com/thordin9/apotheke/pull/352))
