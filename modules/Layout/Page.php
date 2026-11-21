@@ -77,11 +77,11 @@ final class Page
             . '<title>' . self::e($t) . "</title>\n";
         if ($theme === 'auto') {
             $o .= "<meta name=\"color-scheme\" content=\"light dark\">\n"
-                . "<meta name=\"theme-color\" content=\"#f5f5f7\" media=\"(prefers-color-scheme: light)\">\n"
-                . "<meta name=\"theme-color\" content=\"#111113\" media=\"(prefers-color-scheme: dark)\">\n";
+                . "<meta name=\"theme-color\" content=\"#fdfcfa\" media=\"(prefers-color-scheme: light)\">\n"
+                . "<meta name=\"theme-color\" content=\"#07161c\" media=\"(prefers-color-scheme: dark)\">\n";
         } else {
             $o .= '<meta name="color-scheme" content="' . self::e($theme) . "\">\n"
-                . '<meta name="theme-color" content="' . ($theme === 'dark' ? '#111113' : '#f5f5f7') . "\">\n";
+                . '<meta name="theme-color" content="' . ($theme === 'dark' ? '#07161c' : '#fdfcfa') . "\">\n";
         }
         $o .= "<meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\n"
             . "<meta name=\"mobile-web-app-capable\" content=\"yes\">\n"

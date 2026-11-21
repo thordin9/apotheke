@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { OPS_CSP } from '../src/csp.ts';
 
 const routes: { path: string; heading: string; shot: string }[] = [
   { path: '/overview', heading: 'Overview', shot: 'overview' },
@@ -81,7 +82,7 @@ test.describe('operator console', () => {
     await expect(stamp).toContainText('2026');
   });
 
-  test('primary is badged and users are not requested', async ({ page }) => {
+  test('primary is badged and its users are not listed', async ({ page }) => {
     const users: string[] = [];
     page.on('request', (request) => {
       if (request.url().includes('/api/ops/v1/') && request.url().includes('/users')) users.push(request.url());
@@ -90,8 +91,8 @@ test.describe('operator console', () => {
     await expect(page.locator('.badge', { hasText: 'primary' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Claim' })).toHaveCount(0);
     await page.goto('/installations/primary/users');
-    await expect(page.getByText('Installation users are not available yet.')).toBeVisible();
-    expect(users).toEqual([]);
+    await expect(page.getByRole('alert')).toHaveText("Users of the primary installation aren't shown here.");
+    expect(users.some((url) => url.includes('/installations/primary/users'))).toBe(true);
   });
 
   test('load more pages the installation list', async ({ page }) => {
@@ -148,6 +149,15 @@ test.describe('operator console', () => {
     await expect(page).toHaveURL(/\/installations\/north$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Installation');
     await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
+
+    const users = page.getByRole('navigation', { name: 'Console' }).getByRole('link', { name: 'Users' });
+    await tabTo(page, users);
+    await expectFocusRing(page);
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/installations\/north\/users$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Users');
+    await expect(page.getByText('ada')).toBeVisible();
+    await expect(page.getByText('never')).toBeVisible();
   });
 
   test('the preview CSP reports no violations', async ({ page }) => {
@@ -159,11 +169,73 @@ test.describe('operator console', () => {
       });
     });
     const response = await page.goto('/overview');
-    expect(response?.headers()['content-security-policy'] ?? '').toContain("default-src 'self'");
+    expect(response?.headers()['content-security-policy']).toBe(OPS_CSP);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview');
     const reported = await page.evaluate(() => (window as unknown as { __csp?: string[] }).__csp ?? []);
     expect(reported).toEqual([]);
   });
+});
+
+test('hostile markup is text and creates no element', async ({ page }) => {
+  await page.goto('/installations');
+  await expect(page.getByRole('link', { name: '<b>x</b>' })).toBeVisible();
+  expect(await page.locator('b').count()).toBe(0);
+  await page.goto('/installations/north');
+  await expect(page.getByRole('cell', { name: '<img src=x onerror=alert(1)>' })).toBeVisible();
+  expect(await page.locator('img').count()).toBe(0);
+  await page.goto('/audit');
+  await expect(page.getByRole('cell', { name: '<img src=x onerror=alert(1)>' })).toBeVisible();
+  await page.goto('/installations/north/users');
+  await expect(page.getByRole('cell', { name: '<b>x</b>' })).toBeVisible();
+  expect(await page.locator('b').count()).toBe(0);
+  expect(await page.locator('img').count()).toBe(0);
+});
+
+test('the header is paper in light and dark only in the dark scheme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/overview');
+  await expect(page.locator('.top')).toHaveCSS('background-color', 'rgb(253, 252, 250)');
+  await expect(page.locator('.mark')).toHaveCSS('color', 'rgb(4, 48, 61)');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.reload();
+  await expect(page.locator('.top')).toHaveCSS('background-color', 'rgb(7, 22, 28)');
+  await expect(page.locator('.mark')).toHaveCSS('color', 'rgb(238, 243, 243)');
+});
+
+const userErrors: { path: string; message: string }[] = [
+  { path: '/installations/missing/users', message: 'That record was not found.' },
+  { path: '/installations/primary/users', message: "Users of the primary installation aren't shown here." },
+  { path: '/installations/old/users', message: 'This installation has been deleted.' },
+  { path: '/installations/south/users', message: "This installation isn't running or has no host, so its users can't be read." },
+  { path: '/installations/nohost/users', message: "This installation isn't running or has no host, so its users can't be read." },
+  { path: '/installations/unread/users', message: 'The container cannot be reached: read_failed.' },
+  { path: '/installations/unconfigured/users', message: 'The operator API is not configured.' },
+];
+
+for (const item of userErrors) {
+  test(`users ${item.path} is the typed error and passes axe`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+    await page.goto(item.path);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Users');
+    await expect(page.getByRole('alert')).toHaveText(item.message);
+    await axe(page);
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
+  });
+}
+
+test('users 405 is the typed error and passes axe', async ({ page }) => {
+  await page.route('**/api/ops/v1/installations/north/users', async (route) => {
+    await route.fulfill({
+      status: 405,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, code: 'method_not_allowed' }),
+    });
+  });
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+  await page.goto('/installations/north/users');
+  await expect(page.getByRole('alert')).toHaveText('That method is not allowed.');
+  await axe(page);
 });
 
 const faults: { code: string; message: string }[] = [

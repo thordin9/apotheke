@@ -12,6 +12,36 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **auth:** the hosted admin reset matches session records on the account's own uid field only ([#355](https://github.com/thordin9/apotheke/pull/355))
 
+## [3.64.0] - 2026-11-21
+
+### Added
+
+- **frontend:** align the self-hosted stylesheet with the tokens ([#357](https://github.com/thordin9/apotheke/pull/357))
+
+### Changed
+
+- **frontend:** the self-hosted stylesheet uses the shared colour, type, space and radius tokens, with a paper header in the light theme. The default accent is now plum (`#5b3b8e`); an install with a saved accent, including the old indigo default, keeps it, and Reset gives plum ([#357](https://github.com/thordin9/apotheke/pull/357))
+
+## [3.63.0] - 2026-11-21
+
+### Added
+
+- **ops:** the console uses the shared tokens, a paper header in the light theme, and a read-only installation users list ([#356](https://github.com/thordin9/apotheke/pull/356))
+
+## [3.62.0] - 2026-11-21
+
+### Added
+
+- **frontend:** lighter, tighter landing and app shell ([#353](https://github.com/thordin9/apotheke/pull/353))
+
+### Maintenance
+
+- **edge:** deploy wiring for the operator console Worker `apotheke-ops`: a PR dry run, and a deploy job that stays off until `OPS_DEPLOY_ENABLED` is 1; the console ships read-only (`OPS_WRITES_ENABLED` "0") and only for the emails in `OPS_ALLOWED_EMAILS` ([#352](https://github.com/thordin9/apotheke/pull/352))
+
+### Changed
+
+- **frontend:** the landing, privacy, 404 and app shell are lighter and tighter, with a paper header in the light theme ([#353](https://github.com/thordin9/apotheke/pull/353))
+
 ## [3.61.0] - 2026-11-20
 
 ### Added
@@ -1960,7 +1990,10 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.61.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.64.0...HEAD
+[3.64.0]: https://github.com/thordin9/apotheke/compare/v3.63.0...v3.64.0
+[3.63.0]: https://github.com/thordin9/apotheke/compare/v3.62.0...v3.63.0
+[3.62.0]: https://github.com/thordin9/apotheke/compare/v3.61.0...v3.62.0
 [3.61.0]: https://github.com/thordin9/apotheke/compare/v3.60.0...v3.61.0
 [3.60.0]: https://github.com/thordin9/apotheke/compare/v3.59.0...v3.60.0
 [3.59.0]: https://github.com/thordin9/apotheke/compare/v3.58.0...v3.59.0

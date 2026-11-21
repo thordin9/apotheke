@@ -1,9 +1,10 @@
-import { createClient, type OpsClient } from './api/client.ts';
+import { OpsError, createClient, type OpsClient } from './api/client.ts';
 import { statsStamp } from './format.ts';
 import type {
   AuditQuery,
   InstallationQuery,
   InstallationSummary,
+  InstallationUser,
   JobQuery,
   OpsConfig,
   Overview,
@@ -199,7 +200,7 @@ async function render(changed: boolean): Promise<void> {
     if (route.name === 'overview') await paintOverview(main, gen);
     else if (route.name === 'installations') await paintInstallations(main, gen);
     else if (route.name === 'installation') await paintInstallation(main, route.id, gen);
-    else if (route.name === 'users') paintUsers(main);
+    else if (route.name === 'users') await paintUsers(main, route.id, gen);
     else if (route.name === 'plans') await paintPlans(main, gen);
     else if (route.name === 'subscriptions') await paintSubscriptions(main, gen);
     else if (route.name === 'jobs') await paintJobs(main, gen);
@@ -207,7 +208,7 @@ async function render(changed: boolean): Promise<void> {
     else main.append(el('p', {}, 'This screen comes later.'));
   } catch (error) {
     if (gen !== generation) return;
-    main.append(problem(error));
+    main.append(route.name === 'users' ? usersProblem(error) : problem(error));
   }
 }
 
@@ -295,10 +296,55 @@ async function paintInstallation(main: HTMLElement, id: string, gen: number): Pr
   main.append(countTable('Recent audit', ['When', 'Operator', 'Action'], detail.audit.map((row) => [row.at, row.operator, row.action])));
 }
 
-function paintUsers(main: HTMLElement): void {
-  const panel = el('div', { class: 'panel' });
-  panel.append(el('p', {}, 'Installation users are not available yet.'));
-  main.append(panel);
+async function paintUsers(main: HTMLElement, id: string, gen: number): Promise<void> {
+  const list = await client.users(id);
+  if (gen !== generation) return;
+  main.append(el('p', {}, 'Accounts on this installation.'));
+  main.append(userTable(list.users));
+}
+
+function userTable(users: InstallationUser[]): HTMLTableElement {
+  const table = document.createElement('table');
+  table.append(el('caption', {}, users.length === 0 ? 'No account on this installation.' : 'Accounts'));
+  const head = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  for (const name of ['Username', 'Roles', 'Status', 'Active', 'Created', 'Last login']) {
+    headRow.append(el('th', { scope: 'col' }, name));
+  }
+  head.append(headRow);
+  const body = document.createElement('tbody');
+  for (const user of users) {
+    const tr = document.createElement('tr');
+    tr.append(el('td', {}, user.username));
+    tr.append(rolesCell(user.roles));
+    tr.append(el('td', {}, user.status));
+    tr.append(el('td', {}, user.status === 'active' ? 'Yes' : 'No'));
+    tr.append(whenCell(user.created_at, ''));
+    tr.append(whenCell(user.last_login_at, 'never'));
+    body.append(tr);
+  }
+  table.append(head, body);
+  return table;
+}
+
+function rolesCell(roles: string[]): HTMLTableCellElement {
+  const cell = document.createElement('td');
+  if (roles.length === 0) return cell;
+  const list = el('ul');
+  for (const role of roles) list.append(el('li', {}, role));
+  cell.append(list);
+  return cell;
+}
+
+function whenCell(value: string | null, empty: string): HTMLTableCellElement {
+  const cell = document.createElement('td');
+  const stamp = statsStamp(value);
+  if (!stamp) {
+    cell.textContent = empty;
+    return cell;
+  }
+  cell.append(el('time', { datetime: stamp.datetime }, stamp.text));
+  return cell;
 }
 
 async function paintPlans(main: HTMLElement, gen: number): Promise<void> {
@@ -364,7 +410,7 @@ async function paintAudit(main: HTMLElement, gen: number): Promise<void> {
   const exportLink = el('a', { id: 'audit-csv', href: client.auditExportUrl(query) }, 'Export CSV');
   main.append(exportLink);
   main.append(el('p', {}, 'When more than 10,000 rows match, the download\'s X-Truncated header is 1.'));
-  main.append(countTable('Audit', ['When', 'Operator', 'Action', 'Installation'], (pageRows as { at: string; operator: string; action: string; installation_id: string | null }[]).map((row) => [row.at, row.operator, row.action, row.installation_id ?? ''])));
+  main.append(countTable('Audit', ['When', 'Operator', 'Action', 'Installation', 'Detail'], (pageRows as { at: string; operator: string; action: string; installation_id: string | null; before_json: string | null }[]).map((row) => [row.at, row.operator, row.action, row.installation_id ?? '', row.before_json ?? ''])));
   moreButton();
 }
 
@@ -509,6 +555,13 @@ function paintFailure(error: unknown, moveFocus: boolean): void {
   main.append(heading, problem(error));
   document.title = 'Operator console, Apotheke';
   if (moveFocus) heading.focus({ focusVisible: true } as FocusOptions);
+}
+
+function usersProblem(error: unknown): HTMLElement {
+  if (error instanceof OpsError && error.status === 403 && error.code === 'primary') {
+    return el('p', { role: 'alert' }, "Users of the primary installation aren't shown here.");
+  }
+  return problem(error);
 }
 
 function problem(error: unknown): HTMLElement {

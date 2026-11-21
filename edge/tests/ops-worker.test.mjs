@@ -9,8 +9,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-const { handle, csrfOk } = await import('../ops/src/index.ts');
-const { accessConfig, clearJwksCache, JWKS_TTL_MS } = await import('../ops/src/access.ts');
+const { handle, csrfOk, writesEnabled } = await import('../ops/src/index.ts');
+const { accessConfig, accessToken, allowedEmails, clearJwksCache, JWKS_TTL_MS } = await import('../ops/src/access.ts');
 const { auditStatement } = await import('../ops/src/audit.ts');
 
 const TEAM = 'ops-team.cloudflareaccess.com';
@@ -19,7 +19,8 @@ const ORIGIN = 'https://console.example.test';
 const TOKEN = 'fake-claim-token-0123456789abcdef';
 const EXPIRES = '2026-11-21 12:00:00 UTC';
 const NOW = Date.UTC(2026, 10, 20, 12, 0, 0);
-const VARS = { ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, OPS_PROVISIONING: '0', LIMITS_ENABLED: '0' };
+// Writes on here, so the E6-1 write tests reach the CSRF check and the actions; the shipped "0" is tested in D1.
+const VARS = { ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, OPS_ALLOWED_EMAILS: 'ops-a@example.test, operator@example.test', OPS_PROVISIONING: '0', LIMITS_ENABLED: '0', OPS_WRITES_ENABLED: '1' };
 
 const b64url = (v) => Buffer.from(typeof v === 'string' ? v : JSON.stringify(v)).toString('base64url');
 async function keyPair(kid) {
@@ -129,7 +130,7 @@ const assertNoStore = (res) => {
 };
 
 test('E6-1 ops: without ACCESS_TEAM_DOMAIN or ACCESS_AUD every request is 503 not_configured, before any key fetch', async () => {
-  for (const vars of [{ ...VARS, ACCESS_TEAM_DOMAIN: '' }, { ...VARS, ACCESS_AUD: '' }, { OPS_PROVISIONING: '0' }, { ...VARS, ACCESS_TEAM_DOMAIN: 'evil.example.test' }]) {
+  for (const vars of [{ ...VARS, ACCESS_TEAM_DOMAIN: '' }, { ...VARS, ACCESS_AUD: '' }, { OPS_PROVISIONING: '0' }, { ...VARS, ACCESS_TEAM_DOMAIN: 'evil.example.test' }, { ...VARS, OPS_ALLOWED_EMAILS: '' }, { ...VARS, OPS_ALLOWED_EMAILS: ' , ' }, { ...VARS, OPS_ALLOWED_EMAILS: undefined }]) {
     const t = setup({ vars });
     for (const [path, method] of [['/api/ops/v1/config', 'GET'], ['/', 'GET'], ['/api/ops/v1/installations/b/claim', 'POST'], ['/api/ops/v1/config', 'OPTIONS']]) {
       const r = await t.go(path, { method });
@@ -140,7 +141,8 @@ test('E6-1 ops: without ACCESS_TEAM_DOMAIN or ACCESS_AUD every request is 503 no
     assert.equal(t.fetch.calls.length, 0);
     assert.equal(t.ops.calls.length, 0);
   }
-  assert.deepEqual(accessConfig({ ACCESS_TEAM_DOMAIN: `https://${TEAM.toUpperCase()}/`, ACCESS_AUD: AUD }), { team: TEAM, aud: AUD });
+  assert.deepEqual(accessConfig({ ACCESS_TEAM_DOMAIN: `https://${TEAM.toUpperCase()}/`, ACCESS_AUD: AUD, OPS_ALLOWED_EMAILS: ' A@x.test ,b@x.test,' }), { team: TEAM, aud: AUD, emails: new Set(['a@x.test', 'b@x.test']) });
+  assert.equal(accessConfig({ ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD }), null, 'no OPS_ALLOWED_EMAILS');
 });
 
 test('E6-1 ops: Access fails closed (missing, malformed, bad signature, unknown key, wrong aud or iss, expired, not yet valid, alg)', async () => {
@@ -194,11 +196,11 @@ test('E6-1 ops: the team keys are cached, refetched after the TTL or for an unkn
 test('E6-1 ops: GET /config reports provisioning and limits from the vars; no-store, no CORS, OPTIONS 405', async () => {
   const off = setup();
   const r = await off.go('/api/ops/v1/config', { headers: { Origin: 'https://evil.example.test' } });
-  assert.deepEqual([r.status, r.json], [200, { ok: true, provisioning_enabled: false, limits_enabled: false }]);
+  assert.deepEqual([r.status, r.json], [200, { ok: true, provisioning_enabled: false, limits_enabled: false, writes_enabled: true }]);
   assertNoStore(r.res);
   assert.match(r.res.headers.get('x-request-id'), /^[0-9a-f-]{36}$/);
-  const on = setup({ vars: { ...VARS, OPS_PROVISIONING: '1', LIMITS_ENABLED: '1' } });
-  assert.deepEqual((await on.go('/api/ops/v1/config')).json, { ok: true, provisioning_enabled: true, limits_enabled: true });
+  const on = setup({ vars: { ...VARS, OPS_PROVISIONING: '1', LIMITS_ENABLED: '1', OPS_WRITES_ENABLED: '0' } });
+  assert.deepEqual((await on.go('/api/ops/v1/config')).json, { ok: true, provisioning_enabled: true, limits_enabled: true, writes_enabled: false });
   const pre = await off.go('/api/ops/v1/config', { method: 'OPTIONS', headers: { Origin: 'https://evil.example.test', 'Access-Control-Request-Method': 'POST' } });
   assert.equal(pre.status, 405);
   assertNoStore(pre.res);
@@ -350,15 +352,22 @@ test('E6-1 ops: the audit helper refuses a token or a link in before or after', 
   assert.doesNotThrow(() => auditStatement(db, { ...base, after: { host: 'b.example.test' } }));
 });
 
-test('E6-1 ops: wrangler.jsonc ships with no routes, no workers.dev or preview URLs, Access unset, and both flags off', () => {
+test('E6-1 ops: wrangler.jsonc ships with no routes, no workers.dev or preview URLs, no cron, Access unset, and every flag off', () => {
   const text = readFileSync(new URL('../ops/wrangler.jsonc', import.meta.url), 'utf8');
   const config = JSON.parse(text.replace(/^\s*\/\/.*$/gm, '').replace(/,(\s*[}\]])/g, '$1'));
   assert.equal(config.name, 'apotheke-ops');
   assert.equal(config.workers_dev, false);
   assert.equal(config.preview_urls, false);
   for (const k of ['route', 'routes', 'account_id', 'secrets']) assert.equal(config[k], undefined, k);
-  assert.deepEqual(config.vars, { ACCESS_TEAM_DOMAIN: '', ACCESS_AUD: '', OPS_PROVISIONING: '0', LIMITS_ENABLED: '0' });
-  assert.deepEqual(config.services, [{ binding: 'OPS', service: 'apotheke-api', entrypoint: 'Ops' }]);
+  assert.deepEqual(config.vars, { ACCESS_TEAM_DOMAIN: '', ACCESS_AUD: '', OPS_ALLOWED_EMAILS: '', OPS_WRITES_ENABLED: '0', OPS_PROVISIONING: '0', LIMITS_ENABLED: '0' });
+  assert.deepEqual(config.services, [
+    { binding: 'OPS', service: 'apotheke-api', entrypoint: 'Ops' },
+    { binding: 'AUTOFILL', service: 'apotheke-autofill', entrypoint: 'HostedAutofill' },
+  ]);
+  assert.deepEqual(config.triggers, { crons: [] }, 'no Cron Trigger');
+  for (const k of ['workflows', 'queues', 'custom_domains']) assert.equal(config[k], undefined, k);
+  assert.equal(config.assets.directory, '../../ops/console/dist');
+  assert.equal(config.assets.binding, 'ASSETS');
   const storage = readFileSync(new URL('../storage.jsonc', import.meta.url), 'utf8');
   assert.equal(config.d1_databases.length, 1);
   assert.equal(config.d1_databases[0].binding, 'DB');
@@ -715,6 +724,74 @@ test('E6-2 ops: an installation whose row has do_name primary is refused by id o
   assert.equal(t.db.batches.length, 0);
   assert.equal((await t.go(API + '/installations/main')).json.primary, true);
   assert.equal((await t.go(API + '/installations')).json.installations.find((x) => x.installation.id === 'main').primary, true);
+});
+
+// D1 (deploy wiring): the allowed-emails list, the CF_Authorization cookie, and read-only by default.
+test('D1 ops: a valid token whose email is not on OPS_ALLOWED_EMAILS is 403 forbidden, for the API and the files', async () => {
+  const t = setup();
+  for (const email of ['someone@example.test', 'operator@example.test.evil', 'ops-a@example.test ']) {
+    for (const path of ['/api/ops/v1/config', '/', '/api/ops/v1/installations']) {
+      const r = await t.go(path, { token: await jwt({ email }) });
+      assert.deepEqual([r.status, r.json], [403, { ok: false, code: 'forbidden' }], `${email} ${path}`);
+      assertNoStore(r.res);
+    }
+  }
+  const only = setup({ vars: { ...VARS, OPS_ALLOWED_EMAILS: 'ops@example.invalid' } });
+  assert.equal((await only.go('/api/ops/v1/config')).status, 403, 'operator@example.test is not on the list');
+  assert.equal((await only.go('/api/ops/v1/config', { token: await jwt({ email: 'Ops@Example.INVALID' }) })).status, 200, 'case-insensitive');
+  assert.deepEqual([...allowedEmails(' a@x.test,,B@x.test ')], ['a@x.test', 'b@x.test']);
+  assert.equal(allowedEmails(undefined).size, 0);
+});
+
+test('D1 ops: the CF_Authorization cookie is used when the header is missing or empty; a non-empty header wins', async () => {
+  const t = setup();
+  const good = await jwt();
+  const viaCookie = await t.go('/api/ops/v1/config', { token: null, headers: { Cookie: `other=1; CF_Authorization=${good}; x=y` } });
+  assert.equal(viaCookie.status, 200);
+  const badCookie = await t.go('/api/ops/v1/config', { token: null, headers: { Cookie: `CF_Authorization=${await jwt({ aud: ['x'] })}` } });
+  assert.deepEqual([badCookie.status, badCookie.json], [401, { ok: false, code: 'unauthorized' }]);
+  const headerWins = await t.go('/api/ops/v1/config', { token: 'not-a-jwt', headers: { Cookie: `CF_Authorization=${good}` } });
+  assert.equal(headerWins.status, 401);
+  // N-2521: an empty (or blank) header falls through to the cookie; with no cookie it still fails closed.
+  for (const blank of ['', '   ']) {
+    assert.equal((await t.go('/api/ops/v1/config', { token: blank, headers: { Cookie: `CF_Authorization=${good}` } })).status, 200, `header ${JSON.stringify(blank)} + cookie`);
+    const none = await t.go('/api/ops/v1/config', { token: blank });
+    assert.deepEqual([none.status, none.json], [401, { ok: false, code: 'unauthorized' }], `header ${JSON.stringify(blank)} alone`);
+    const badCookie2 = await t.go('/api/ops/v1/config', { token: blank, headers: { Cookie: `CF_Authorization=${await jwt({ iss: 'https://other.cloudflareaccess.com' })}` } });
+    assert.equal(badCookie2.status, 401, `header ${JSON.stringify(blank)} + bad cookie`);
+  }
+  const lookalike = await t.go('/api/ops/v1/config', { token: null, headers: { Cookie: `XCF_Authorization=${good}` } });
+  assert.equal(lookalike.status, 401);
+  assert.equal(accessToken(new Request(ORIGIN)), '');
+});
+
+test('D1 ops: with OPS_WRITES_ENABLED other than "1" every write is 403 writes_disabled after Access, before CSRF or any binding', async () => {
+  for (const value of ['0', '', undefined, 'true', ' 1']) {
+    const t = setup({ vars: { ...VARS, OPS_WRITES_ENABLED: value } });
+    assert.equal(writesEnabled(t.env), false, String(value));
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      for (const path of ['/api/ops/v1/installations/b/claim', '/api/ops/v1/installations/b/admin-reset', '/api/ops/v1/config', '/']) {
+        const r = await t.write(path, { confirm_host: 'b.example.test' }, { method });
+        assert.deepEqual([r.status, r.json], [403, { ok: false, code: 'writes_disabled' }], `${value} ${method} ${path}`);
+        assertNoStore(r.res);
+      }
+      const noCsrf = await t.go('/api/ops/v1/installations/b/claim', { method, body: '{}' });
+      assert.equal(noCsrf.json.code, 'writes_disabled');
+    }
+    const anon = await t.write('/api/ops/v1/installations/b/claim', {}, { token: null });
+    assert.equal(anon.status, 401, 'Access comes first');
+    assert.equal((await t.go('/api/ops/v1/installations')).status, 200, 'reads still work');
+    assert.equal(t.ops.calls.length, 0);
+    assert.equal(audits(t.db).length, 0);
+  }
+});
+
+test('D1 ops: /api/ops/v1 goes to the API, other paths to ASSETS, both behind Access', async () => {
+  const t = setup();
+  assert.equal((await t.go('/api/ops/v1/config')).json.ok, true);
+  assert.equal((await t.go('/assets/index.js')).text, 'asset /assets/index.js');
+  assert.equal((await t.go('/api/ops/v1/config', { token: null })).status, 401);
+  assert.equal((await t.go('/assets/index.js', { token: null })).status, 401);
 });
 
 const USER = { id: 1, username: 'admin', role: 'admin', status: 'active', created_at: '2026-11-01 10:00:00', last_login_at: null };
