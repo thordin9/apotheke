@@ -305,35 +305,23 @@ test('the page sends only GET and HEAD, including load more and csv', async ({ p
   expect(methods).toEqual([]);
 });
 
-test('writes on still disables every control', async ({ context, page }) => {
+test('writes on hides the read-only pill and keeps user actions unavailable', async ({ context, page }) => {
   const methods: string[] = [];
   page.on('request', (request) => {
     if (request.method() !== 'GET' && request.method() !== 'HEAD') methods.push(`${request.method()} ${request.url()}`);
   });
   await context.addCookies([{ name: 'ops_preview_writes', value: '1', url: 'http://127.0.0.1:4181' }]);
-  const screens = ['/installations/north', '/plans', '/jobs', '/installations/north/users'];
-  for (const path of screens) {
-    await page.goto(path);
-    await expect(page.locator('#read-only')).toBeHidden();
-    await expect(page.locator('#writes-off')).toHaveText('Changes come in a later release.');
-    await expect(page.locator('body')).toHaveAttribute('data-writes-enabled', 'true');
-    const buttons = page.locator('button.write');
-    const count = await buttons.count();
-    expect(count).toBeGreaterThan(0);
-    const before = await page.locator('#main').innerText();
-    const url = page.url();
-    for (let index = 0; index < count; index += 1) {
-      const button = buttons.nth(index);
-      await expect(button).toHaveAttribute('aria-disabled', 'true');
-      await expect(button).toHaveAttribute('aria-describedby', 'writes-off');
-      await button.click({ force: true });
-      await button.focus();
-      await page.keyboard.press('Enter');
-      await page.keyboard.press(' ');
-    }
-    expect(page.url()).toBe(url);
-    expect(await page.locator('#main').innerText()).toBe(before);
-  }
+  await page.goto('/installations/north');
+  await expect(page.locator('#read-only')).toBeHidden();
+  await expect(page.locator('#writes-off')).toHaveCount(0);
+  await expect(page.locator('body')).toHaveAttribute('data-writes-enabled', 'true');
+  await expect(page.getByRole('button', { name: 'Claim link' })).not.toHaveAttribute('aria-disabled', 'true');
+  await page.goto('/installations/north/users');
+  await expect(page.locator('#users-later')).toHaveText('Not available yet.');
+  const disable = page.getByRole('button', { name: 'Disable' });
+  await expect(disable).toHaveAttribute('aria-disabled', 'true');
+  await expect(disable).toHaveAttribute('aria-describedby', 'users-later');
+  await disable.click({ force: true });
   expect(methods).toEqual([]);
 });
 

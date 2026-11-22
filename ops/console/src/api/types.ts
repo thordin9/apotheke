@@ -16,11 +16,16 @@ export type LimitKey =
   | 'sleep_after_ms'
   | 'import_file_bytes';
 
+export const LIMIT_KEYS: LimitKey[] = [
+  'items', 'storage_bytes', 'photos', 'users', 'autofill_calls_month', 'requests_month',
+  'container_hours_month', 'sleep_after_ms', 'import_file_bytes', 'photos_per_item',
+];
+
 export type LifecycleJobState = 'paused' | 'queued' | 'running' | 'done' | 'failed';
 
 export type LifecycleJobKind = 'provision' | 'suspend' | 'resume' | 'export' | 'delete' | 'purge';
 
-export type WriteMethod = 'POST' | 'PUT';
+export type WriteMethod = 'POST' | 'PUT' | 'DELETE';
 
 export interface Plan {
   id: string;
@@ -161,12 +166,21 @@ export interface InstallationList {
   next_cursor: string | null;
 }
 
+export interface LimitOverride {
+  installation_id: string;
+  limit_key: LimitKey;
+  hard_value: number;
+  reason: string | null;
+  expires_at: string | null;
+}
+
 export interface InstallationDetail extends InstallationSummary {
   ok: true;
   limits: PlanLimit[];
   usage: UsageCounter[];
   jobs: LifecycleJob[];
   audit: OperatorAudit[];
+  overrides?: LimitOverride[];
 }
 
 export interface PlanList {

@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **ops:** the operator console can change plans, subscriptions, jobs, overrides, claims and admin resets when writes are on ([#366](https://github.com/thordin9/apotheke/pull/366))
+
 ## [3.70.0] - 2026-11-21
 
 ### Added
