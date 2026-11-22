@@ -640,8 +640,11 @@ real host), and can answer 401, 503 and 410 so the error screens can be checked.
 build. The users screen calls `GET /installations/:id/users` and stays read-only: it shows the username (there is
 no display name), the roles, a status pill, and an Active column that is Yes only when the status is `active`
 (otherwise No). Created and last sign-in are times; a null last sign-in is "never". The header shows Read-only
-while writes are off. Disable and Re-enable are drawn and disabled; writes are not wired yet. Primary is 403
-and the screen says those users are not shown here. An installation that is not running or has no host is 409.
+while writes are off. When writes are on (`OPS_WRITES_ENABLED` `"1"`, or the preview cookie that sets
+`writes_enabled`), the Read-only pill is hidden and the write screens are live: plan limits, the subscription,
+jobs, limit overrides, claim and admin reset. Each write sends `X-CSRF: 1`. Disable and Re-enable stay disabled,
+with "Not available yet", because those user routes are not served. Primary shows "The primary installation can't
+be changed here." An installation that is not running or has no host is 409.
 The Worker route is the read above; the screen and the preview use that response shape.
 
 ## Deploying the console

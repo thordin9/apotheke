@@ -12,19 +12,31 @@ function previewWrites(cookie: string | undefined): boolean {
   return /(?:^|; )ops_preview_writes=1(?:;|$)/.test(cookie ?? '');
 }
 
-function mockApi(req: { url?: string; method?: string; headers: { cookie?: string } }, res: { statusCode: number; setHeader(name: string, value: string): void; end(body: string): void }, next: () => void): void {
+function oneHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function mockApi(req: { url?: string; method?: string; headers: { cookie?: string; origin?: string | string[]; 'x-csrf'?: string | string[] }; on(event: 'data', cb: (chunk: Buffer) => void): void; on(event: 'end', cb: () => void): void }, res: { statusCode: number; setHeader(name: string, value: string): void; end(body: string): void }, next: () => void): void {
   const url = new URL(req.url ?? '/', 'http://127.0.0.1');
   if (!url.pathname.startsWith('/api/ops/v1')) {
     next();
     return;
   }
-  const fault = previewFault(req.headers.cookie);
-  const result = handleMock(req.method ?? 'GET', url, fault, previewWrites(req.headers.cookie));
-  res.statusCode = result.status;
-  const headers = result.headers ?? { 'content-type': 'application/json; charset=utf-8' };
-  for (const [name, value] of Object.entries(headers)) res.setHeader(name, value);
-  res.setHeader('cache-control', 'no-store');
-  res.end(typeof result.body === 'string' ? result.body : JSON.stringify(result.body));
+  const chunks: Buffer[] = [];
+  req.on('data', (chunk) => { chunks.push(chunk); });
+  req.on('end', () => {
+    const fault = previewFault(req.headers.cookie);
+    const result = handleMock(req.method ?? 'GET', url, fault, previewWrites(req.headers.cookie), {
+      raw: Buffer.concat(chunks).toString('utf8'),
+      origin: oneHeader(req.headers.origin),
+      csrf: oneHeader(req.headers['x-csrf']),
+    });
+    res.statusCode = result.status;
+    const headers = result.headers ?? { 'content-type': 'application/json; charset=utf-8' };
+    for (const [name, value] of Object.entries(headers)) res.setHeader(name, value);
+    res.setHeader('cache-control', 'no-store');
+    res.end(typeof result.body === 'string' ? result.body : JSON.stringify(result.body));
+  });
 }
 
 function previewCsp(_req: { url?: string }, res: { setHeader(name: string, value: string): void }, next: () => void): void {

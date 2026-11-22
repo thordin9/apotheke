@@ -16,7 +16,7 @@ test('overview matches the read shape and leaves revenue and the stamp empty', (
   assert.equal(body.as_of, null);
   assert.equal(body.usage_period, '2026-11');
   assert.equal(body.installations_by_status.find((item) => item.status === 'active')?.count, 3);
-  assert.equal(body.open_jobs_by_state.find((item) => item.state === 'paused')?.count, 2);
+  assert.equal(body.open_jobs_by_state.find((item) => item.state === 'paused')?.count, 3);
   assert.deepEqual(body.usage_totals, [
     { metric: 'items', value: 19 },
     { metric: 'photos', value: 3 },
@@ -88,7 +88,9 @@ test('installation users are a read-only list', () => {
   assert.equal(get('/api/ops/v1/installations/old/users').status, 410);
   assert.equal((get('/api/ops/v1/installations/unread/users').body as { detail: string }).detail, 'read_failed');
   assert.equal((get('/api/ops/v1/installations/unconfigured/users').body as { code: string }).code, 'not_configured');
-  assert.equal(handleMock('POST', new URL('/api/ops/v1/installations/north/users', 'http://127.0.0.1')).status, 405);
+  const blocked = handleMock('POST', new URL('/api/ops/v1/installations/north/users', 'http://127.0.0.1'));
+  assert.equal(blocked.status, 403);
+  assert.equal((blocked.body as { code: string }).code, 'writes_disabled');
 });
 
 test('config is read-only unless the preview writes cookie is set', () => {
@@ -108,8 +110,49 @@ test('yard has no accounts', () => {
   assert.deepEqual(body.users, []);
 });
 
-test('writes are not implemented', () => {
-  const result = handleMock('POST', new URL('/api/ops/v1/jobs', 'http://127.0.0.1'));
-  assert.equal(result.status, 405);
-  assert.equal((result.body as { code: string }).code, 'method_not_allowed');
+const gate = { csrf: '1', origin: 'http://127.0.0.1:4181' };
+
+function write(method: string, path: string, body?: unknown) {
+  return handleMock(method, new URL(path, 'http://127.0.0.1'), '', true, { ...gate, raw: body === undefined ? '' : JSON.stringify(body) });
+}
+
+test('a write without the CSRF header or the preview origin is refused', () => {
+  const missing = handleMock('POST', new URL('/api/ops/v1/jobs', 'http://127.0.0.1'), '', true, { raw: '{}', origin: 'http://127.0.0.1:4181' });
+  assert.equal(missing.status, 403);
+  assert.equal((missing.body as { code: string }).code, 'csrf');
+  const other = handleMock('DELETE', new URL('/api/ops/v1/installations/north/limits/items', 'http://127.0.0.1'), '', true, { csrf: '1', origin: 'https://evil.example', raw: '' });
+  assert.equal((other.body as { code: string }).code, 'csrf');
+});
+
+test('a downgrade asks for confirm and a job nonce is reused', () => {
+  const first = write('PUT', '/api/ops/v1/installations/north/subscription', { plan_id: 'loft' });
+  assert.equal(first.status, 409);
+  assert.equal((first.body as { code: string }).code, 'downgrade_requires_confirm');
+  assert.ok(((first.body as { keys: string[] }).keys).includes('storage_bytes'));
+  const done = write('PUT', '/api/ops/v1/installations/north/subscription', { plan_id: 'loft', confirm: true });
+  assert.equal(done.status, 200);
+  const nonce = 'nonce-once-1';
+  const created = write('POST', '/api/ops/v1/jobs', { kind: 'export', installation_id: 'yard', nonce });
+  assert.equal(created.status, 201);
+  const again = write('POST', '/api/ops/v1/jobs', { kind: 'export', installation_id: 'yard', nonce });
+  assert.equal(again.status, 200);
+  assert.equal((again.body as { created: boolean }).created, false);
+  const provision = write('POST', '/api/ops/v1/jobs', { kind: 'provision', installation_id: 'yard', nonce: 'nonce-prov-1' });
+  assert.equal((provision.body as { code: string }).code, 'provisioning_disabled');
+});
+
+test('plan limits replace every row and primary is refused', () => {
+  const primary = write('PUT', '/api/ops/v1/plans/internal/limits', { limits: {} });
+  assert.equal(primary.status, 403);
+  assert.equal((primary.body as { code: string }).code, 'primary');
+  const limits: Record<string, { soft_value: number | null; hard_value: number | null }> = {};
+  for (const key of ['items', 'storage_bytes', 'photos', 'users', 'autofill_calls_month', 'requests_month', 'container_hours_month', 'sleep_after_ms', 'import_file_bytes', 'photos_per_item']) {
+    limits[key] = { soft_value: 1, hard_value: 2 };
+  }
+  const saved = write('PUT', '/api/ops/v1/plans/shelf/limits', { limits });
+  assert.equal(saved.status, 200);
+  assert.equal((saved.body as { limits: unknown[] }).limits.length, 10);
+  const bad = write('PUT', '/api/ops/v1/plans/shelf/limits', { limits: { items: { soft_value: 9, hard_value: 1 } } });
+  assert.equal(bad.status, 422);
+  assert.equal((bad.body as { detail: string }).detail, 'limits.items.soft_value');
 });

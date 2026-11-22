@@ -5,13 +5,52 @@ import type {
   InstallationList,
   InstallationStatus,
   InstallationSummary,
+  LifecycleJob,
+  LimitOverride,
   JobList,
   Overview,
+  PlanLimit,
   PlanList,
+  Subscription,
   SubscriptionDueList,
   SubscriptionStatus,
 } from '../src/api/types.ts';
 import { NOW, audit, installationUsers, installations, jobs, limits, plans, routes, subscriptions, usage } from './fixtures.ts';
+import { advanceJob, applyWrite, refuseWrite, type WriteState } from './mock-writes.ts';
+
+const jobRows: LifecycleJob[] = jobs.map((job) => ({ ...job }));
+const limitRows: PlanLimit[] = limits.map((row) => ({ ...row }));
+const subRows: Subscription[] = subscriptions.map((row) => ({ ...row }));
+const overrides: LimitOverride[] = [];
+const jobTicks = new Map<string, number>();
+
+function writeState(): WriteState {
+  return {
+    jobs: jobRows,
+    limits: limitRows,
+    subscriptions: subRows,
+    overrides,
+    primaryPlan: (planId) => subRows.some((item) => item.plan_id === planId && isPrimary(item.installation_id)),
+    primaryInstallation: isPrimary,
+    hostsOf: (id) => {
+      if (!installations.some((item) => item.id === id)) return undefined;
+      return routes.filter((item) => item.installation_id === id).map((item) => item.host);
+    },
+    statusOf: (id) => installations.find((item) => item.id === id)?.status,
+    hasAdmin: (id) => installationUsers.some((item) => item.installation_id === id && item.roles.includes('admin')),
+    planActive: (id) => {
+      const plan = plans.find((item) => item.id === id);
+      if (!plan) return null;
+      return plan.active === 1;
+    },
+    provisioning: false,
+  };
+}
+
+function isPrimary(id: string): boolean {
+  const found = installations.find((item) => item.id === id);
+  return id === 'primary' || found?.do_name === 'primary';
+}
 
 const statuses: InstallationStatus[] = ['provisioning', 'active', 'suspended', 'deleting', 'deleted'];
 const subStatuses: SubscriptionStatus[] = ['trial', 'active', 'past_due', 'cancelled'];
@@ -23,12 +62,16 @@ export interface MockResult {
   headers?: Record<string, string>;
 }
 
-export function handleMock(method: string, url: URL, fault = '', writes = false): MockResult {
+export function handleMock(method: string, url: URL, fault = '', writes = false, gate?: { csrf?: string; origin?: string; raw?: string }): MockResult {
   if (!url.pathname.startsWith('/api/ops/v1')) return fail(404, 'not_found');
   if (fault === '401' || fault === '410' || fault === '503') return fail(Number(fault), fault === '401' ? 'unauthorized' : fault === '410' ? 'gone' : 'not_configured');
   const verb = method.toUpperCase();
-  if (verb !== 'GET' && verb !== 'HEAD') return fail(405, 'method_not_allowed');
   const path = url.pathname.slice('/api/ops/v1'.length);
+  if (verb !== 'GET' && verb !== 'HEAD') {
+    const refused = refuseWrite(gate, writes);
+    if (refused) return refused;
+    return applyWrite(verb, path, gate?.raw ?? '', writeState()) ?? fail(405, 'method_not_allowed');
+  }
   try {
     if (path === '/config') return ok({ provisioning_enabled: false, limits_enabled: false, writes_enabled: writes });
     if (path === '/overview') return ok(overview());
@@ -48,9 +91,10 @@ export function handleMock(method: string, url: URL, fault = '', writes = false)
       const body: InstallationDetail = {
         ok: true,
         ...found,
-        limits: limits.filter((limit) => limit.plan_id === found.plan?.id),
+        limits: limitRows.filter((limit) => limit.plan_id === found.plan?.id),
+        overrides: overrides.filter((row) => row.installation_id === id),
         usage: usage.filter((row) => row.installation_id === id).sort((a, b) => b.period.localeCompare(a.period) || a.metric.localeCompare(b.metric)),
-        jobs: jobs.filter((row) => row.installation_id === id).sort(newestJob).slice(0, 20),
+        jobs: jobRows.filter((row) => row.installation_id === id).sort(newestJob).slice(0, 20).map((row) => { advanceJob(row, jobTicks); return row; }),
         audit: audit.filter((row) => row.installation_id === id).sort(newestAudit).slice(0, 20),
       };
       return { status: 200, body };
@@ -105,7 +149,7 @@ function usersOf(id: string): MockResult {
 function one(id: string): InstallationSummary | null {
   const installation = installations.find((item) => item.id === id);
   if (!installation) return null;
-  const subscription = subscriptions.find((item) => item.installation_id === id) ?? null;
+  const subscription = subRows.find((item) => item.installation_id === id) ?? null;
   const plan = plans.find((item) => item.id === subscription?.plan_id) ?? null;
   return {
     installation,
@@ -144,10 +188,10 @@ function overview(): Omit<Overview, 'ok'> {
     installations_by_plan: plans.map((plan) => ({
       plan_id: plan.id,
       plan_name: plan.name,
-      count: subscriptions.filter((item) => item.plan_id === plan.id).length,
+      count: subRows.filter((item) => item.plan_id === plan.id).length,
     })),
-    subscriptions_by_status: subStatuses.map((status) => ({ status, count: subscriptions.filter((item) => item.status === status).length })),
-    open_jobs_by_state: openStates.map((state) => ({ state, count: jobs.filter((item) => item.state === state).length })),
+    subscriptions_by_status: subStatuses.map((status) => ({ status, count: subRows.filter((item) => item.status === status).length })),
+    open_jobs_by_state: openStates.map((state) => ({ state, count: jobRows.filter((item) => item.state === state).length })),
     usage_period: '2026-11',
     usage_totals: [
       { metric: 'items', value: usage.filter((row) => row.period === '2026-11' && row.metric === 'items').reduce((sum, row) => sum + row.value, 0) },
@@ -157,7 +201,7 @@ function overview(): Omit<Overview, 'ok'> {
 }
 
 function listPlans(): Omit<PlanList, 'ok'> {
-  return { plans: plans.map((plan) => ({ ...plan, limits: limits.filter((limit) => limit.plan_id === plan.id) })) };
+  return { plans: plans.map((plan) => ({ ...plan, limits: limitRows.filter((limit) => limit.plan_id === plan.id) })) };
 }
 
 function listDue(url: URL): Omit<SubscriptionDueList, 'ok'> {
@@ -170,7 +214,7 @@ function listDue(url: URL): Omit<SubscriptionDueList, 'ok'> {
   }
   const now = Date.parse(NOW);
   const until = now + days * 86_400_000;
-  const rows = subscriptions.flatMap((subscription) => {
+  const rows = subRows.flatMap((subscription) => {
     if (subscription.status === 'cancelled') return [];
     const due = subscription.status === 'trial' ? subscription.trial_end : subscription.period_end;
     if (!due) return [];
@@ -194,14 +238,14 @@ function listJobs(url: URL): Omit<JobList, 'ok'> {
   const installation = url.searchParams.get('installation') ?? '';
   const limit = pageSize(url);
   const after = cursor(url, 2);
-  const rows = jobs.filter((job) => {
+  const rows = jobRows.filter((job) => {
     if (kind && job.kind !== kind) return false;
     if (state && job.state !== state) return false;
     if (installation && job.installation_id !== installation) return false;
     if (after && (job.created_at > after[0] || (job.created_at === after[0] && job.id >= after[1]))) return false;
     return true;
   }).sort(newestJob);
-  const page = rows.slice(0, limit);
+  const page = rows.slice(0, limit).map((job) => { advanceJob(job, jobTicks); return job; });
   const last = page[page.length - 1];
   return { jobs: page, next_cursor: rows.length > limit && last ? encodeCursor([last.created_at, last.id]) : null };
 }
