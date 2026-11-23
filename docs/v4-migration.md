@@ -1,7 +1,11 @@
 # Apotheke v4 — TypeScript on Workers/workerd: execution plan
 
 Owner: Apotheke PM · Build: Apotheke FullStack Developer · Branch of record: `experimental-v4`
-Created 2026-11-23 12:50 EET · **Revision 6 at 13:40 EET** — folded in the two rqlite phase-0 spikes: FTS5 **is** present in stock `rqlited` v10.7.4 (SQLite 3.54.1) and `?transaction` is genuinely atomic, which turned two assumptions into facts and forced one new rule (R10, write retries) because a `503` does not say whether a batch committed. Also corrected: rows come back **positional**, not associative, and `/readyz` sits behind auth. Revision 5 at 13:25 EET — added §11, self-host packaging as a deliverable (two
+Created 2026-11-23 12:50 EET · **Revision 7 at 22:40 EET** — repaired the three splice defects the
+revision-6 resync introduced (§4 had lost numbered item 1, §7 had a risk row with no impact or mitigation, §5
+listed S0.9 before S0.8), and recorded the two phase-0 decisions taken from the dev report: **D11** (the hosted
+refusals for inline taxonomy and photo duplication are lifted) and **D12** (the `Installation` DO is kept but
+demoted). No scope change; effort and gates stand. Revision 6 at 13:40 EET — folded in the two rqlite phase-0 spikes: FTS5 **is** present in stock `rqlited` v10.7.4 (SQLite 3.54.1) and `?transaction` is genuinely atomic, which turned two assumptions into facts and forced one new rule (R10, write retries) because a `503` does not say whether a batch committed. Also corrected: rows come back **positional**, not associative, and `/readyz` sits behind auth. Revision 5 at 13:25 EET — added §11, self-host packaging as a deliverable (two
 compose files, `.env.example`, `docs/self-host-docker.md`, a CI smoke script) and slice S0.9 to pin that contract in
 phase 0; recorded D9 (no branch protection). Revision 4 (12:58) — **hosted defaults to Cloudflare D1**; self-host
 defaults to rqlite with plain SQLite supported; PostgreSQL is dropped entirely; no migration path is built (v3 export →
@@ -93,7 +97,9 @@ keeping the port out of it means the branch cannot break main's deploy job, and 
 
 ## 4. Frozen interfaces (what "no regression" means concretely)
 
-All three backends are SQLite, so there is exactly one target schema. Nothing to normalise across dialects.
+1. **Schema.** All three backends are SQLite, so there is exactly one target schema. Nothing to normalise across
+   dialects. Test: schema parity against the PHP runner on an empty database and on the v3.72 dump, on every
+   backend (§6, G0).
 2. **HTML/DOM.** Same element ids, names, classes, data attributes, form fields, `<meta>` and asset URLs for every page. Test: `tests/Unit/Ci4PagesGoldenTest.php` becomes a golden corpus replayed against v4, then Playwright visual baselines.
 3. **Routes.** Same paths, methods, redirects (303 after POST), and status codes, including the 404 problem+json fallback under `/api`.
 4. **Cookies.** `__Host-apotheke` session cookie (Secure, Path=/, no Domain), `apotheke_consent`, idle timeout and `session_days` semantics, session epoch invalidation on password/role change.
@@ -113,15 +119,15 @@ it. Sizes are rough person-weeks for one developer, tests and docs included.
 Slices:
 - S0.1 Branch and freeze: branch `experimental-v4` is already cut from `main` @ `4a187d0f`; add the `main-freeze` workflow (PR gate only — no branch protection, D9); commit this plan as `docs/v4-migration.md`; set `VERSION` to `4.0.0-dev`.
 - S0.2 `v4/` workspace: package.json, tsconfig, `wrangler.jsonc` (worker `apotheke-v4`, no routes, no containers), vitest-pool-workers, biome, dependency-cruiser, npm scripts (`dev`, `test`, `typecheck`, `lint`).
-- S0.3 Platform adapters + `Installation` DO: `Sql` (async, driver-pluggable), `Blobs`, `Clock`, `Secrets`, config loader, `blockConcurrencyWhile` migration-on-open, schema-newer-than-code refusal, `/healthz`.
+- S0.3 Platform adapters + `Installation` DO: `Sql` (async, driver-pluggable), `Blobs`, `Clock`, `Secrets`, config loader, `blockConcurrencyWhile` migration-on-open, schema-newer-than-code refusal, `/healthz`. The DO's fate is decided (D12): it stays as scheduler + migration lock, owns the database only under `DB_DRIVER=sqlite`.
 - S0.4 Migration runner: the 35 migrations as typed steps, one SQLite dialect (shared by D1, rqlite and local SQLite), refuse-if-newer, unit of work supplied per driver (D1 `batch()`, one `?transaction` request on rqlite, `transactionSync` locally), plus the **transaction audit**: every `atomically()`/`inUnit()` call site (10 across 7 files) classified as expressible-in-one-batch or not, with the rewrite listed for each. Code is written to the batch contract, the weakest of the three.
 - S0.5 Router + filters: route table generated from `Routes.php` (method, path, permission, filter list), the filter chain in the real order (`hostcheck`, `publicbase`, `session`, `sameorigin`, `permission`, `sessioncsrf`/`apicsrf`), problem+json errors, security headers/CSP.
 - S0.6 CI `v4.yml`: typecheck → lint → unit → schema parity → workerd smoke (boot, `/healthz`, one table read), plus a **rqlite job** that starts a real `rqlited` and repeats migration, parity and handler suites, plus a **D1 job** using the Miniflare-emulated D1 binding under `vitest-pool-workers`. Real-D1 smoke (a database created through the API) runs on the branch only when a Cloudflare token is present, because the emulator is SQLite and would hide D1-specific limits.
 - S0.7 D1 driver: the `Sql` implementation over `env.DB` (`prepare`/`bind`/`all`, `batch` as the unit of work, `meta.changes`/`last_row_id` for results), the binding-name contract, and the local emulation path so the same code runs in tests.
+- S0.8 rqlite driver (self-host default): `Sql` implementation over the HTTP API, `DB_DRIVER=rqlite` boot path, plan-then-flush unit of work (`/db/execute?transaction`), read-consistency and retry/timeout policy, auth/TLS from the environment, and a documented `RQLITE_URL` contract for self-host.
 - S0.9 Self-host compose skeleton: `docker-compose.yml` (`apotheke` + `rqlite`), `docker-compose.sqlite.yml`
   (single process), `.env.example`, `scripts/selfhost-smoke.sh` — run against a stub `workerd` that serves `/healthz`,
   so ports, volumes, healthcheck ordering and env names are pinned before the app exists. Contract in §11.
-- S0.8 rqlite driver (self-host default): `Sql` implementation over the HTTP API, `DB_DRIVER=rqlite` boot path, plan-then-flush unit of work (`/db/execute?transaction`), read-consistency and retry/timeout policy, auth/TLS from the environment, and a documented `RQLITE_URL` contract for self-host.
 
 Timeboxed spikes inside phase 0 (one day each, result written into the phase notes):
 FTS5 available in DO SQLite under local `workerd`; DO alarms firing with `localDisk` storage; the bundled R2 disk
@@ -250,7 +256,7 @@ gets one new switch: `APOTHEKE_BASE_URL`, so the same suite points at PHP or v4 
 | FTS5 or alarms missing/experimental on local workerd | search or jobs differ self-hosted | phase 0 spikes; fallback `like` path already exists in `SearchIndex`; alarm sweep on next request |
 | libsodium secretbox incompatibility | settings with secrets unreadable | fixture test with a PHP-produced value in phase 0 |
 | A write path cannot be expressed as one rqlite batch (no transaction across requests) | the save/import paths get restructured late | transaction audit in S0.4 classifies all 10 call sites before phase 1; dependent steps move into SQL (`last_insert_rowid()` inside the batch) or the case comes back to Stathis |
-| The rqlite path rots because everyone develops on the DO |
+| The rqlite path rots because everyone develops on the DO | self-host breaks surface late, after hosted is green, and the self-host default is the one nobody runs | the `v4.yml` rqlite job runs from S0.8 on every PR against a real `rqlited`, repeating migration, parity and handler suites; G0/G3/G6 run on all three backends; no slice is accepted with rqlite red |
 | View porting drift (thousands of DOM details) | visual suite fails late and expensively | golden corpus per page in phase 2, visual per phase, no baseline updates without sign-off |
 | ZIP format drift | backups unreadable by 2.6.x/PHP | two-direction round trip in gate G5 |
 | Long-lived branch diverges from main | painful merge | `main` frozen by rule, so divergence is bounded; weekly rebase of the branch onto `main` is forbidden — only forward merges of approved security fixes |
@@ -271,6 +277,8 @@ gets one new switch: `APOTHEKE_BASE_URL`, so the same suite points at PHP or v4 
 | D6 | Workers Paid and CPU budget | **Acceptable** | bcrypt cost 12 and image work stay; cost re-checked at phase 4 |
 | D7 | Switch-over | **Ping Stathis when the branch work is complete and ready to switch**; he makes the go call | G7 ends with a written merge proposal, never a merge |
 | D10 | Write retries on rqlite after a `503` | **Answered 13:40 — every write unit carries an idempotency key** (`_write_log`, UUID per unit of work, conflict mapped to success). Reads retry freely; connect failures retry without a key; nothing after bytes leave the socket does | Rule 10 in §10; one table and one index in the schema, swept by the alarm job; same envelope on D1 so call sites are written once |
+| D11 | Hosted refusals for inline taxonomy (`422`) and photo duplication (`501`) | **Answered 21:15 — both are lifted in v4.** They exist only because the pre-batch code could not return a `Ref` from taxonomy create and `PhotoRepository::insert()` took `int`; the batch path removes the constraint, so re-shipping the refusal would port a limitation we just deleted | Audit sites #7 (`ItemController::save()`) and #8 (`Duplicate::copy()`) are rewritten in phase 1; `docs/api/openapi.yaml` and `docs/api.md` change in the same PR as the code. Revisit only if returning a `Ref` drags permission/auth paths into the rewrite, or if an external consumer of the documented `422`/`501` is found |
+| D12 | What is left of the `Installation` DO once it stops holding the database | **Answered 21:00 — keep one per installation, demoted** from database owner to scheduler + lock: `alarms` for per-installation jobs (Cron Triggers are per-Worker, not per-installation), `blockConcurrencyWhile` as the migration lock and refuse-if-newer gate, lease/cursor state only. No application data, off the request path. **Exception:** `DB_DRIVER=sqlite` still uses `ctx.storage.sql`, so the DO owns the database in exactly that one mode | S0.3; hosted D1 and rqlite both run the reduced DO, and no handler may know which mode it is in (the async `Sql` adapter's job). §10.1 updated |
 
 ### 8.1 D4 in plain terms (answered: G7 only)
 
@@ -398,9 +406,19 @@ audit (about 4 pw in). Net +1 pw against the original plan, one dialect instead 
 
 Also gone earlier than planned: the `d1.internal` outbound bridge and the Installation-DO-as-database-proxy
 (`edge/src/d1.ts`) exist only because the PHP container could not hold the D1 binding. With TypeScript in the Worker,
-hosted talks to D1 directly. **Open design point for S0.3:** what is left of the `Installation` Durable Object once it
-stops holding the database — probably alarms/job scheduling and a migration lock, possibly nothing. Decided in phase 0,
-not assumed.
+hosted talks to D1 directly. **Resolved in S0.3 (D12, revision 7):** the `Installation` Durable Object stays, one per installation, demoted from
+database owner to scheduler and lock — `alarms` for per-installation jobs (retention and the 24h `_write_log` sweep,
+backup scheduling, metering), because Cron Triggers are per-Worker and not per-installation; `blockConcurrencyWhile`
+as the migration lock and refuse-if-newer gate; lease and cursor state only. It holds no application data and is off
+the request path. The one exception is `DB_DRIVER=sqlite`, where `ctx.storage.sql` *is* the database and the DO
+therefore owns it; hosted D1 and rqlite both run the reduced DO. No handler may know which mode it is in — that is
+the async `Sql` adapter's job.
+
+**Known defect carried into v4, logged and not fixed on `main`:** `RoleAdmin::updateLocked()`/`deleteLocked()`
+compute the "at least one manager remains" invariant in PHP and lean on a unit lock that a batch backend does not
+have, so two concurrent role edits can both pass — on D1 today, not only on rqlite. `UserAdmin` already carries the
+equivalent guard as SQL, so the asymmetry is visible. v4 makes it one in-batch `EXISTS` assert (audit site #10).
+Whether the same fix ships on frozen `main` as a security patch is Stathis's call; until he says so, `main` is untouched.
 
 ### 10.2 Migration path: none, by decision
 
