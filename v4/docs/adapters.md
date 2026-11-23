@@ -68,6 +68,12 @@ adopt, and why the gate above exists instead of a silent skip.
   fixtures has no ext/sodium, so the phase-0 spike (plan §5) needs a runtime where it does.
 - **`/readyz` is unauthenticated** until phase 1's filter chain exists; that is why the compose
   healthcheck above does not use it.
+- **CI proves the emulated D1 binding, not hosted D1.** The `v4.yml` `d1` job boots workerd on the
+  Miniflare D1 binding — SQLite under workerd — and then reads the database it wrote: 36
+  `schema_migrations` rows, 0019's seven `search_fts` objects against the PHP oracle (so a backend
+  without FTS5 fails loudly rather than skipping them), and no application table in the Durable
+  Object's own storage (D12). A real D1 database is first exercised when a hosted installation is
+  provisioned, which is phase 1; plan §5 states the same limit.
 - **TLS from workerd to rqlited is unproven.** The `v4.yml` rqlite job runs plain HTTP on loopback,
   which is what a compose network looks like, so `https://` is implemented but not exercised. A
   self-signed certificate would additionally need to be trusted by the runtime, and the worker has no

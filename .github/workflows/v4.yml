@@ -18,8 +18,9 @@ jobs:
   # S0.2 adds v4/package.json and v4/package-lock.json. Until they are on the branch the build jobs
   # have nothing to run, so they are skipped rather than failed: a red run that means "S0.2 has not
   # landed" teaches nobody anything. They switch on by themselves with the commit that adds the
-  # workspace. The rqlite job landed with its driver (S0.8); the D1 job follows S0.7's real-D1 smoke,
-  # and lands with a runner that can actually fail.
+  # workspace. Both backend jobs now exist: `rqlite` landed with its driver (S0.8) and `d1` with
+  # S0.6's last item. Neither needs a Cloudflare account: the D1 job runs the *emulated* binding,
+  # which is SQLite under workerd, so it proves the binding and not hosted D1 (§5 states that limit).
   workspace:
     name: workspace present
     runs-on: ubuntu-latest
@@ -194,3 +195,119 @@ jobs:
         run: |
           tail -n 100 dev.log || true
           tail -n 50 rqlited.log || true
+
+  # G0's last CI leg (plan §5 S0.6): the D1 binding as Miniflare emulates it. Read the name before
+  # reading the green tick — this is the **emulated** binding, not hosted D1, and §5 says where the
+  # difference lands: a real D1 database is first created when an installation is provisioned, in
+  # phase 1. No account, token, remote database or secret is involved in any step below.
+  #
+  # What it adds over the unit job (which already compares schema and seed rows on D1): the Worker
+  # boots on the D1 binding and answers `/readyz`, so the migration chain, the seed phase and the
+  # readiness gate run over `env.DB` in a real workerd process; and the emulated database file is
+  # inspected afterwards, so FTS5 and D12's "the DO owns no data here" are checked against bytes
+  # rather than inferred from a passing suite. §7's worry for this backend — a green job that
+  # quietly tested nothing — is why every step asserts something specific.
+  d1:
+    name: d1 (emulated binding, parity, workerd boot)
+    needs: workspace
+    if: needs.workspace.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: v4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v4/package-lock.json
+      - run: npm ci
+
+      - name: Parity and seed tests against the D1 driver
+        run: |
+          set -euo pipefail
+          npm test -- --reporter=default --reporter=json --outputFile.json=test.json 2>&1 | tee test.log
+
+      # Same rule as the rqlite job, adapted to what this job can honestly run: the two G0 files must
+      # be all-passed and all eleven of their assertions must be there, nothing anywhere may fail, and
+      # the *only* assertions allowed to be pending are the six rqlite live specs — this job has no
+      # rqlited, and the rqlite job is where those run with numPendingTests == 0. Anything else
+      # skipped fails here, so a spec cannot go quiet unnoticed.
+      - name: Assert the D1 specs ran
+        run: |
+          set -euo pipefail
+          jq -e '
+            ([.testResults[] | {file: .name, a: .assertionResults[]}
+              | select(.file | test("schema-parity|seed-parity")) | .a]) as $g0
+            | ($g0 | length) == 11
+              and ($g0 | map(.status) | unique) == ["passed"]
+              and .numFailedTests == 0
+              and ([.testResults[] | select((.name | test("rqlite-live")) | not)
+                    | .assertionResults[] | select(.status != "passed")] | length) == 0
+          ' test.json
+          jq -r '"tests=\(.numTotalTests) failed=\(.numFailedTests) pending=\(.numPendingTests)"' test.json
+
+      # From nothing, on purpose: the previous slice's red run (45278160385) failed here because a
+      # spec had deliberately left a `9999` schema version behind. A boot that starts on a dirty
+      # database proves nothing about a fresh install, and `npm test` keeps its state outside
+      # `.wrangler`, so this removes only what an earlier boot of this job could have written.
+      - name: Boot workerd on the D1 binding
+        run: |
+          set -euo pipefail
+          rm -rf .wrangler
+          npx wrangler dev --port 8799 --ip 127.0.0.1 --var DB_DRIVER:d1 > dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8799/healthz > health.json; then break; fi
+            sleep 1
+          done
+          cat health.json
+          test "$(jq -r .ok health.json)" = "true"
+          test "$(jq -r .driver health.json)" = "d1"
+          # `/readyz` is the one that proves the binding: it runs the whole migration chain, the seed
+          # phase and the readiness gate over `env.DB` before it can answer 200.
+          code=""
+          for i in $(seq 1 60); do
+            code=$(curl -s -o ready.json -w '%{http_code}' http://127.0.0.1:8799/readyz || true)
+            if [ "$code" = "200" ]; then break; fi
+            sleep 1
+          done
+          cat ready.json
+          test "$code" = "200"
+          test "$(jq -r .schema ready.json)" = "0036"
+          test "$(jq -r .seed ready.json)" = "done"
+          test "$(jq -r .driver ready.json)" = "d1"
+
+      # Bytes, not inference. If the emulator ever loses FTS5, this names every object that went
+      # missing against the PHP oracle instead of letting 0019's `optional` statements pass quietly;
+      # the suite refuses the same way, and this says it about the database the app just wrote.
+      - name: Inspect the emulated D1 database
+        run: |
+          set -euo pipefail
+          db=$(find .wrangler/state/v3/d1 -name '*.sqlite' ! -name 'metadata.sqlite' | head -n 1)
+          test -n "$db"
+          echo "database: $db"
+
+          applied=$(sqlite3 "$db" 'select count(*) from schema_migrations')
+          echo "schema_migrations rows: $applied"
+          test "$applied" = "36"
+
+          expected=$(jq -r '.objects[].name | select(startswith("search_fts"))' \
+            test/fixtures/php-v4.0.0-schema.json | sort)
+          actual=$(sqlite3 "$db" "select name from sqlite_master where name like 'search_fts%'" | sort)
+          echo "FTS5 objects expected (PHP oracle):"; echo "$expected"
+          echo "FTS5 objects in the emulated D1 database:"; echo "$actual"
+          diff <(echo "$expected") <(echo "$actual")
+
+          # D12: under DB_DRIVER=d1 the Durable Object holds alarms and the migration lock only.
+          do_db=$(find .wrangler/state/v3/do -name '*.sqlite' ! -name 'metadata.sqlite' | head -n 1)
+          test -n "$do_db"
+          app_tables=$(sqlite3 "$do_db" \
+            "select count(*) from sqlite_master where type='table' and name not like 'sqlite_%' and name not like '_cf%' and name not like '__miniflare%'")
+          echo "application tables in the DO's own storage: $app_tables"
+          test "$app_tables" = "0"
+
+      - name: Dump logs
+        if: always()
+        run: tail -n 100 dev.log || true

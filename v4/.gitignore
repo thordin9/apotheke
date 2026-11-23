@@ -2,3 +2,7 @@ node_modules/
 .wrangler/
 dev.log
 health.json
+test.json
+test.log
+ready.json
+rqlited.log
