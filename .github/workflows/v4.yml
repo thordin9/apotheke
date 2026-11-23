@@ -149,18 +149,18 @@ jobs:
           RQLITE_URL: http://127.0.0.1:4001
         run: |
           set -euo pipefail
-          npm test 2>&1 | tee test.log
+          npm test -- --reporter=default --reporter=json --outputFile.json=test.json 2>&1 | tee test.log
 
       # A green run with the live specs skipped would say nothing about rqlite, which is how a backend
-      # rots (§7). Both halves are checked: the live specs are present, and nothing was skipped.
+      # rots (§7). The reporter's JSON is what gets read: a log grep cannot tell a passed spec from a
+      # skipped one, and grepping for the describe name finds nothing on a green run at all — the first
+      # version of this step failed on a run where all six live specs had passed.
       - name: Assert the rqlite live specs ran
         run: |
           set -euo pipefail
-          grep -q "rqlite (live)" test.log
-          if grep -q "skipped" test.log; then
-            echo "::error::a spec was skipped in the rqlite job"
-            exit 1
-          fi
+          jq -e '([.testResults[] | select(.name | test("rqlite-live")) | .assertionResults[]]) as $t
+                 | ($t | length) == 6 and ($t | map(.status) | unique) == ["passed"]' test.json
+          jq -e '.numFailedTests == 0 and .numPendingTests == 0' test.json
 
       # The spike phase 0 could not finish: workerd → rqlited over loopback. `/healthz` proves the
       # Worker boots against this configuration; `/readyz` is the one that proves the fetch, because it
