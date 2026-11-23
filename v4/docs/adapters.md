@@ -61,11 +61,11 @@ adopt, and why the gate above exists instead of a silent skip.
 ## Known gaps, recorded rather than hidden
 
 - **`libsodium-wrappers` does not run in workerd.** It instantiates WebAssembly at load time and
-  workerd refuses `new WebAssembly.Module(bytes)`. `src/platform/secretbox.ts` implements the same
-  primitive and is verified against a fixture libsodium produced (`test/fixtures/secretbox.json`),
-  not against itself. The plan's §3 row needs a revision-8 note.
-- **The PHP-produced `enc:v1:` value is still unproven.** The PHP build on the machine that made the
-  fixtures has no ext/sodium, so the phase-0 spike (plan §5) needs a runtime where it does.
+  workerd refuses `new WebAssembly.Module(bytes)`, so the dependency is gone and
+  `src/platform/secretbox.ts` implements the same primitive. It is checked two ways: against a
+  fixture real libsodium produced (`test/fixtures/secretbox.json`), and — closed 2026-11-23 23:44 —
+  against `sodium_crypto_secretbox` in both directions (a PHP-sealed `enc:v1:` value opens here, and
+  a value sealed here opens in PHP 8.4.23). Plan §3's Crypto row records it.
 - **`/readyz` is unauthenticated** until phase 1's filter chain exists; that is why the compose
   healthcheck above does not use it.
 - **CI proves the emulated D1 binding, not hosted D1.** The `v4.yml` `d1` job boots workerd on the
