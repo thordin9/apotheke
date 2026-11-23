@@ -68,6 +68,14 @@ adopt, and why the gate above exists instead of a silent skip.
   fixtures has no ext/sodium, so the phase-0 spike (plan §5) needs a runtime where it does.
 - **`/readyz` is unauthenticated** until phase 1's filter chain exists; that is why the compose
   healthcheck above does not use it.
+- **TLS from workerd to rqlited is unproven.** The `v4.yml` rqlite job runs plain HTTP on loopback,
+  which is what a compose network looks like, so `https://` is implemented but not exercised. A
+  self-signed certificate would additionally need to be trusted by the runtime, and the worker has no
+  escape hatch for that by design.
+- **The 503 retry is proven by the driver's specs, not against a live election.** The job does not
+  kill and restart the leader; the backoff, the keyed/unkeyed split and the replay mapping are
+  covered by stub-`fetch` tests. Re-running a leader restart is a G3 item, where the stack is
+  restarted with data in it.
 
 ## The rqlite contract (S0.8)
 
