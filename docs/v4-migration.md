@@ -1,7 +1,7 @@
 # Apotheke v4 — TypeScript on Workers/workerd: execution plan
 
 Owner: Apotheke PM · Build: Apotheke FullStack Developer · Branch of record: `experimental-v4`
-Created 2026-11-23 12:50 EET · **Revision 9 at 00:35 EET on 2026-11-24** — records S0.8 (the rqlite driver) and, with it, G0's last unproven leg: `rqlite` from inside workerd, proven in run `45279526055` with the two remaining gaps (TLS to a self-signed node, retry across a real election) named rather than glossed. Narrows what is next to S0.6's D1 job, and states that a CI D1 job proves the emulated binding, not hosted D1. Revision 8 at 00:20 EET on 2026-11-24 — records what S0.2–S0.4 actually built
+Created 2026-11-23 12:50 EET · **Revision 10 at 00:50 EET on 2026-11-24** — records S0.6's D1 job landing (run `45282360833`: five jobs, the emulated D1 binding booted and its bytes inspected) and **signs off G0**, naming what that sign-off does not cover. Narrows what is next to S0.9, the compose skeleton, which now has an environment contract to pin. Revision 9 at 00:35 EET on 2026-11-24 — records S0.8 (the rqlite driver) and, with it, G0's last unproven leg: `rqlite` from inside workerd, proven in run `45279526055` with the two remaining gaps (TLS to a self-signed node, retry across a real election) named rather than glossed. Narrows what is next to S0.6's D1 job, and states that a CI D1 job proves the emulated binding, not hosted D1. Revision 8 at 00:20 EET on 2026-11-24 — records what S0.2–S0.4 actually built
 and corrects four §3 rows that had drifted from the code: the vitest plugin (`@cloudflare/vitest-plugin`, the
 supported successor to the deprecated `vitest-pool-workers`), the `workerd` override that running
 `compatibility_date 2026-10-29` requires, `dependency-cruiser`'s SWC parser, and a hand-written `secretbox.ts` in
@@ -162,16 +162,36 @@ and G0 is no longer blocked on it. Two gaps stay open and are recorded, not wave
 `rqlited` with a self-signed certificate** is implemented but unexercised, and **retry across a real leader election**
 is proven only against a stub `503` — killing and restarting a leader belongs with G3's restart-with-data.
 
-Slices landed by 2026-11-24 00:26 EET: S0.1 (`0e46d908`), S0.2 (`9aedb9e0`), S0.4 with its audit (`f1473b17`;
+Slices landed by 2026-11-24 00:44 EET: S0.1 (`0e46d908`), S0.2 (`9aedb9e0`), S0.4 with its audit (`f1473b17`;
 audit `ac08ea6f` merged as `f27b79de`), S0.3 (`744bc946`), S0.8 (`94309317`, five commits `bc801feb` driver and
-tests, `bc472f50` the rqlite job, `4d179942` and `864a0efb` its two defects fixed, `94309317` the gaps recorded).
-S0.7's D1 driver landed early inside S0.3 because S0.4's parity test needs a backend, and S0.8 delivered S0.6's
-rqlite job with it. **Next is S0.6's remaining D1 job** — the last thing G0's CI sentence names and the only leg that
-has never run outside the emulator — and G0 is signed when that job is green. S0.5 (router) and S0.9 (compose) are
-not G0 inputs; S0.9 follows, now that S0.8 has pinned the `RQLITE_URL`, `RQLITE_AUTH` and `RQLITE_READ_CONSISTENCY`
-contract it has to expose. Known limit, stated so it is not mistaken for coverage: a CI D1 job proves the **emulated**
-D1 binding, not hosted D1; real D1 is first exercised when a hosted installation is provisioned, and that belongs to
-phase 1, not to G0.
+tests, `bc472f50` the rqlite job, `4d179942` and `864a0efb` its two defects fixed, `94309317` the gaps recorded),
+and S0.6's D1 job (`48d7dc00`, plus `d2c1c173` correcting `adapters.md`). S0.7's D1 driver landed early inside S0.3
+because S0.4's parity test needs a backend, and S0.8 delivered S0.6's rqlite job with it.
+
+**D1 from the emulated binding — pass, 2026-11-24 00:44 EET** (run `45282360833`, run 15, job `d1 (emulated
+binding, parity, workerd boot)` 12/12; five jobs, zero non-success and zero skipped steps): the suite's own JSON
+report reads `tests=75 failed=0 pending=6`, the six pending being the `rqlite-live` specs that the rqlite job runs;
+the job asserts that the eleven G0 assertions are present and all `passed`, that `numFailedTests == 0`, and that
+nothing outside `rqlite-live` is pending — so a spec that skips itself fails the job. `wrangler dev --var
+DB_DRIVER:d1`, started from an empty `.wrangler`, answers `/healthz 200 {"ok":true,"driver":"d1"}` and
+`/readyz 200 {"ok":true,"schema":"0036","seed":"done","driver":"d1"}`, so the binding runs the migration chain, the
+seed phase and the readiness gate before it can answer. On the bytes: `schema_migrations` holds 36 rows, 0019's seven
+`search_fts*` objects are diffed **by name against the PHP oracle** (a backend that loses FTS5 names what went
+missing instead of passing quietly), and the DO's own storage holds **zero application tables**, which checks D12
+rather than asserting it. Parity therefore runs on all three backends inside one run: D1 through the driver, local
+DO SQLite, and `rqlited`.
+
+**G0 — signed off at 00:50 EET on 2026-11-24.** Every clause of the gate has a green run behind it, and the three
+legs run together in run `45282360833`. What the sign-off does **not** cover, named so nobody reads more into it than
+exists: the D1 job proves the **emulated** binding, not hosted D1 — real D1 is first exercised when a hosted
+installation is provisioned, in phase 1; TLS from workerd to a `rqlited` with a self-signed certificate is implemented
+but unexercised, which is G6's compose stack; and retry across a real leader election is proven only against a stub
+`503`, which is G3's restart-with-data. None of the three is a phase-0 input, and each is scheduled to the gate that
+will actually exercise it.
+
+**Next is S0.9** — the self-host compose skeleton, `.env.example` and `scripts/selfhost-smoke.sh` — because S0.8 has
+pinned the `RQLITE_URL` / `RQLITE_AUTH` / `RQLITE_READ_CONSISTENCY` contract S0.9 has to expose and G0 no longer
+blocks it. S0.5 (the router) follows as the last phase-0 slice.
 
 **Gate G0 (amended by D13):** TS runner vs PHP runner schema identical (normalised) on an empty database and on a
 v3.72 dump, on **all three** backends (one SQLite schema, so one comparison run three times), where "identical" means
@@ -359,6 +379,12 @@ sufficient: no dress rehearsal on a copy of real data, no shadow period. Two con
 drifted (vitest plugin, `workerd` override, SWC parser, `secretbox.ts`), and three rules the slices settled (D13's
 allowlist, D14's seed gate, D10's bootstrap exception) lived only in the phase notes, so the next reader would have
 re-derived them. No scope change; effort and gates stand.
+- 2026-11-24 00:50 EET — **Revision 10: S0.6's D1 job lands and G0 is signed.** Rationale: the gate's CI sentence
+  named five jobs, all five now run green in one run (`45282360833`), parity runs on D1, local DO SQLite and `rqlited`
+  inside it, and the D1 job inspects the emulated database file rather than trusting a log line. The sign-off states
+  its own limits — emulated D1 is not hosted D1 (phase 1), TLS to a self-signed `rqlited` is G6, retry across a real
+  election is G3. What it costs: nothing new. What it cuts: no further phase-0 work on either backend, which from here
+  is a regression to keep green rather than a leg to build. What it unblocks: S0.9, then S0.5.
 - 2026-11-24 00:35 EET — **Revision 9: S0.8 lands, and G0's rqlite leg is proven.** Rationale: the spike that read
   "unproven, not a pass" was settled by the rqlite job in run `45279526055` — workerd answers `/readyz 200
   {"schema":"0036","seed":"done","driver":"rqlite"}` against a real `rqlited` v10.7.4 with `-auth` — so the plan could
