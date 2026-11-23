@@ -18,8 +18,8 @@ jobs:
   # S0.2 adds v4/package.json and v4/package-lock.json. Until they are on the branch the build jobs
   # have nothing to run, so they are skipped rather than failed: a red run that means "S0.2 has not
   # landed" teaches nobody anything. They switch on by themselves with the commit that adds the
-  # workspace. Same rule for the schema-parity, D1 and rqlite jobs (S0.4, S0.6, S0.7, S0.8): they
-  # land with a runner that can actually fail.
+  # workspace. The rqlite job landed with its driver (S0.8); the D1 job follows S0.7's real-D1 smoke,
+  # and lands with a runner that can actually fail.
   workspace:
     name: workspace present
     runs-on: ubuntu-latest
@@ -91,3 +91,106 @@ jobs:
       - name: Dump dev.log
         if: always()
         run: tail -n 100 dev.log || true
+
+  # The third backend of G0 (plan §5, S0.6 + S0.8): a real rqlited on the runner, the same migration,
+  # parity, seed and replay suites, and — the spike the phase-0 host could not finish — workerd talking
+  # to it over loopback. A 503 during a leader election and the retry budget are exercised by the
+  # driver's own specs; what this job adds is that the wire, the auth and the boot path are real.
+  rqlite:
+    name: rqlite (driver, parity, workerd boot)
+    needs: workspace
+    if: needs.workspace.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: v4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v4/package-lock.json
+      - run: npm ci
+
+      # The build the phase-0 spikes measured (rqlited v10.7.4, SQLite 3.54.1). Pinned, not `latest`:
+      # a new SQLite would make the parity fixture and this job disagree for no reason.
+      - name: Install rqlited v10.7.4
+        run: |
+          set -euo pipefail
+          curl -fsSL -o rqlite.tgz \
+            https://github.com/rqlite/rqlite/releases/download/v10.7.4/rqlite-v10.7.4-linux-amd64.tar.gz
+          tar xzf rqlite.tgz
+          sudo install rqlite-v10.7.4-linux-amd64/rqlited /usr/local/bin/rqlited
+          rqlited -version
+
+      # With -auth on purpose: it is the default self-host posture (§11), and it is what makes the
+      # driver's 401 path and `RQLITE_AUTH` parsing real rather than stubbed. The password is generated
+      # per run and never stored anywhere but this job's environment.
+      - name: Start rqlited with -auth
+        run: |
+          set -euo pipefail
+          password=$(openssl rand -hex 16)
+          echo "RQLITE_AUTH=ci:$password" >> "$GITHUB_ENV"
+          printf '[{"username":"ci","password":"%s","perms":["all"]}]\n' "$password" > auth.json
+          rqlited -node-id ci -http-addr 127.0.0.1:4001 -raft-addr 127.0.0.1:4002 \
+            -auth auth.json rqlite-data > rqlited.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS -u "ci:$password" http://127.0.0.1:4001/status > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "::error::rqlited did not answer /status"
+          tail -n 50 rqlited.log
+          exit 1
+
+      - name: Runner, parity and seed tests against rqlite
+        env:
+          RQLITE_URL: http://127.0.0.1:4001
+        run: |
+          set -euo pipefail
+          npm test 2>&1 | tee test.log
+
+      # A green run with the live specs skipped would say nothing about rqlite, which is how a backend
+      # rots (§7). Both halves are checked: the live specs are present, and nothing was skipped.
+      - name: Assert the rqlite live specs ran
+        run: |
+          set -euo pipefail
+          grep -q "rqlite (live)" test.log
+          if grep -q "skipped" test.log; then
+            echo "::error::a spec was skipped in the rqlite job"
+            exit 1
+          fi
+
+      # The spike phase 0 could not finish: workerd → rqlited over loopback. `/healthz` proves the
+      # Worker boots against this configuration; `/readyz` is the one that proves the fetch, because it
+      # runs the whole migration chain and the seed phase over HTTP before answering 200.
+      - name: Boot workerd against rqlited
+        run: |
+          set -euo pipefail
+          npx wrangler dev --port 8799 --ip 127.0.0.1 \
+            --var DB_DRIVER:rqlite \
+            --var RQLITE_URL:http://127.0.0.1:4001 \
+            --var "RQLITE_AUTH:$RQLITE_AUTH" > dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8799/healthz > health.json; then break; fi
+            sleep 1
+          done
+          cat health.json
+          test "$(jq -r .ok health.json)" = "true"
+          test "$(jq -r .driver health.json)" = "rqlite"
+          for i in $(seq 1 60); do
+            code=$(curl -s -o ready.json -w '%{http_code}' http://127.0.0.1:8799/readyz || true)
+            if [ "$code" = "200" ]; then break; fi
+            sleep 1
+          done
+          cat ready.json
+          test "$code" = "200"
+          test "$(jq -r .schema ready.json)" = "0036"
+          test "$(jq -r .seed ready.json)" = "done"
+
+      - name: Dump logs
+        if: always()
+        run: |
+          tail -n 100 dev.log || true
+          tail -n 50 rqlited.log || true
