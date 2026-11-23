@@ -49,6 +49,11 @@
 		"DB_DRIVER": "sqlite",
 		// Empty means "not an rqlite install". The real value is set by .env on self-host (§11).
 		"RQLITE_URL": "",
+		// username:password for a node started with -auth; empty for an unauthenticated node. A secret
+		// on self-host (§11 rule 4): it comes from .env, never from a committed file.
+		"RQLITE_AUTH": "",
+		// weak (default) | strong | none — rqlite's read level (§10 rule 8).
+		"RQLITE_READ_CONSISTENCY": "weak",
 		"APP_PASSWORD": "correct horse battery staple 2026",
 		"APP_KEY": "k+5r++/Wg74Gd/XmNDDEfN8Ob7Shh6pX8+usbXG4wPU=",
 		"APOTHEKE_CLOCK": "",

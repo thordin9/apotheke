@@ -68,3 +68,48 @@ adopt, and why the gate above exists instead of a silent skip.
   fixtures has no ext/sodium, so the phase-0 spike (plan §5) needs a runtime where it does.
 - **`/readyz` is unauthenticated** until phase 1's filter chain exists; that is why the compose
   healthcheck above does not use it.
+
+## The rqlite contract (S0.8)
+
+Self-host defaults to a real `rqlited` beside `workerd` (§10), selected by `DB_DRIVER=rqlite`. The
+driver is `src/db/rqlite.ts`; `loadDatabaseConfig()` in `src/platform/config.ts` is the only reader of
+these variables, and it refuses rather than substitutes — an install pointed at the wrong database is
+worse than one that did not start.
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `DB_DRIVER` | `d1` (hosted binding), `rqlite` (HTTP), `sqlite` (this process's own DO storage) | `rqlite` when `RQLITE_URL` is set, `d1` otherwise |
+| `RQLITE_URL` | `http(s)://host:4001`. No query, no fragment, no trailing slash needed. | — (required for rqlite) |
+| `RQLITE_AUTH` | `username:password` from rqlited's `-auth` file. Split on the first colon, so a password may contain one. | absent ⇒ unauthenticated node |
+| `RQLITE_READ_CONSISTENCY` | `weak`, `strong` or `none` — rqlite's read level | `weak` |
+
+What falls out of the plan's rules, in the order they bite:
+
+1. **One unit of work is one request.** `batch()` sends the whole unit as a single
+   `POST /db/execute?transaction`; the spike proved a failing statement aborts the transaction, so a
+   unit commits whole or not at all. There is no `begin()`/`commit()` to misuse.
+2. **Reads retry; writes only under the key.** Reads retry freely (connect error, `503`, timeout) on a
+   bounded backoff of 100 ms → 1.6 s, about 3.1 s in total, which covers the ~1.6 s window a leader
+   election answers `503`. A write retries when its first statement is D10's key (`_write_log`, or
+   `schema_migrations` before 0036 exists), or when the failure provably happened before the request
+   was sent (connection refused, DNS, TLS handshake). Anything else fails closed: after the bytes left
+   there is no way to know whether the batch committed.
+3. **A replay is success.** When a replayed unit dies on its key, the driver maps
+   `UNIQUE constraint failed: _write_log.id` (or `schema_migrations.version`) to a completed unit —
+   exactly-once without an idempotency feature from rqlite. The batch being atomic is what makes this
+   sound: the conflict on statement 1 means no other statement ran.
+4. **Read-after-write asks for the leader.** `all(statement, { strong: true })` sends `level=strong`
+   for the one read that must not be answered by a lagging replica (§10 rule 8); everything else uses
+   `RQLITE_READ_CONSISTENCY`.
+5. **TLS is the URL's job.** `https://` verifies the certificate the runtime trusts; there is no
+   insecure-skip switch, deliberately. Self-host on the compose network uses `http://rqlite:4001`,
+   which never leaves that network (§11 rule 1).
+6. **A 401 names the variable, never the value.** An authenticated node answers 401 for a missing or
+   wrong credential, and the error says `RQLITE_AUTH` — the credential itself never reaches a message
+   or a log. `/readyz` on rqlited is behind auth too, which is why compose healthchecks rqlited with
+   credentials (or a TCP connect) and the app with `/healthz` (§11 rule 7).
+7. **Winning the race is allowed.** Boot runs migrate → seed under `blockConcurrencyWhile`; if the
+   database is unreachable at that moment the install is not ready, and a later `/readyz` retries once
+   per second — `depends_on` does not survive an rqlite restart mid-session (§11 rule 2). A schema
+   newer than the code and a refused seed are *not* retried: those are decisions, and retrying would
+   only hide them.

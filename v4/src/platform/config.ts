@@ -9,7 +9,8 @@
 // What is deliberately not here: database and storage wiring. The driver is chosen by the binding
 // and `DB_DRIVER` (§10), and file storage is the `Blobs` adapter — neither is an app setting.
 
-import type { ConfigVars } from "../env";
+import type { ReadConsistency } from "../db/rqlite";
+import type { ConfigVars, DatabaseVars } from "../env";
 
 export interface AppConfig {
 	/** `APOTHEKE_HOSTED`: sign-in is on for a hosted installation even without APP_PASSWORD. */
@@ -91,3 +92,105 @@ export const loadConfig = (env: ConfigVars): AppConfig => ({
 		thumbMax: positiveInt(env.IMAGE_THUMB_MAX, CONFIG_DEFAULTS.uploads.thumbMax),
 	},
 });
+/**
+ * How the app reaches its database (§10). One place decides, so no handler ever reads `DB_DRIVER`:
+ * hosted D1 (`d1`), the self-host default over HTTP (`rqlite`), or the single process's own SQLite
+ * (`sqlite`). `loadDatabaseConfig()` validates the whole contract once, at boot — a malformed
+ * `RQLITE_URL` fails closed there rather than falling back to another driver later.
+ */
+export type DatabaseConfig =
+	| { readonly mode: "d1" }
+	| { readonly mode: "sqlite" }
+	| {
+			readonly mode: "rqlite";
+			/** `http(s)://host:port`, no trailing slash, no query and no fragment. */
+			readonly url: string;
+			readonly auth: { readonly username: string; readonly password: string } | null;
+			readonly readConsistency: ReadConsistency;
+	  };
+
+export class DatabaseConfigError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "DatabaseConfigError";
+	}
+}
+
+const READ_CONSISTENCY: readonly ReadConsistency[] = ["weak", "strong", "none"];
+
+/** `RQLITE_URL` → the base URL, or a message an operator can act on. */
+const rqliteUrl = (raw: string): string => {
+	let url: URL;
+	try {
+		url = new URL(raw.trim());
+	} catch {
+		throw new DatabaseConfigError("RQLITE_URL is not a URL: expected http(s)://host:4001.");
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") {
+		throw new DatabaseConfigError(`RQLITE_URL must be http or https, not ${url.protocol}`);
+	}
+	if (url.search !== "" || url.hash !== "") {
+		throw new DatabaseConfigError(
+			"RQLITE_URL carries no query or fragment: the driver adds its own (level, blob_array, transaction).",
+		);
+	}
+
+	return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+};
+
+/** `RQLITE_AUTH` is the `username:password` from rqlite's `-auth` file; the password may contain `:`. */
+const rqliteAuth = (raw: string | undefined): { username: string; password: string } | null => {
+	const value = given(raw);
+	if (value === null) {
+		return null;
+	}
+	const separator = value.indexOf(":");
+	if (separator <= 0) {
+		throw new DatabaseConfigError("RQLITE_AUTH must be username:password, as in rqlite's -auth file.");
+	}
+
+	return { username: value.slice(0, separator), password: value.slice(separator + 1) };
+};
+
+const readConsistency = (raw: string | undefined): ReadConsistency => {
+	const value = given(raw)?.trim().toLowerCase() ?? "weak";
+	if (!READ_CONSISTENCY.includes(value as ReadConsistency)) {
+		throw new DatabaseConfigError(`RQLITE_READ_CONSISTENCY=${value} is not weak, strong or none.`);
+	}
+
+	return value as ReadConsistency;
+};
+
+/**
+ * The database contract (§10): `DB_DRIVER` names the backend, and an unset driver is inferred —
+ * `rqlite` when `RQLITE_URL` is set (the self-host default), `d1` otherwise (hosted, where the binding
+ * is the selector). Anything else is a refusal, never a fallback: an install that reached the wrong
+ * database is worse than one that did not start.
+ */
+export const loadDatabaseConfig = (env: DatabaseVars): DatabaseConfig => {
+	const url = given(env.RQLITE_URL);
+	const driver = given(env.DB_DRIVER)?.trim().toLowerCase() ?? (url === null ? "d1" : "rqlite");
+
+	if (driver === "d1") {
+		return { mode: "d1" };
+	}
+	if (driver === "sqlite") {
+		return { mode: "sqlite" };
+	}
+	if (driver === "rqlite") {
+		if (url === null) {
+			throw new DatabaseConfigError(
+				"DB_DRIVER=rqlite needs RQLITE_URL (http://host:4001) — the app will not guess a database.",
+			);
+		}
+
+		return {
+			mode: "rqlite",
+			url: rqliteUrl(url),
+			auth: rqliteAuth(env.RQLITE_AUTH),
+			readConsistency: readConsistency(env.RQLITE_READ_CONSISTENCY),
+		};
+	}
+
+	throw new DatabaseConfigError(`DB_DRIVER=${driver} is not a driver: use d1, rqlite or sqlite.`);
+};

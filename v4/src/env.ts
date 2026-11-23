@@ -25,10 +25,26 @@ export interface ConfigVars {
 	readonly EXPIRY_SOON_DAYS?: string;
 }
 
-export interface Env extends ConfigVars {
+/**
+ * The database wiring (§10, S0.8). Read once by `loadDatabaseConfig()`; no handler reads these.
+ * `RQLITE_AUTH` is the `username:password` from rqlite's `-auth` file and is a secret: it is passed in
+ * from `.env` at compose start, never baked into a file (§11 rule 4).
+ */
+export interface DatabaseVars {
+	/** `d1` | `rqlite` | `sqlite`. Unset infers: rqlite when RQLITE_URL is set, d1 otherwise. */
+	readonly DB_DRIVER?: string;
+	/** Self-host: `http(s)://host:4001` of the rqlite node. Empty means "not an rqlite install". */
+	readonly RQLITE_URL?: string;
+	/** `username:password` for a node started with `-auth`; absent for an unauthenticated node. */
+	readonly RQLITE_AUTH?: string;
+	/** `weak` (default), `strong` or `none` — rqlite's read level (§10 rule 8). */
+	readonly RQLITE_READ_CONSISTENCY?: string;
+}
+
+export interface Env extends ConfigVars, DatabaseVars {
 	/** Hosted: the installation's D1 database (D8, one database per installation). */
 	readonly DB: D1Database;
-	/** `sqlite` | `d1` | `rqlite` — the mode the app is running in. */
+	/** `sqlite` | `d1` | `rqlite` — the mode the app is running in (see `DatabaseVars`). */
 	readonly DB_DRIVER: string;
 	/** Self-host: `http(s)://host:4001` of the rqlite node. Empty means "not an rqlite install". */
 	readonly RQLITE_URL: string;
