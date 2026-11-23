@@ -7,7 +7,7 @@
 // `rqlite.spec.ts`, which needs no server at all.
 
 import { env } from "cloudflare:workers";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runMigrations, SchemaNewerThanCodeError, WRITE_LOG_VERSION } from "../src/db/migration-runner";
 import { RqliteSql } from "../src/db/rqlite";
 import { runSeeds } from "../src/db/seed";
@@ -36,6 +36,13 @@ const sql = (): Sql => new RqliteSql({ url, auth, readConsistency: "weak" });
 
 describe.skipIf(url === "")("rqlite (live)", () => {
 	beforeEach(async () => {
+		await resetSchema(sql());
+	});
+
+	// After every spec too. The node is shared with whatever runs next in the job — in `v4.yml` that is
+	// the workerd boot, which runs the migration chain — and the refuse-if-newer case leaves a version
+	// 9999 row behind on purpose. A suite that poisons the database it just used is not a suite.
+	afterEach(async () => {
 		await resetSchema(sql());
 	});
 
