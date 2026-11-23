@@ -1,0 +1,90 @@
+name: v4
+
+# Everything for experimental-v4. main keeps ci.yml; this workflow never runs for main.
+on:
+  pull_request:
+    branches: [experimental-v4]
+  push:
+    branches: [experimental-v4]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # S0.2 adds v4/package.json and v4/package-lock.json. Until they are on the branch the build jobs
+  # have nothing to run, so they are skipped rather than failed: a red run that means "S0.2 has not
+  # landed" teaches nobody anything. They switch on by themselves with the commit that adds the
+  # workspace. Same rule for the schema-parity, D1 and rqlite jobs (S0.4, S0.6, S0.7, S0.8): they
+  # land with a runner that can actually fail.
+  workspace:
+    name: workspace present
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: check
+        run: |
+          if [ -f v4/package.json ] && [ -f v4/package-lock.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::v4/ workspace not on this branch yet (S0.2), build jobs skipped."
+          fi
+
+  typecheck-lint-unit:
+    name: Typecheck, lint, unit (workerd)
+    needs: workspace
+    if: needs.workspace.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: v4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v4/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  workerd-smoke:
+    name: workerd smoke
+    needs: workspace
+    if: needs.workspace.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: v4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v4/package-lock.json
+      - run: npm ci
+      - name: Boot and probe /healthz
+        run: |
+          set -euo pipefail
+          npx wrangler dev --port 8799 --ip 127.0.0.1 > dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8799/healthz > health.json; then break; fi
+            sleep 1
+          done
+          cat health.json
+          test "$(jq -r .ok health.json)" = "true"
+      - name: Show logs on failure
+        if: failure()
+        run: cat dev.log
