@@ -1,0 +1,37 @@
+// Apotheke v4 workspace (plan §5 S0.2). Nothing here is deployed from this branch: no routes, no
+// custom domains, no containers. The Worker exists so `wrangler dev` boots a real workerd and the
+// v4.yml smoke job has something to probe.
+//
+// compatibility_date and nodejs_compat are shared with edge/wrangler.jsonc on purpose (plan §3);
+// a test in S0.3 fails if the two dates drift.
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "apotheke-v4",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-10-29",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": { "enabled": true },
+
+	// Backend selection (plan §10): hosted is D1 through `env.DB`, self-host is rqlite through
+	// RQLITE_URL, single-process self-host is local DO SQLite. Local dev and CI run on the D1
+	// emulator, which is SQLite under workerd.
+	//
+	// D8 decides one D1 database per installation, so hosted resolves the binding per request from
+	// the control plane rather than declaring it here. This entry is the local dev/test binding and
+	// the placeholder S0.7 fills in; the id is a documented dummy, not an account resource.
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "apotheke-v4-dev",
+			"database_id": "00000000-0000-0000-0000-000000000000"
+		}
+	],
+
+	"vars": {
+		"DB_DRIVER": "sqlite",
+		// Empty means "not an rqlite install". The real value is set by .env on self-host (§11).
+		"RQLITE_URL": ""
+	}
+}

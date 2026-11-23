@@ -1,0 +1,30 @@
+{
+  "name": "apotheke-v4",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Apotheke v4: the app on workerd. Not deployed from this branch (plan §5 S0.2).",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check . && depcruise src",
+    "format": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.8",
+    "@cloudflare/vitest-pool-workers": "0.23.0",
+    "@cloudflare/workers-types": "5.20261123.1",
+    "@swc/core": "1.16.22",
+    "dependency-cruiser": "18.9.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.12",
+    "wrangler": "4.164.0"
+  },
+  "overrides": {
+    "workerd": "1.20261117.1"
+  }
+}
