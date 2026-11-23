@@ -1,0 +1,62 @@
+name: v4
+
+# Everything for experimental-v4. main keeps ci.yml; this workflow never runs for main.
+on:
+  pull_request:
+    branches: [experimental-v4]
+  push:
+    branches: [experimental-v4]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v4-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: v4
+
+jobs:
+  typecheck-lint-unit:
+    name: Typecheck, lint, unit (workerd)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v4/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  workerd-smoke:
+    name: workerd smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v4/package-lock.json
+      - run: npm ci
+      - name: Boot and probe /healthz
+        run: |
+          set -euo pipefail
+          npx wrangler dev --port 8799 --ip 127.0.0.1 > dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8799/healthz > health.json; then break; fi
+            sleep 1
+          done
+          cat health.json
+          test "$(jq -r .ok health.json)" = "true"
+      - name: Show logs on failure
+        if: failure()
+        run: cat dev.log

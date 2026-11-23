@@ -1,0 +1,25 @@
+name: main-freeze
+
+# main is frozen while v4 is built on experimental-v4. A pull request into main fails unless it is
+# labelled "revert" or "security"; those are the only two classes of change the freeze allows, and
+# they are still reviewed like any other.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  freeze:
+    name: main is frozen
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Allow revert and security pull requests only
+        if: ${{ !(contains(github.event.pull_request.labels.*.name, 'revert') || contains(github.event.pull_request.labels.*.name, 'security')) }}
+        run: |
+          echo "main is frozen while v4 is built on experimental-v4."
+          echo "Label this pull request 'revert' or 'security', or retarget it at experimental-v4."
+          exit 1
