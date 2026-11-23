@@ -26,5 +26,8 @@
   },
   "overrides": {
     "workerd": "1.20261117.1"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3"
   }
 }

@@ -89,6 +89,42 @@ foreach ($pdo->query('SELECT version, name FROM schema_migrations ORDER BY versi
     $versions[] = ['version' => $r['version'], 'name' => $r['name']];
 }
 
+/*
+ * The rows a fresh PHP install ends with, for the seed-parity test (S0.3): `settings_seed()` at
+ * 0013/0022/0023, 0018's adopt path (which turns settings.password_hash into the account "admin"
+ * and clears the key), 0024–0027's row writes, and FreshInstallRoles::statements().
+ *
+ * The bcrypt digest is random per run, so `password_hash` in `users` is recorded as a marker; the
+ * test verifies the real hash against `seed_config.app_password`. Everything else is compared
+ * byte for byte, with the clock pinned by APOTHEKE_CLOCK above.
+ */
+$settings = [];
+foreach ($pdo->query('SELECT name, value, updated_at FROM settings ORDER BY name') as $r) {
+    $settings[] = ['name' => $r['name'], 'value' => $r['value'], 'updated_at' => $r['updated_at']];
+}
+
+$roles = [];
+foreach ($pdo->query('SELECT role_key, name, perms, builtin, created_at FROM roles ORDER BY role_key') as $r) {
+    $roles[] = [
+        'role_key' => $r['role_key'],
+        'name' => $r['name'],
+        'perms' => $r['perms'],
+        'builtin' => (int)$r['builtin'],
+        'created_at' => $r['created_at'],
+    ];
+}
+
+$users = [];
+foreach ($pdo->query('SELECT username, username_key, role, created_at FROM users ORDER BY id') as $r) {
+    $users[] = [
+        'username' => $r['username'],
+        'username_key' => $r['username_key'],
+        'role' => $r['role'],
+        'created_at' => $r['created_at'],
+        'password_hash' => '<bcrypt>',
+    ];
+}
+
 $out = [
     'generated_by' => 'v4/test/fixtures/php-schema-dump.php',
     'php_version' => PHP_VERSION,
@@ -96,6 +132,16 @@ $out = [
     'migrations_applied' => count($versions),
     'schema_migrations' => $versions,
     'objects' => $objects,
+    'seed_config' => [
+        'app_password' => 'correct horse battery staple 2026',
+        'clock' => '2026-11-23T12:00:00Z',
+        'timezone' => 'UTC',
+    ],
+    'seed_rows' => [
+        'settings' => $settings,
+        'roles' => $roles,
+        'users' => $users,
+    ],
 ];
 
 echo json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), "\n";

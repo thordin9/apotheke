@@ -658,5 +658,373 @@
             "replay_sql": "CREATE TABLE hosted_disabled_users (\n  user_id INTEGER NOT NULL PRIMARY KEY,\n  disabled_at TEXT NOT NULL\n)",
             "replay": true
         }
-    ]
+    ],
+    "seed_config": {
+        "app_password": "correct horse battery staple 2026",
+        "clock": "2026-11-23T12:00:00Z",
+        "timezone": "UTC"
+    },
+    "seed_rows": {
+        "settings": [
+            {
+                "name": "accent",
+                "value": "\"#5b3b8e\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "app_name",
+                "value": "\"Apotheke\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "app_tagline",
+                "value": "\"the storehouse for your stuff\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "attach_max_mb",
+                "value": "10",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "attach_max_per_item",
+                "value": "10",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "attach_types",
+                "value": "\"pdf_images\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "auth_enabled",
+                "value": "true",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "auth_guest_disabled",
+                "value": "true",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "auth_register_approval",
+                "value": "false",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "auth_register_disabled",
+                "value": "true",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "auth_register_role",
+                "value": "\"viewer\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "autofill_auto",
+                "value": "false",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "autofill_enabled",
+                "value": "false",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "autofill_image_size",
+                "value": "0",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "autofill_max_image_bytes",
+                "value": "\"auto\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "autofill_model",
+                "value": "\"\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "autofill_timeout",
+                "value": "50",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "autofill_token",
+                "value": "\"\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "autofill_url",
+                "value": "\"\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "currency",
+                "value": "\"EUR\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "currency_position",
+                "value": "\"after\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "date_format",
+                "value": "\"Y-m-d\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "default_expiry_months",
+                "value": "null",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "default_min_qty",
+                "value": "null",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "default_notes",
+                "value": "\"\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "default_purchase_today",
+                "value": "false",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "default_quantity",
+                "value": "1",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "default_sort",
+                "value": "\"recent\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "default_tags",
+                "value": "\"\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "expiry_soon_days",
+                "value": "30",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "icon_background",
+                "value": "\"#FBF1E3\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "image_full_max",
+                "value": "1600",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "image_thumb_max",
+                "value": "480",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "import_create_missing",
+                "value": "true",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "jpeg_quality",
+                "value": "82",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "label_border",
+                "value": "true",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "label_columns",
+                "value": "3",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "label_gap_mm",
+                "value": "4",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "label_height_mm",
+                "value": "70",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "label_show_sub",
+                "value": "true",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "label_show_url",
+                "value": "true",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "label_width_mm",
+                "value": "60",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "lend_due_days",
+                "value": "null",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "list_view",
+                "value": "\"grid\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "logo",
+                "value": "\"\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "max_photos",
+                "value": "12",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "max_upload_mb",
+                "value": "20",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "money_format",
+                "value": "\"en\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "overview_open",
+                "value": "true",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "page_size",
+                "value": "60",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "password_hash",
+                "value": "\"\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "public_url",
+                "value": "\"\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "recent_limit",
+                "value": "8",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "recent_scope",
+                "value": "\"device\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "saved_filters_max",
+                "value": "50",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "search_typos",
+                "value": "true",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "session_days",
+                "value": "30",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "session_idle_hours",
+                "value": "168",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "stocktake_apply_moves",
+                "value": "true",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "theme_default",
+                "value": "\"auto\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "time_format",
+                "value": "\"H:i\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "timezone",
+                "value": "\"UTC\"",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "trust_proxy",
+                "value": "false",
+                "updated_at": "2026-11-23 12:00:00"
+            },
+            {
+                "name": "undo_seconds",
+                "value": "30",
+                "updated_at": "2026-11-23 12:00:00"
+            }
+        ],
+        "roles": [
+            {
+                "role_key": "admin",
+                "name": "Admin",
+                "perms": "[\"view\",\"create\",\"edit\",\"delete\",\"move\",\"bulk\",\"lend\",\"import\",\"export\",\"stocktake\",\"labels\",\"settings\",\"users\",\"backup\"]",
+                "builtin": 1,
+                "created_at": "2026-11-23 12:00:00"
+            },
+            {
+                "role_key": "editor",
+                "name": "Editor",
+                "perms": "[\"view\",\"create\",\"edit\",\"delete\",\"move\",\"bulk\",\"lend\",\"import\",\"export\",\"stocktake\",\"labels\",\"backup\"]",
+                "builtin": 1,
+                "created_at": "2026-11-23 12:00:00"
+            },
+            {
+                "role_key": "guest",
+                "name": "Guest",
+                "perms": "[\"view\"]",
+                "builtin": 1,
+                "created_at": "2026-11-23 12:00:00"
+            },
+            {
+                "role_key": "viewer",
+                "name": "Viewer",
+                "perms": "[\"view\",\"export\",\"labels\",\"backup-only\"]",
+                "builtin": 1,
+                "created_at": "2026-11-23 12:00:00"
+            }
+        ],
+        "users": [
+            {
+                "username": "admin",
+                "username_key": "admin",
+                "role": "admin",
+                "created_at": "2026-11-23 12:00:00",
+                "password_hash": "<bcrypt>"
+            }
+        ]
+    }
 }

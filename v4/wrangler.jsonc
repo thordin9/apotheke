@@ -1,6 +1,6 @@
 // Apotheke v4 workspace (plan §5 S0.2). Nothing here is deployed from this branch: no routes, no
 // custom domains, no containers. The Worker exists so `wrangler dev` boots a real workerd and the
-// v4.yml smoke job has something to probe.
+// v4.yml jobs have something to probe and test.
 //
 // compatibility_date and nodejs_compat are shared with edge/wrangler.jsonc on purpose (plan §3);
 // a test in S0.3 fails if the two dates drift.
@@ -29,6 +29,10 @@
 		}
 	],
 
+	// Files, media and backups (plan §3, §10). Keys stay `installations/<installation>/…`, so an
+	// existing bucket needs no migration. The disk bucket under /data is the self-host backend.
+	"r2_buckets": [{ "binding": "BLOBS", "bucket_name": "apotheke-v4-blobs" }],
+
 	// D12: one Installation Durable Object per installation — scheduler, migration lock, and (under
 	// DB_DRIVER=sqlite only) the database. A SQLite-backed class, so `new_sqlite_classes` rather than
 	// `new_classes`; the tag is append-only, so the next class gets `v2`.
@@ -37,9 +41,25 @@
 	},
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Installation"] }],
 
+	// Config vars are the PHP app's names (plan §11), so one `.env.example` describes both runtimes.
+	// `APP_PASSWORD` and `APP_KEY` here are the local dev/test values, never a real secret: the key
+	// is the base64 of a SHA-256 of a sentence that says so. Self-host sets both in `.env`; hosted
+	// sets them as Worker secrets.
 	"vars": {
 		"DB_DRIVER": "sqlite",
 		// Empty means "not an rqlite install". The real value is set by .env on self-host (§11).
-		"RQLITE_URL": ""
+		"RQLITE_URL": "",
+		"APP_PASSWORD": "correct horse battery staple 2026",
+		"APP_KEY": "k+5r++/Wg74Gd/XmNDDEfN8Ob7Shh6pX8+usbXG4wPU=",
+		"APOTHEKE_CLOCK": "",
+		"APOTHEKE_HOSTED": "",
+		"PUBLIC_URL": "",
+		"CURRENCY": "EUR",
+		"TZ": "UTC",
+		"PAGE_SIZE": "60",
+		"MAX_UPLOAD_MB": "20",
+		"IMAGE_FULL_MAX": "1600",
+		"IMAGE_THUMB_MAX": "480",
+		"EXPIRY_SOON_DAYS": "30"
 	}
 }

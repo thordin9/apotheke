@@ -8,12 +8,70 @@
 // exists: the `Sql` driver for that mode is a thin client of this object. Hosted D1 and rqlite never
 // call it — and no handler knows which mode it is in, because that decision lives in the driver
 // factory, not in a handler.
+//
+// Boot (S0.3): the constructor starts `prepare()` inside `blockConcurrencyWhile`, so no RPC — and
+// therefore no request — is answered until migrations have run and the seed phase has completed or
+// refused. `ready()` hands the result to the Worker's `/readyz` and to the guard in `src/index.ts`.
 
 import { DurableObject } from "cloudflare:workers";
-import type { Row, Statement } from "./db/sql";
+import { D1Sql } from "./db/d1";
+import type { Row, Sql, Statement } from "./db/sql";
 import type { Env } from "./env";
+import { clockFrom } from "./platform/clock";
+import { loadConfig } from "./platform/config";
+import { prepareInstallation, type ReadyResult } from "./readiness";
+
+/** The `Sql` a DO gets over its own storage: `transactionSync` is the unit of work (D12, §10). */
+const storageSql = (ctx: DurableObjectState): Sql => ({
+	async all(statement: Statement): Promise<Row[]> {
+		return ctx.storage.sql.exec(statement.sql, ...(statement.params ?? [])).toArray() as Row[];
+	},
+	async batch(statements: readonly Statement[]) {
+		if (statements.length === 0) {
+			return [];
+		}
+		ctx.storage.transactionSync(() => {
+			for (const s of statements) {
+				ctx.storage.sql.exec(s.sql, ...(s.params ?? []));
+			}
+		});
+		return statements.map(() => ({ changes: 0, lastRowId: null }));
+	},
+});
 
 export class Installation extends DurableObject<Env> {
+	/** Resolved once per object lifetime, inside `blockConcurrencyWhile`. */
+	private readonly readiness: Promise<ReadyResult>;
+
+	constructor(ctx: DurableObjectState, env: Env) {
+		super(ctx, env);
+		this.readiness = ctx.blockConcurrencyWhile(() => this.prepare());
+	}
+
+	private async prepare(): Promise<ReadyResult> {
+		const driver = this.env.DB_DRIVER;
+		const config = loadConfig(this.env);
+		const now = clockFrom(this.env.APOTHEKE_CLOCK).stamp();
+
+		if (driver === "sqlite") {
+			return prepareInstallation(storageSql(this.ctx), config, now);
+		}
+		if (driver === "d1") {
+			return prepareInstallation(new D1Sql(this.env.DB), config, now);
+		}
+		// rqlite's driver is S0.8; refusing is honest, and `/healthz` keeps answering (§11 rule 7).
+		return {
+			ok: false,
+			code: "backend",
+			detail: `DB_DRIVER=${driver} has no driver yet (rqlite lands in S0.8).`,
+		};
+	}
+
+	/** Whether this installation may serve, and why not when it may not. */
+	async ready(): Promise<ReadyResult> {
+		return this.readiness;
+	}
+
 	/** A read, forwarded to the DO's SQLite. */
 	query(sql: string, params: readonly unknown[]): Row[] {
 		return this.ctx.storage.sql.exec(sql, ...params).toArray() as Row[];
