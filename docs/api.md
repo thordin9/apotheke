@@ -21,6 +21,8 @@ answer against it.
 | `GET /api/v1/users` | Users | Every account, sorted by name: `id`, `name`, `role`, `status`, `created_at`, `last_login_at` (UTC; `null` when never signed in). Nothing else. |
 | `GET /api/v1/roles` | Users | Every role, built-in first: `key`, `name`, `builtin`, `permissions`, `users` (how many accounts have it). |
 | `GET /api/v1/security` | Users | `sign_in_enabled` and `policy`: the guest, registration and session-length settings of Users & sign-in. The reverse-proxy setting is not included (it is server set-up). |
+| `GET /api/v1/locations` | View | Every location in tree order, parents first: `id`, `name`, `is_default`, `items` (filed here), `parent_id` (`null` at the top), `depth`, `path` (the label the page shows) and `total` (here and below); plus `items_without_location`. |
+| `GET /api/v1/categories` | View | Every category, flat, in the page's order: `id`, `name`, `is_default`, `items`; plus `items_without_category`. |
 | `POST /api/v1/imports` | Import, signed in | Upload a CSV (`multipart/form-data`, field `file`); `201` with the import and a `Location` header. A guest gets `403` `permission.denied`, even when the Guest role has Import. |
 | `GET /api/v1/imports/{id}` | Import, and the user who uploaded it or an admin | The import: status, columns with the guessed field, the first five rows, the fields to map to. |
 | `GET /api/v1/imports/{id}/preview` | Import, and the user who uploaded it or an admin | A dry run: what each row would do (`new`, `update`, `same` or `error`) and the summary. Query `map` (the field per column, comma-separated), `create`, `skip_errors`, `page`, `per_page` (up to 200). Writes nothing, the mapping included. |

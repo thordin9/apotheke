@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Apotheke API",
-    "version": "1.0.0-p3",
-    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings, users, roles, the sign-in policy and the branding; P3: CSV imports; chunked restore uploads). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`. Cookie consent: the server sets no cookie at all (no session, no CSRF token) until the request carries the cookie apotheke_consent=v1, which the banner script sets when the user clicks Accept (only the name and the exact value count; any other value is no consent). Without it, reads still answer (GET /api/v1/session with an empty csrf_token), and every POST, PUT, PATCH and DELETE is 403 with code consent_required and error consent_required."
+    "version": "1.0.0-p4",
+    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings, users, roles, the sign-in policy and the branding; P3: CSV imports; chunked restore uploads; P4: reading the locations and categories). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`. Cookie consent: the server sets no cookie at all (no session, no CSRF token) until the request carries the cookie apotheke_consent=v1, which the banner script sets when the user clicks Accept (only the name and the exact value count; any other value is no consent). Without it, reads still answer (GET /api/v1/session with an empty csrf_token), and every POST, PUT, PATCH and DELETE is 403 with code consent_required and error consent_required."
   },
   "servers": [{"url": "/", "description": "This server: the API is under /api/v1 on the app's own address"}],
   "paths": {
@@ -369,6 +369,56 @@
         }
       }
     },
+    "/api/v1/locations": {
+      "get": {
+        "operationId": "getLocations",
+        "summary": "Locations in tree order (view permission)",
+        "description": "What /locations shows: every location, parents before their children, with its own item count (`items`), its parent (`parent_id`, null at the top), `depth`, the page's `path` label, and `total` (its own items plus every location below it). `items_without_location` counts the items that have none. A signed-out request gets 401; a signed-in account without `view` gets 403, as the page does.",
+        "responses": {
+          "200": {
+            "description": "The entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Locations"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/api/v1/categories": {
+      "get": {
+        "operationId": "getCategories",
+        "summary": "Categories, flat (view permission)",
+        "description": "What /categories shows: every category in the page's order with its item count (`items`), and `items_without_category` for the items that have none. No tree: categories are flat. A signed-out request gets 401; a signed-in account without `view` gets 403, as the page does.",
+        "responses": {
+          "200": {
+            "description": "The entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Categories"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/api/v1/roles": {
       "get": {
         "operationId": "getRoles",
@@ -683,6 +733,119 @@
           "logo_url": {"type": "string", "description": "Absolute URL on the public base (public_url, else this request's allowed host)"},
           "favicon_url": {"type": "string", "description": "Absolute URL on the public base (public_url, else this request's allowed host)"},
           "touch_icon_url": {"type": "string", "description": "Absolute URL on the public base (public_url, else this request's allowed host)"}
+        }
+      },
+      "Locations": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "items_without_location"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Location"
+            }
+          },
+          "items_without_location": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Location": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "is_default",
+          "items",
+          "parent_id",
+          "depth",
+          "path",
+          "total"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Items filed here, not below"
+          },
+          "parent_id": {
+            "type": "integer",
+            "nullable": true,
+            "description": "null at the top level"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string",
+            "description": "The label the page shows: names joined with the page's separator"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Items here and below"
+          }
+        }
+      },
+      "Categories": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "items_without_category"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Category"
+            }
+          },
+          "items_without_category": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Category": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "is_default",
+          "items"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
         }
       }
     }

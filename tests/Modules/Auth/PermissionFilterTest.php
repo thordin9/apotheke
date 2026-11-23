@@ -313,9 +313,11 @@ final class PermissionFilterTest extends CIUnitTestCase
             'GET /api/v1/backups' => 'backup',
             'GET /api/v1/backups/([^/]+)' => 'backup',
             'GET /api/v1/branding' => Permissions::PUBLIC,
+            'GET /api/v1/categories' => 'view',
             'GET /api/v1/imports/([0-9]+)' => 'import',
             'GET /api/v1/imports/([0-9]+)/preview' => 'import',
-            'GET /api/v1/jobs/([0-9]+)' => 'view',   // and the job type's permission, checked by JobsController
+            'GET /api/v1/jobs/([0-9]+)' => 'view',
+            'GET /api/v1/locations' => 'view',   // and the job type's permission, checked by JobsController
             'GET /api/v1/me' => Permissions::SELF,
             'GET /api/v1/openapi.json' => Permissions::PUBLIC,
             'GET /api/v1/restores/([^/]+)' => 'restore',
