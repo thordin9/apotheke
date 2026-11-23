@@ -20,7 +20,9 @@ module.exports = {
 			severity: "error",
 			comment: "An import that does not resolve is a broken build that typecheck may still pass.",
 			from: {},
-			to: { couldNotResolve: true },
+			// `cloudflare:*` is provided by the runtime, not by node_modules, so it cannot resolve
+			// on disk and is not a broken import.
+			to: { couldNotResolve: true, pathNot: "^cloudflare:" },
 		},
 		{
 			name: "test-code-not-imported-by-src",

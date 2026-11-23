@@ -85,6 +85,9 @@ jobs:
           done
           cat health.json
           test "$(jq -r .ok health.json)" = "true"
-      - name: Show logs on failure
-        if: failure()
-        run: cat dev.log
+      # Unconditional on purpose: a step guarded by `if: failure()` is recorded as *skipped* on every
+      # green run, and a skipped step inside a green run is exactly the shape that hides a probe that
+      # did not execute. This one only ever prints dev.log.
+      - name: Dump dev.log
+        if: always()
+        run: tail -n 100 dev.log || true

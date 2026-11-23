@@ -1,0 +1,662 @@
+{
+    "generated_by": "v4/test/fixtures/php-schema-dump.php",
+    "php_version": "8.4.23",
+    "sqlite_version": "3.45.2",
+    "migrations_applied": 35,
+    "schema_migrations": [
+        {
+            "version": "0001",
+            "name": "initial_schema"
+        },
+        {
+            "version": "0002",
+            "name": "sort_keys_and_settings"
+        },
+        {
+            "version": "0003",
+            "name": "item_photos"
+        },
+        {
+            "version": "0004",
+            "name": "tags_and_custom_fields"
+        },
+        {
+            "version": "0005",
+            "name": "activity_log"
+        },
+        {
+            "version": "0006",
+            "name": "low_stock"
+        },
+        {
+            "version": "0007",
+            "name": "lending"
+        },
+        {
+            "version": "0008",
+            "name": "nested_locations"
+        },
+        {
+            "version": "0009",
+            "name": "expiry"
+        },
+        {
+            "version": "0010",
+            "name": "value_index"
+        },
+        {
+            "version": "0011",
+            "name": "saved_filters"
+        },
+        {
+            "version": "0012",
+            "name": "barcode"
+        },
+        {
+            "version": "0013",
+            "name": "settings"
+        },
+        {
+            "version": "0014",
+            "name": "attachments"
+        },
+        {
+            "version": "0015",
+            "name": "favourites_recent"
+        },
+        {
+            "version": "0016",
+            "name": "undo"
+        },
+        {
+            "version": "0017",
+            "name": "stocktake"
+        },
+        {
+            "version": "0018",
+            "name": "users"
+        },
+        {
+            "version": "0019",
+            "name": "search"
+        },
+        {
+            "version": "0020",
+            "name": "import"
+        },
+        {
+            "version": "0021",
+            "name": "photo_versions"
+        },
+        {
+            "version": "0022",
+            "name": "roles"
+        },
+        {
+            "version": "0023",
+            "name": "autofill"
+        },
+        {
+            "version": "0024",
+            "name": "autofill_timeout"
+        },
+        {
+            "version": "0025",
+            "name": "autofill_on_demand"
+        },
+        {
+            "version": "0026",
+            "name": "autofill_max_image_bytes"
+        },
+        {
+            "version": "0027",
+            "name": "session_idle_hours"
+        },
+        {
+            "version": "0028",
+            "name": "session_epoch"
+        },
+        {
+            "version": "0029",
+            "name": "jobs"
+        },
+        {
+            "version": "0030",
+            "name": "import_rows"
+        },
+        {
+            "version": "0031",
+            "name": "unit_of_work"
+        },
+        {
+            "version": "0032",
+            "name": "restore_marker"
+        },
+        {
+            "version": "0033",
+            "name": "restore_job_once"
+        },
+        {
+            "version": "0034",
+            "name": "sessions"
+        },
+        {
+            "version": "0035",
+            "name": "hosted_disabled_users"
+        }
+    ],
+    "objects": [
+        {
+            "type": "table",
+            "name": "schema_migrations",
+            "table": "schema_migrations",
+            "sql": "CREATE TABLE schema_migrations(version TEXT NOT NULL PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE schema_migrations (\n        version    TEXT NOT NULL PRIMARY KEY,\n        name       TEXT NOT NULL,\n        applied_at TEXT NOT NULL\n    )",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "locations",
+            "table": "locations",
+            "sql": "CREATE TABLE locations(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,name_key TEXT NOT NULL UNIQUE,is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN(0,1)),created_at TEXT NOT NULL,sort_key TEXT NOT NULL DEFAULT '',parent_id INTEGER REFERENCES locations(id)ON DELETE SET NULL)",
+            "replay_sql": "CREATE TABLE locations (\n        id         INTEGER PRIMARY KEY AUTOINCREMENT,\n        name       TEXT    NOT NULL,\n        name_key   TEXT    NOT NULL UNIQUE,   -- fold(name): case/accent-insensitive uniqueness\n        is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),\n        created_at TEXT    NOT NULL\n    , sort_key TEXT NOT NULL DEFAULT '', parent_id INTEGER REFERENCES locations(id) ON DELETE SET NULL)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_locations_one_default",
+            "table": "locations",
+            "sql": "CREATE UNIQUE INDEX idx_locations_one_default ON locations(is_default)WHERE is_default = 1",
+            "replay_sql": "CREATE UNIQUE INDEX idx_locations_one_default ON locations(is_default) WHERE is_default = 1",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "categories",
+            "table": "categories",
+            "sql": "CREATE TABLE categories(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,name_key TEXT NOT NULL UNIQUE,is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN(0,1)),created_at TEXT NOT NULL,sort_key TEXT NOT NULL DEFAULT '')",
+            "replay_sql": "CREATE TABLE categories (\n        id         INTEGER PRIMARY KEY AUTOINCREMENT,\n        name       TEXT    NOT NULL,\n        name_key   TEXT    NOT NULL UNIQUE,\n        is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),\n        created_at TEXT    NOT NULL\n    , sort_key TEXT NOT NULL DEFAULT '')",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_categories_one_default",
+            "table": "categories",
+            "sql": "CREATE UNIQUE INDEX idx_categories_one_default ON categories(is_default)WHERE is_default = 1",
+            "replay_sql": "CREATE UNIQUE INDEX idx_categories_one_default ON categories(is_default) WHERE is_default = 1",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "items",
+            "table": "items",
+            "sql": "CREATE TABLE items(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,location_id INTEGER REFERENCES locations(id)ON DELETE SET NULL,quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity >= 0),notes TEXT NOT NULL DEFAULT '',image TEXT,search TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,category_id INTEGER REFERENCES categories(id)ON DELETE SET NULL,sort_key TEXT NOT NULL DEFAULT '',value_cents BIGINT,purchase_date TEXT,serial TEXT NOT NULL DEFAULT '',min_qty INTEGER,lent_to TEXT,lent_at TEXT,lent_due TEXT,expires_on TEXT,barcode TEXT,favourite INTEGER NOT NULL DEFAULT 0)",
+            "replay_sql": "CREATE TABLE items (\n        id          INTEGER PRIMARY KEY AUTOINCREMENT,\n        name        TEXT    NOT NULL,\n        location_id INTEGER REFERENCES locations(id) ON DELETE SET NULL,\n        quantity    INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 0),\n        notes       TEXT    NOT NULL DEFAULT '',\n        image       TEXT,\n        search      TEXT    NOT NULL DEFAULT '',  -- fold(name + notes)\n        created_at  TEXT    NOT NULL,\n        updated_at  TEXT    NOT NULL,\n        category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL\n    , sort_key TEXT NOT NULL DEFAULT '', value_cents BIGINT, purchase_date TEXT, serial TEXT NOT NULL DEFAULT '', min_qty INTEGER, lent_to TEXT, lent_at TEXT, lent_due TEXT, expires_on TEXT, barcode TEXT, favourite INTEGER NOT NULL DEFAULT 0)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_items_location",
+            "table": "items",
+            "sql": "CREATE INDEX idx_items_location ON items(location_id)",
+            "replay_sql": "CREATE INDEX idx_items_location ON items(location_id)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_items_category",
+            "table": "items",
+            "sql": "CREATE INDEX idx_items_category ON items(category_id)",
+            "replay_sql": "CREATE INDEX idx_items_category ON items(category_id)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_items_name",
+            "table": "items",
+            "sql": "CREATE INDEX idx_items_name ON items(name COLLATE NOCASE)",
+            "replay_sql": "CREATE INDEX idx_items_name     ON items(name COLLATE NOCASE)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_items_updated",
+            "table": "items",
+            "sql": "CREATE INDEX idx_items_updated ON items(updated_at)",
+            "replay_sql": "CREATE INDEX idx_items_updated  ON items(updated_at)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_locations_sort",
+            "table": "locations",
+            "sql": "CREATE INDEX idx_locations_sort ON locations(sort_key)",
+            "replay_sql": "CREATE INDEX idx_locations_sort ON locations(sort_key)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_categories_sort",
+            "table": "categories",
+            "sql": "CREATE INDEX idx_categories_sort ON categories(sort_key)",
+            "replay_sql": "CREATE INDEX idx_categories_sort ON categories(sort_key)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_items_sort",
+            "table": "items",
+            "sql": "CREATE INDEX idx_items_sort ON items(sort_key)",
+            "replay_sql": "CREATE INDEX idx_items_sort ON items(sort_key)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "app_settings",
+            "table": "app_settings",
+            "sql": "CREATE TABLE app_settings(name TEXT NOT NULL PRIMARY KEY,value TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE app_settings (name TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "item_photos",
+            "table": "item_photos",
+            "sql": "CREATE TABLE item_photos(id INTEGER PRIMARY KEY AUTOINCREMENT,item_id INTEGER NOT NULL REFERENCES items(id)ON DELETE CASCADE,file TEXT NOT NULL,position INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,edited_at TEXT)",
+            "replay_sql": "CREATE TABLE item_photos (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n        file       TEXT    NOT NULL,\n        position   INTEGER NOT NULL DEFAULT 0,\n        created_at TEXT    NOT NULL\n    , version INTEGER NOT NULL DEFAULT 1, edited_at TEXT)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_item_photos_item",
+            "table": "item_photos",
+            "sql": "CREATE INDEX idx_item_photos_item ON item_photos(item_id,position)",
+            "replay_sql": "CREATE INDEX idx_item_photos_item ON item_photos(item_id, position)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "tags",
+            "table": "tags",
+            "sql": "CREATE TABLE tags(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,name_key TEXT NOT NULL UNIQUE,sort_key TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE tags (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name       TEXT NOT NULL,\n        name_key   TEXT NOT NULL UNIQUE,\n        sort_key   TEXT NOT NULL DEFAULT '',\n        created_at TEXT NOT NULL\n    )",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "item_tags",
+            "table": "item_tags",
+            "sql": "CREATE TABLE item_tags(item_id INTEGER NOT NULL REFERENCES items(id)ON DELETE CASCADE,tag_id INTEGER NOT NULL REFERENCES tags(id)ON DELETE CASCADE,PRIMARY KEY(item_id,tag_id))",
+            "replay_sql": "CREATE TABLE item_tags (\n        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n        tag_id  INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,\n        PRIMARY KEY (item_id, tag_id)\n    )",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_item_tags_tag",
+            "table": "item_tags",
+            "sql": "CREATE INDEX idx_item_tags_tag ON item_tags(tag_id)",
+            "replay_sql": "CREATE INDEX idx_item_tags_tag ON item_tags(tag_id)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "activity",
+            "table": "activity",
+            "sql": "CREATE TABLE activity(id INTEGER PRIMARY KEY AUTOINCREMENT,item_id INTEGER,item_name TEXT NOT NULL,action TEXT NOT NULL,details TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL,actor TEXT)",
+            "replay_sql": "CREATE TABLE activity (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        item_id    INTEGER,\n        item_name  TEXT NOT NULL,\n        action     TEXT NOT NULL,\n        details    TEXT NOT NULL DEFAULT '{}',\n        created_at TEXT NOT NULL\n    , actor TEXT)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_activity_item",
+            "table": "activity",
+            "sql": "CREATE INDEX idx_activity_item ON activity(item_id,id)",
+            "replay_sql": "CREATE INDEX idx_activity_item ON activity(item_id, id)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_items_lent",
+            "table": "items",
+            "sql": "CREATE INDEX idx_items_lent ON items(lent_due)",
+            "replay_sql": "CREATE INDEX idx_items_lent ON items(lent_due) ",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_locations_parent",
+            "table": "locations",
+            "sql": "CREATE INDEX idx_locations_parent ON locations(parent_id)",
+            "replay_sql": "CREATE INDEX idx_locations_parent ON locations(parent_id)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_items_expires",
+            "table": "items",
+            "sql": "CREATE INDEX idx_items_expires ON items(expires_on)",
+            "replay_sql": "CREATE INDEX idx_items_expires ON items(expires_on)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_items_value",
+            "table": "items",
+            "sql": "CREATE INDEX idx_items_value ON items(value_cents)",
+            "replay_sql": "CREATE INDEX idx_items_value ON items(value_cents)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "saved_filters",
+            "table": "saved_filters",
+            "sql": "CREATE TABLE saved_filters(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,name_key TEXT NOT NULL UNIQUE,query TEXT NOT NULL,sort_key TEXT NOT NULL,created_at TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE saved_filters (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        name       TEXT NOT NULL,\n        name_key   TEXT NOT NULL UNIQUE,\n        query      TEXT NOT NULL,\n        sort_key   TEXT NOT NULL,\n        created_at TEXT NOT NULL\n    )",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_items_barcode",
+            "table": "items",
+            "sql": "CREATE INDEX idx_items_barcode ON items(barcode)",
+            "replay_sql": "CREATE INDEX idx_items_barcode ON items(barcode)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "settings",
+            "table": "settings",
+            "sql": "CREATE TABLE settings(name TEXT NOT NULL PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE settings (\n        name       TEXT NOT NULL PRIMARY KEY,\n        value      TEXT NOT NULL,\n        updated_at TEXT NOT NULL\n    )",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "item_attachments",
+            "table": "item_attachments",
+            "sql": "CREATE TABLE item_attachments(id INTEGER PRIMARY KEY AUTOINCREMENT,item_id INTEGER NOT NULL REFERENCES items(id)ON DELETE CASCADE,file TEXT NOT NULL UNIQUE,name TEXT NOT NULL,mime TEXT NOT NULL,size BIGINT NOT NULL,created_at TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE item_attachments (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n        file       TEXT NOT NULL UNIQUE,\n        name       TEXT NOT NULL,\n        mime       TEXT NOT NULL,\n        size       BIGINT NOT NULL,\n        created_at TEXT NOT NULL\n    )",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_item_attachments_item",
+            "table": "item_attachments",
+            "sql": "CREATE INDEX idx_item_attachments_item ON item_attachments(item_id)",
+            "replay_sql": "CREATE INDEX idx_item_attachments_item ON item_attachments(item_id)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_items_favourite",
+            "table": "items",
+            "sql": "CREATE INDEX idx_items_favourite ON items(favourite)",
+            "replay_sql": "CREATE INDEX idx_items_favourite ON items(favourite)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "recent_views",
+            "table": "recent_views",
+            "sql": "CREATE TABLE recent_views(scope TEXT NOT NULL,item_id INTEGER NOT NULL REFERENCES items(id)ON DELETE CASCADE,seq BIGINT NOT NULL,viewed_at TEXT NOT NULL,PRIMARY KEY(scope,item_id))",
+            "replay_sql": "CREATE TABLE recent_views (\n        scope     TEXT NOT NULL,\n        item_id   INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,\n        seq       BIGINT NOT NULL,\n        viewed_at TEXT NOT NULL,\n        PRIMARY KEY (scope, item_id)\n    )",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_recent_views_scope",
+            "table": "recent_views",
+            "sql": "CREATE INDEX idx_recent_views_scope ON recent_views(scope,seq)",
+            "replay_sql": "CREATE INDEX idx_recent_views_scope ON recent_views(scope, seq)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_recent_views_item",
+            "table": "recent_views",
+            "sql": "CREATE INDEX idx_recent_views_item ON recent_views(item_id)",
+            "replay_sql": "CREATE INDEX idx_recent_views_item ON recent_views(item_id)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "undo_tokens",
+            "table": "undo_tokens",
+            "sql": "CREATE TABLE undo_tokens(token TEXT PRIMARY KEY,action TEXT NOT NULL,label TEXT NOT NULL,payload TEXT NOT NULL,files TEXT NOT NULL,created_at TEXT NOT NULL,expires_at TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE undo_tokens (\n        token      TEXT PRIMARY KEY,\n        action     TEXT NOT NULL,\n        label      TEXT NOT NULL,\n        payload    TEXT NOT NULL,\n        files      TEXT NOT NULL,\n        created_at TEXT NOT NULL,\n        expires_at TEXT NOT NULL\n    )",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_undo_tokens_expires",
+            "table": "undo_tokens",
+            "sql": "CREATE INDEX idx_undo_tokens_expires ON undo_tokens(expires_at)",
+            "replay_sql": "CREATE INDEX idx_undo_tokens_expires ON undo_tokens(expires_at)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "stocktakes",
+            "table": "stocktakes",
+            "sql": "CREATE TABLE stocktakes(id INTEGER PRIMARY KEY AUTOINCREMENT,location_id INTEGER REFERENCES locations(id)ON DELETE SET NULL,location_name TEXT NOT NULL,status TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,moves_applied INTEGER NOT NULL DEFAULT 0,summary TEXT NOT NULL DEFAULT '{}')",
+            "replay_sql": "CREATE TABLE stocktakes (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        location_id   INTEGER REFERENCES locations(id) ON DELETE SET NULL,\n        location_name TEXT NOT NULL,\n        status        TEXT NOT NULL,\n        started_at    TEXT NOT NULL,\n        finished_at   TEXT,\n        moves_applied INTEGER NOT NULL DEFAULT 0,\n        summary       TEXT NOT NULL DEFAULT '{}'\n    )",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_stocktakes_status",
+            "table": "stocktakes",
+            "sql": "CREATE INDEX idx_stocktakes_status ON stocktakes(status,location_id)",
+            "replay_sql": "CREATE INDEX idx_stocktakes_status ON stocktakes(status, location_id)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "stocktake_lines",
+            "table": "stocktake_lines",
+            "sql": "CREATE TABLE stocktake_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,stocktake_id INTEGER NOT NULL REFERENCES stocktakes(id)ON DELETE CASCADE,item_id INTEGER REFERENCES items(id)ON DELETE SET NULL,item_name TEXT NOT NULL,expected INTEGER NOT NULL,home_location_id INTEGER,home_location TEXT NOT NULL DEFAULT '',found INTEGER NOT NULL DEFAULT 0,found_at TEXT,moved INTEGER NOT NULL DEFAULT 0)",
+            "replay_sql": "CREATE TABLE stocktake_lines (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        stocktake_id     INTEGER NOT NULL REFERENCES stocktakes(id) ON DELETE CASCADE,\n        item_id          INTEGER REFERENCES items(id) ON DELETE SET NULL,\n        item_name        TEXT NOT NULL,\n        expected         INTEGER NOT NULL,\n        home_location_id INTEGER,\n        home_location    TEXT NOT NULL DEFAULT '',\n        found            INTEGER NOT NULL DEFAULT 0,\n        found_at         TEXT,\n        moved            INTEGER NOT NULL DEFAULT 0\n    )",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_stocktake_lines_item",
+            "table": "stocktake_lines",
+            "sql": "CREATE UNIQUE INDEX idx_stocktake_lines_item ON stocktake_lines(stocktake_id,item_id)",
+            "replay_sql": "CREATE UNIQUE INDEX idx_stocktake_lines_item ON stocktake_lines(stocktake_id, item_id)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "users",
+            "table": "users",
+            "sql": "CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,username_key TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL,created_at TEXT NOT NULL,last_login_at TEXT,status TEXT NOT NULL DEFAULT 'active',session_epoch TEXT NOT NULL DEFAULT '')",
+            "replay_sql": "CREATE TABLE users (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        username      TEXT NOT NULL,\n        username_key  TEXT NOT NULL UNIQUE,\n        password_hash TEXT NOT NULL,\n        role          TEXT NOT NULL,\n        created_at    TEXT NOT NULL,\n        last_login_at TEXT\n    , status TEXT NOT NULL DEFAULT 'active', session_epoch TEXT NOT NULL DEFAULT '')",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "search_docs",
+            "table": "search_docs",
+            "sql": "CREATE TABLE search_docs(item_id BIGINT NOT NULL PRIMARY KEY REFERENCES items(id)ON DELETE CASCADE,name_f TEXT NOT NULL,tags_f TEXT NOT NULL,other_f TEXT NOT NULL,other TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE search_docs (\n        item_id  BIGINT NOT NULL PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,\n        name_f   TEXT NOT NULL,\n        tags_f   TEXT NOT NULL,\n        other_f  TEXT NOT NULL,\n        other    TEXT NOT NULL\n    )",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "search_meta",
+            "table": "search_meta",
+            "sql": "CREATE TABLE search_meta(k TEXT NOT NULL PRIMARY KEY,v TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE search_meta (k TEXT NOT NULL PRIMARY KEY, v TEXT NOT NULL)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "search_fts",
+            "table": "search_fts",
+            "sql": "CREATE VIRTUAL TABLE search_fts USING fts5(name,tags,other,tokenize = 'unicode61 remove_diacritics 2')",
+            "replay_sql": "CREATE VIRTUAL TABLE search_fts USING fts5(name, tags, other, tokenize = 'unicode61 remove_diacritics 2')",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "search_fts_data",
+            "table": "search_fts_data",
+            "sql": "CREATE TABLE 'search_fts_data'(id INTEGER PRIMARY KEY,block BLOB)",
+            "replay_sql": "CREATE TABLE 'search_fts_data'(id INTEGER PRIMARY KEY, block BLOB)",
+            "replay": false
+        },
+        {
+            "type": "table",
+            "name": "search_fts_idx",
+            "table": "search_fts_idx",
+            "sql": "CREATE TABLE 'search_fts_idx'(segid,term,pgno,PRIMARY KEY(segid,term))WITHOUT ROWID",
+            "replay_sql": "CREATE TABLE 'search_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID",
+            "replay": false
+        },
+        {
+            "type": "table",
+            "name": "search_fts_content",
+            "table": "search_fts_content",
+            "sql": "CREATE TABLE 'search_fts_content'(id INTEGER PRIMARY KEY,c0,c1,c2)",
+            "replay_sql": "CREATE TABLE 'search_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2)",
+            "replay": false
+        },
+        {
+            "type": "table",
+            "name": "search_fts_docsize",
+            "table": "search_fts_docsize",
+            "sql": "CREATE TABLE 'search_fts_docsize'(id INTEGER PRIMARY KEY,sz BLOB)",
+            "replay_sql": "CREATE TABLE 'search_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)",
+            "replay": false
+        },
+        {
+            "type": "table",
+            "name": "search_fts_config",
+            "table": "search_fts_config",
+            "sql": "CREATE TABLE 'search_fts_config'(k PRIMARY KEY,v)WITHOUT ROWID",
+            "replay_sql": "CREATE TABLE 'search_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID",
+            "replay": false
+        },
+        {
+            "type": "table",
+            "name": "search_fts_v",
+            "table": "search_fts_v",
+            "sql": "CREATE VIRTUAL TABLE search_fts_v USING fts5vocab(search_fts,'row')",
+            "replay_sql": "CREATE VIRTUAL TABLE search_fts_v USING fts5vocab(search_fts, 'row')",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "imports",
+            "table": "imports",
+            "sql": "CREATE TABLE imports(id INTEGER PRIMARY KEY AUTOINCREMENT,file_name TEXT NOT NULL,status TEXT NOT NULL,total_rows INTEGER NOT NULL DEFAULT 0,mapping TEXT NOT NULL,options TEXT NOT NULL,result TEXT,actor TEXT,created_at TEXT NOT NULL,finished_at TEXT)",
+            "replay_sql": "CREATE TABLE imports (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        file_name   TEXT NOT NULL,\n        status      TEXT NOT NULL,\n        total_rows  INTEGER NOT NULL DEFAULT 0,\n        mapping     TEXT NOT NULL,\n        options     TEXT NOT NULL,\n        result      TEXT,\n        actor       TEXT,\n        created_at  TEXT NOT NULL,\n        finished_at TEXT\n    )",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "roles",
+            "table": "roles",
+            "sql": "CREATE TABLE roles(id INTEGER PRIMARY KEY AUTOINCREMENT,role_key TEXT NOT NULL UNIQUE,name TEXT NOT NULL,perms TEXT NOT NULL,builtin INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE roles (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        role_key   TEXT NOT NULL UNIQUE,\n        name       TEXT NOT NULL,\n        perms      TEXT NOT NULL,\n        builtin    INTEGER NOT NULL DEFAULT 0,\n        created_at TEXT NOT NULL\n    )",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "auth_attempts",
+            "table": "auth_attempts",
+            "sql": "CREATE TABLE auth_attempts(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL,client TEXT NOT NULL,at INTEGER NOT NULL)",
+            "replay_sql": "CREATE TABLE auth_attempts (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        kind      TEXT NOT NULL,\n        client    TEXT NOT NULL,\n        at        INTEGER NOT NULL\n    )",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "auth_attempts_k",
+            "table": "auth_attempts",
+            "sql": "CREATE INDEX auth_attempts_k ON auth_attempts(kind,client,at)",
+            "replay_sql": "CREATE INDEX auth_attempts_k ON auth_attempts (kind, client, at)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "jobs",
+            "table": "jobs",
+            "sql": "CREATE TABLE jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN('queued','running','done','failed')),payload TEXT NOT NULL,checkpoint TEXT,result TEXT,error TEXT,attempts INTEGER NOT NULL DEFAULT 0,max_attempts INTEGER NOT NULL DEFAULT 3,actor TEXT,lease_owner TEXT,lease_until TEXT,run_after TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,started_at TEXT,finished_at TEXT)",
+            "replay_sql": "CREATE TABLE jobs (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        type         TEXT NOT NULL,\n        status       TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'done', 'failed')),\n        payload      TEXT NOT NULL,\n        checkpoint   TEXT,\n        result       TEXT,\n        error        TEXT,\n        attempts     INTEGER NOT NULL DEFAULT 0,\n        max_attempts INTEGER NOT NULL DEFAULT 3,\n        actor        TEXT,\n        lease_owner  TEXT,\n        lease_until  TEXT,\n        run_after    TEXT NOT NULL,\n        created_at   TEXT NOT NULL,\n        updated_at   TEXT NOT NULL,\n        started_at   TEXT,\n        finished_at  TEXT\n    )",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_jobs_due",
+            "table": "jobs",
+            "sql": "CREATE INDEX idx_jobs_due ON jobs(status,run_after,id)",
+            "replay_sql": "CREATE INDEX idx_jobs_due ON jobs(status, run_after, id)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "import_rows",
+            "table": "import_rows",
+            "sql": "CREATE TABLE import_rows(import_id INTEGER NOT NULL,line INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN('new','update','same','error')),error TEXT NOT NULL DEFAULT '',made TEXT NOT NULL DEFAULT '{}',PRIMARY KEY(import_id,line))",
+            "replay_sql": "CREATE TABLE import_rows (\n        import_id INTEGER NOT NULL,\n        line      INTEGER NOT NULL,\n        state     TEXT NOT NULL CHECK (state IN ('new', 'update', 'same', 'error')),\n        error     TEXT NOT NULL DEFAULT '',\n        made      TEXT NOT NULL DEFAULT '{}',\n        PRIMARY KEY (import_id, line)\n    )",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "uow_guard",
+            "table": "uow_guard",
+            "sql": "CREATE TABLE uow_guard(ok INTEGER NOT NULL)",
+            "replay_sql": "CREATE TABLE uow_guard (ok INTEGER NOT NULL)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "uow_refs",
+            "table": "uow_refs",
+            "sql": "CREATE TABLE uow_refs(ulid TEXT PRIMARY KEY,id BIGINT NOT NULL)",
+            "replay_sql": "CREATE TABLE uow_refs (ulid TEXT PRIMARY KEY, id BIGINT NOT NULL)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "restore_marker",
+            "table": "restore_marker",
+            "sql": "CREATE TABLE restore_marker(run TEXT PRIMARY KEY,sha256 TEXT NOT NULL,applied_at TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE restore_marker (run TEXT PRIMARY KEY, sha256 TEXT NOT NULL, applied_at TEXT NOT NULL)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "idx_jobs_restore_confirm_active",
+            "table": "jobs",
+            "sql": "CREATE UNIQUE INDEX idx_jobs_restore_confirm_active ON jobs(payload)WHERE type = 'restore.confirm' AND status IN('queued','running')",
+            "replay_sql": "CREATE UNIQUE INDEX idx_jobs_restore_confirm_active ON jobs (payload) WHERE type = 'restore.confirm' AND status IN ('queued', 'running')",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "sessions",
+            "table": "sessions",
+            "sql": "CREATE TABLE sessions(id TEXT NOT NULL PRIMARY KEY,data TEXT NOT NULL,expires_at INTEGER NOT NULL,lock_token TEXT NOT NULL DEFAULT '',locked_until INTEGER NOT NULL DEFAULT 0)",
+            "replay_sql": "CREATE TABLE sessions (\n  id TEXT NOT NULL PRIMARY KEY,\n  data TEXT NOT NULL,\n  expires_at INTEGER NOT NULL,\n  lock_token TEXT NOT NULL DEFAULT '',\n  locked_until INTEGER NOT NULL DEFAULT 0\n)",
+            "replay": true
+        },
+        {
+            "type": "index",
+            "name": "sessions_expires_at",
+            "table": "sessions",
+            "sql": "CREATE INDEX sessions_expires_at ON sessions(expires_at)",
+            "replay_sql": "CREATE INDEX sessions_expires_at ON sessions (expires_at)",
+            "replay": true
+        },
+        {
+            "type": "table",
+            "name": "hosted_disabled_users",
+            "table": "hosted_disabled_users",
+            "sql": "CREATE TABLE hosted_disabled_users(user_id INTEGER NOT NULL PRIMARY KEY,disabled_at TEXT NOT NULL)",
+            "replay_sql": "CREATE TABLE hosted_disabled_users (\n  user_id INTEGER NOT NULL PRIMARY KEY,\n  disabled_at TEXT NOT NULL\n)",
+            "replay": true
+        }
+    ]
+}

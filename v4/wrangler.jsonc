@@ -29,6 +29,14 @@
 		}
 	],
 
+	// D12: one Installation Durable Object per installation — scheduler, migration lock, and (under
+	// DB_DRIVER=sqlite only) the database. A SQLite-backed class, so `new_sqlite_classes` rather than
+	// `new_classes`; the tag is append-only, so the next class gets `v2`.
+	"durable_objects": {
+		"bindings": [{ "name": "INSTALLATION", "class_name": "Installation" }]
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Installation"] }],
+
 	"vars": {
 		"DB_DRIVER": "sqlite",
 		// Empty means "not an rqlite install". The real value is set by .env on self-host (§11).
