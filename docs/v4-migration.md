@@ -1,7 +1,7 @@
 # Apotheke v4 — TypeScript on Workers/workerd: execution plan
 
 Owner: Apotheke PM · Build: Apotheke FullStack Developer · Branch of record: `experimental-v4`
-Created 2026-11-23 12:50 EET · **Revision 8 at 00:20 EET on 2026-11-24** — records what S0.2–S0.4 actually built
+Created 2026-11-23 12:50 EET · **Revision 9 at 00:35 EET on 2026-11-24** — records S0.8 (the rqlite driver) and, with it, G0's last unproven leg: `rqlite` from inside workerd, proven in run `45279526055` with the two remaining gaps (TLS to a self-signed node, retry across a real election) named rather than glossed. Narrows what is next to S0.6's D1 job, and states that a CI D1 job proves the emulated binding, not hosted D1. Revision 8 at 00:20 EET on 2026-11-24 — records what S0.2–S0.4 actually built
 and corrects four §3 rows that had drifted from the code: the vitest plugin (`@cloudflare/vitest-plugin`, the
 supported successor to the deprecated `vitest-pool-workers`), the `workerd` override that running
 `compatibility_date 2026-10-29` requires, `dependency-cruiser`'s SWC parser, and a hand-written `secretbox.ts` in
@@ -147,23 +147,31 @@ retry across a leader restart); FTS5 availability in the stock `rqlited` build; 
 write paths from the S0.4 audit — the spike that can send the database design back to Stathis if a call site cannot be
 expressed as one batch.
 
-Phase-0 spike status (2026-11-23 13:25 EET; detail in `shared/apotheke/v4-phase0-notes.md`): **FTS5 in stock
+Phase-0 spike status (2026-11-23 13:25 EET, updated 2026-11-24 00:35 EET; detail in `shared/apotheke/v4-phase0-notes.md`): **FTS5 in stock
 `rqlited` — pass** (`fts5(..., tokenize='unicode61 remove_diacritics 2')` and `fts5vocab` from
 `migrations/0019_search.php` apply in one batch; `MATCH 'kabel*'`, `bm25()` and the `engine()` probe all behave), so a
 self-host install reports `fts5` and keeps `like` as the safety net. **rqlite over HTTP — pass**
 (`[[sql, ...args]]` params, `?transaction` atomic with full rollback on a failed statement, per-statement
 `last_insert_id`/`rows_affected`, `error_v2.sqlite.code`, in-batch `last_insert_rowid()` resolving, TLS + basic auth
-rejecting both missing creds and plain HTTP on the TLS port). **rqlite from workerd — unproven, not a pass**:
-`wrangler dev` booted but every request stalled with `workerd` in state `D`, while the host sat at load 16–27 from
-other tenants. Loopback `fetch` from workerd, TLS against a self-signed cert and retry timing from inside the Worker
-therefore remain unproven, and G0 is **not** signed on this spike; the `v4.yml` rqlite job is the quiet box that
-settles it.
+rejecting both missing creds and plain HTTP on the TLS port). **rqlite from workerd — pass, 2026-11-24 00:26 EET**
+(run 45279526055, job `rqlite (driver, parity, workerd boot)` 13/13): `wrangler dev` with `DB_DRIVER=rqlite` against a
+real `rqlited` v10.7.4 started with `-auth` answers `/healthz 200 {"ok":true,"driver":"rqlite"}` and
+`/readyz 200 {"ok":true,"schema":"0036","seed":"done","driver":"rqlite"}`, so migrations, the seed phase and the
+readiness gate all run over loopback HTTP from inside the Worker. That closes the leg the noisy host could not settle
+and G0 is no longer blocked on it. Two gaps stay open and are recorded, not waved away: **TLS from workerd to a
+`rqlited` with a self-signed certificate** is implemented but unexercised, and **retry across a real leader election**
+is proven only against a stub `503` — killing and restarting a leader belongs with G3's restart-with-data.
 
-Slices landed by 2026-11-24 00:20 EET: S0.1 (`0e46d908`), S0.2 (`9aedb9e0`), S0.4 with its audit (`f1473b17`;
-audit `ac08ea6f` merged as `f27b79de`), S0.3 (`744bc946`). S0.7's D1 driver landed early inside S0.3 because S0.4's
-parity test needs a backend. Next is **S0.8** (rqlite driver): it is the only leg of G0 with no code behind it and the
-only one §7's rot risk names, and S0.6's rqlite and D1 jobs follow it. S0.5 (router) and S0.9 (compose) are not G0
-dependencies; S0.9 comes after S0.8 because it pins the `RQLITE_URL` contract that S0.8 defines.
+Slices landed by 2026-11-24 00:26 EET: S0.1 (`0e46d908`), S0.2 (`9aedb9e0`), S0.4 with its audit (`f1473b17`;
+audit `ac08ea6f` merged as `f27b79de`), S0.3 (`744bc946`), S0.8 (`94309317`, five commits `bc801feb` driver and
+tests, `bc472f50` the rqlite job, `4d179942` and `864a0efb` its two defects fixed, `94309317` the gaps recorded).
+S0.7's D1 driver landed early inside S0.3 because S0.4's parity test needs a backend, and S0.8 delivered S0.6's
+rqlite job with it. **Next is S0.6's remaining D1 job** — the last thing G0's CI sentence names and the only leg that
+has never run outside the emulator — and G0 is signed when that job is green. S0.5 (router) and S0.9 (compose) are
+not G0 inputs; S0.9 follows, now that S0.8 has pinned the `RQLITE_URL`, `RQLITE_AUTH` and `RQLITE_READ_CONSISTENCY`
+contract it has to expose. Known limit, stated so it is not mistaken for coverage: a CI D1 job proves the **emulated**
+D1 binding, not hosted D1; real D1 is first exercised when a hosted installation is provisioned, and that belongs to
+phase 1, not to G0.
 
 **Gate G0 (amended by D13):** TS runner vs PHP runner schema identical (normalised) on an empty database and on a
 v3.72 dump, on **all three** backends (one SQLite schema, so one comparison run three times), where "identical" means
@@ -351,6 +359,14 @@ sufficient: no dress rehearsal on a copy of real data, no shadow period. Two con
 drifted (vitest plugin, `workerd` override, SWC parser, `secretbox.ts`), and three rules the slices settled (D13's
 allowlist, D14's seed gate, D10's bootstrap exception) lived only in the phase notes, so the next reader would have
 re-derived them. No scope change; effort and gates stand.
+- 2026-11-24 00:35 EET — **Revision 9: S0.8 lands, and G0's rqlite leg is proven.** Rationale: the spike that read
+  "unproven, not a pass" was settled by the rqlite job in run `45279526055` — workerd answers `/readyz 200
+  {"schema":"0036","seed":"done","driver":"rqlite"}` against a real `rqlited` v10.7.4 with `-auth` — so the plan could
+  no longer describe it as open. Two red runs on the way (`45277610646`, `45278160385`) were the builder's own defects,
+  both fixed with the cause in the commit: a log-grep assertion that a green run never satisfies, and a fixture that
+  left schema version `9999` behind and made the next boot refuse correctly. What it costs: nothing; it narrows the
+  next slice to S0.6's D1 job. What it does **not** prove, and says so: TLS from workerd to a self-signed `rqlited`,
+  retry across a real election (G3), and real hosted D1 (phase 1).
 - 2026-11-24 00:20 EET — **Phase-0 order set by the gate, not by the slice list: S0.8 next.** Rationale: G0 needs the
 rqlite leg and `v4.yml`'s rqlite job, nothing else outstanding does; the router (S0.5) and the compose skeleton (S0.9)
 are not G0 inputs, and S0.9 is cheaper after S0.8 because it pins the `RQLITE_URL` contract. What it costs: the
