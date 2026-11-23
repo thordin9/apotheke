@@ -1,7 +1,14 @@
 # Apotheke v4 — TypeScript on Workers/workerd: execution plan
 
 Owner: Apotheke PM · Build: Apotheke FullStack Developer · Branch of record: `experimental-v4`
-Created 2026-11-23 12:50 EET · **Revision 7 at 22:40 EET** — repaired the three splice defects the
+Created 2026-11-23 12:50 EET · **Revision 8 at 00:20 EET on 2026-11-24** — records what S0.2–S0.4 actually built
+and corrects four §3 rows that had drifted from the code: the vitest plugin (`@cloudflare/vitest-plugin`, the
+supported successor to the deprecated `vitest-pool-workers`), the `workerd` override that running
+`compatibility_date 2026-10-29` requires, `dependency-cruiser`'s SWC parser, and a hand-written `secretbox.ts` in
+place of `libsodium-wrappers` (workerd disables the WebAssembly codegen it needs; the `enc:v1:` format is
+unchanged and PHP↔TS interop is proven in both directions). Amends **G0** to a literal allowlist with the
+write-idempotency cross-reference (**D13**), adds the **seed gate** (**D14**), records **D10**'s bootstrap
+exception, and states which phase-0 slices have landed. Revision 7 at 22:40 EET — repaired the three splice defects the
 revision-6 resync introduced (§4 had lost numbered item 1, §7 had a risk row with no impact or mitigation, §5
 listed S0.9 before S0.8), and recorded the two phase-0 decisions taken from the dev report: **D11** (the hosted
 refusals for inline taxonomy and photo duplication are lifted) and **D12** (the `Installation` DO is kept but
@@ -66,7 +73,7 @@ v4/                         new workspace (own package.json, tsconfig, wrangler.
   src/platform/             Sql, Blobs, Clock, Secrets, Autofill, Jobs, ImageProcessor adapters
   src/app/<module>/         one folder per CI4 module, same names as today
   src/index.ts              Worker entry (fetch + Ops entrypoint), later folded into edge/src
-  test/                     vitest (@cloudflare/vitest-pool-workers), fixtures, golden dumps
+  test/                     vitest (@cloudflare/vitest-plugin), fixtures, golden dumps
   migrations/               ported runner + the 35 existing migration definitions
 ```
 
@@ -79,7 +86,7 @@ keeping the port out of it means the branch cannot break main's deploy job, and 
 | Concern | Choice | Why |
 |---|---|---|
 | Language | TypeScript 7, `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, ESM | Already the version in `edge/`. |
-| Runtime | Workers (`workerd`), `compatibility_date` shared with `edge/wrangler.jsonc` (2026-10-29), `nodejs_compat` | One compatibility date for hosted and self-host, checked by a test. |
+| Runtime | Workers (`workerd`), `compatibility_date` shared with `edge/wrangler.jsonc` (2026-10-29), `nodejs_compat`, with a `workerd` override pinned at `1.20261117.1` in `v4/package.json` | One compatibility date for hosted and self-host, checked by a test. The override is part of the stack, not a stray dev dependency: the `workerd` that the toolchain pulls in by default refuses that date. |
 | HTTP | Hand-written router + middleware chain mirroring `app/Config/Routes.php` and the 14 filters in `app/Config/Filters.php` | CI4 semantics (permission per route, CSRF, host check) are the contract; a framework's conventions would have to be un-taught. No Hono. |
 | Views | Typed template functions returning HTML strings, one file per CI4 view, escaped through a single `h()` helper | Golden-page byte equality is achievable; no client build step for the UI. |
 | SQL | No ORM. Ported SQL behind an **async** `Sql` interface with three drivers: D1 (`env.DB.prepare/bind/all` + `batch`), rqlite (HTTP), and `ctx.storage.sql` (local DO SQLite). One SQLite dialect, so the SQL text is shared verbatim. ADR-002's 100-param-per-statement cap is **D1's own limit** and is kept as the ceiling for all three. | The SQL is already written and tested; an ORM would rewrite it and hide the parameter discipline. Async everywhere because two of the three drivers are network hops, and D1's `batch()` is the strongest atomic primitive D1 offers. |
@@ -87,12 +94,12 @@ keeping the port out of it means the branch cannot break main's deploy job, and 
 | D1 provisioning | One D1 database per hosted installation (D8), created through the Cloudflare API in the existing lifecycle job, its id recorded in the control plane; deletion = drop the database; backup/export is per database. | Isolation matches today's per-installation Durable Object, a backup/export is per database, and deleting an installation is a single drop. |
 | rqlite driver | Plain `fetch()` against rqlite's HTTP API (`/db/execute`, `/db/query`), parameterised statements as `[sql, ...values]`, positional rows (`{columns, types, values}`) zipped by the driver, `error_v2` handling, `db_timeout`, basic auth or TLS. No Node shims, no `cloudflare:sockets`. | The HTTP API works in workerd with nothing but `fetch`, and it is the only interface rqlite promises to keep stable. |
 | Files | R2 behind a `Blobs` adapter; keys unchanged (`installations/<do_name>/…`) | Same buckets, same keys, no migration. |
-| Crypto | WebCrypto HMAC for CSRF/tokens; `bcryptjs` for password hashes; `libsodium-wrappers` for `enc:v1:` secretbox values | `bcryptjs` verifies existing PHP `password_hash(…, PASSWORD_DEFAULT)` hashes unchanged, so no user is locked out; libsodium reads existing encrypted settings byte-for-byte. |
+| Crypto | WebCrypto HMAC for CSRF/tokens; `bcryptjs` for password hashes; hand-written XSalsa20-Poly1305 in `src/platform/secretbox.ts` for `enc:v1:` values | `bcryptjs` verifies existing PHP `password_hash(…, PASSWORD_DEFAULT)` hashes unchanged, so no user is locked out. `libsodium-wrappers` is **out**: workerd disables WebAssembly codegen, so the library cannot load at all. The format is libsodium's own secretbox, so `enc:v1:` values stay byte-compatible — proven in both directions against real `sodium_crypto_secretbox` (PHP 8.4.23), which is the only proof that matters here. |
 | ZIP | `fflate` (streaming) | Backup/restore format must stay readable by 2.6.x and the PHP image; PHP writes and TS reads, and the reverse, are both CI tests. |
 | QR/labels | `qrcode` (pure JS), output compared against the PHP `Labels\QrCode` fixtures | Same pixels on the label sheet. |
 | Images | `ImageProcessor` adapter: Images binding (hosted) / WASM codecs (workerd, lower pixel cap) / browser-side pre-resize | See decision D2. The adapter keeps the choice out of the app code. |
-| Unit tests | `@cloudflare/vitest-pool-workers` (runs the real bundle in workerd with real DO SQLite and R2) | Tests exercise the runtime that ships, not a Node mock of it. |
-| Lint | Biome + `dependency-cruiser` with rules copied from the deptrac module graph | `deptrac` and the DI rule stay for PHP; the TS graph gets the same boundaries. |
+| Unit tests | `@cloudflare/vitest-plugin` 1.9.1 (runs the real bundle in workerd with real DO SQLite and R2) | Tests exercise the runtime that ships, not a Node mock of it. `vitest-pool-workers` 0.23.0 is deprecated; the plugin is its supported successor, and it is the `workerd` process that the suite actually boots. Revisit when its bundled miniflare leaves beta, or at phase-1 start, whichever comes first. |
+| Lint | Biome + `dependency-cruiser` (SWC parser) with rules copied from the deptrac module graph | `deptrac` and the DI rule stay for PHP; the TS graph gets the same boundaries. Version 18 cannot parse TypeScript 7 without its `swc` parser configured, and without it it cruises **zero** modules and passes vacuously — a green lint that checks nothing is worse than a red one. |
 | CI | New `.github/workflows/v4.yml` on PRs into `experimental-v4` and pushes to it. `ci.yml` on `main` untouched | The frozen branch keeps its own green/red signal. |
 
 ## 4. Frozen interfaces (what "no regression" means concretely)
@@ -118,11 +125,11 @@ it. Sizes are rough person-weeks for one developer, tests and docs included.
 
 Slices:
 - S0.1 Branch and freeze: branch `experimental-v4` is already cut from `main` @ `4a187d0f`; add the `main-freeze` workflow (PR gate only — no branch protection, D9); commit this plan as `docs/v4-migration.md`; set `VERSION` to `4.0.0-dev`.
-- S0.2 `v4/` workspace: package.json, tsconfig, `wrangler.jsonc` (worker `apotheke-v4`, no routes, no containers), vitest-pool-workers, biome, dependency-cruiser, npm scripts (`dev`, `test`, `typecheck`, `lint`).
-- S0.3 Platform adapters + `Installation` DO: `Sql` (async, driver-pluggable), `Blobs`, `Clock`, `Secrets`, config loader, `blockConcurrencyWhile` migration-on-open, schema-newer-than-code refusal, `/healthz`. The DO's fate is decided (D12): it stays as scheduler + migration lock, owns the database only under `DB_DRIVER=sqlite`.
+- S0.2 `v4/` workspace: package.json, tsconfig, `wrangler.jsonc` (worker `apotheke-v4`, no routes, no containers), `@cloudflare/vitest-plugin`, biome, dependency-cruiser, npm scripts (`dev`, `test`, `typecheck`, `lint`).
+- S0.3 Platform adapters + `Installation` DO: `Sql` (async, driver-pluggable), `Blobs`, `Clock`, `Secrets`, config loader, `blockConcurrencyWhile` migration-on-open, schema-newer-than-code refusal, `/healthz`, and the seed gate (D14: the seed runs inside `blockConcurrencyWhile` before the first request is served, `/readyz` answers 503 while it is pending, `/healthz` answers 200 always). The DO's fate is decided (D12): it stays as scheduler + migration lock, owns the database only under `DB_DRIVER=sqlite`.
 - S0.4 Migration runner: the 35 migrations as typed steps, one SQLite dialect (shared by D1, rqlite and local SQLite), refuse-if-newer, unit of work supplied per driver (D1 `batch()`, one `?transaction` request on rqlite, `transactionSync` locally), plus the **transaction audit**: every `atomically()`/`inUnit()` call site (10 across 7 files) classified as expressible-in-one-batch or not, with the rewrite listed for each. Code is written to the batch contract, the weakest of the three.
 - S0.5 Router + filters: route table generated from `Routes.php` (method, path, permission, filter list), the filter chain in the real order (`hostcheck`, `publicbase`, `session`, `sameorigin`, `permission`, `sessioncsrf`/`apicsrf`), problem+json errors, security headers/CSP.
-- S0.6 CI `v4.yml`: typecheck → lint → unit → schema parity → workerd smoke (boot, `/healthz`, one table read), plus a **rqlite job** that starts a real `rqlited` and repeats migration, parity and handler suites, plus a **D1 job** using the Miniflare-emulated D1 binding under `vitest-pool-workers`. Real-D1 smoke (a database created through the API) runs on the branch only when a Cloudflare token is present, because the emulator is SQLite and would hide D1-specific limits.
+- S0.6 CI `v4.yml`: typecheck → lint → unit → schema parity → workerd smoke (boot, `/healthz`, one table read), plus a **rqlite job** that starts a real `rqlited` and repeats migration, parity and handler suites, plus a **D1 job** using the Miniflare-emulated D1 binding under `@cloudflare/vitest-plugin`. Real-D1 smoke (a database created through the API) runs on the branch only when a Cloudflare token is present, because the emulator is SQLite and would hide D1-specific limits.
 - S0.7 D1 driver: the `Sql` implementation over `env.DB` (`prepare`/`bind`/`all`, `batch` as the unit of work, `meta.changes`/`last_row_id` for results), the binding-name contract, and the local emulation path so the same code runs in tests.
 - S0.8 rqlite driver (self-host default): `Sql` implementation over the HTTP API, `DB_DRIVER=rqlite` boot path, plan-then-flush unit of work (`/db/execute?transaction`), read-consistency and retry/timeout policy, auth/TLS from the environment, and a documented `RQLITE_URL` contract for self-host.
 - S0.9 Self-host compose skeleton: `docker-compose.yml` (`apotheke` + `rqlite`), `docker-compose.sqlite.yml`
@@ -131,7 +138,9 @@ Slices:
 
 Timeboxed spikes inside phase 0 (one day each, result written into the phase notes):
 FTS5 available in DO SQLite under local `workerd`; DO alarms firing with `localDisk` storage; the bundled R2 disk
-bucket surviving `wrangler dev` restarts; `libsodium-wrappers` decrypting a PHP-produced `enc:v1:` value;
+bucket surviving `wrangler dev` restarts; PHP↔TS `enc:v1:` secretbox interop — **closed 2026-11-23 23:44**: real
+`sodium_crypto_secretbox` under a fixed key and nonce sealed a value the TS `secretbox.ts` opened, and a TS-sealed
+value opened in PHP, byte for byte, so v3 secrets stay readable in v4 and the reverse;
 `bcryptjs` verify cost for `PASSWORD_DEFAULT` hashes at cost 12; the Images binding's offline limits;
 rqlite from `workerd` (boot against a real `rqlited`, parameterised round trip, one atomic batch, TLS and basic auth,
 retry across a leader restart); FTS5 availability in the stock `rqlited` build; and the batch model carrying the real
@@ -150,9 +159,19 @@ other tenants. Loopback `fetch` from workerd, TLS against a self-signed cert and
 therefore remain unproven, and G0 is **not** signed on this spike; the `v4.yml` rqlite job is the quiet box that
 settles it.
 
-**Gate G0:** TS runner vs PHP runner schema identical (normalised) on an empty database and on a v3.72 dump, on **all
-three** backends (identical SQLite schema, so one comparison run three times); `/healthz` 200 from `wrangler dev` on D1
-and SQLite and from a workerd-only boot against a real `rqlited`; `v4.yml` green including the rqlite and D1 jobs.
+Slices landed by 2026-11-24 00:20 EET: S0.1 (`0e46d908`), S0.2 (`9aedb9e0`), S0.4 with its audit (`f1473b17`;
+audit `ac08ea6f` merged as `f27b79de`), S0.3 (`744bc946`). S0.7's D1 driver landed early inside S0.3 because S0.4's
+parity test needs a backend. Next is **S0.8** (rqlite driver): it is the only leg of G0 with no code behind it and the
+only one §7's rot risk names, and S0.6's rqlite and D1 jobs follow it. S0.5 (router) and S0.9 (compose) are not G0
+dependencies; S0.9 comes after S0.8 because it pins the `RQLITE_URL` contract that S0.8 defines.
+
+**Gate G0 (amended by D13):** TS runner vs PHP runner schema identical (normalised) on an empty database and on a
+v3.72 dump, on **all three** backends (one SQLite schema, so one comparison run three times), where "identical" means
+both directions held at once: the TS set contains every one of the PHP oracle's 64 objects (36 tables, 28 indexes),
+and the TS set minus the literal pair `_write_log` + `idx_write_log_created` — the two objects 0036 adds, inside the
+migration chain and not bolted on afterwards — equals the oracle exactly. No other object may appear on either side.
+`/healthz` 200 from `wrangler dev` on D1 and SQLite and from a workerd-only boot against a real `rqlited`; `/readyz`
+200 only once the seed is complete, 503 before it (D14); `v4.yml` green including the rqlite and D1 jobs.
 
 ### Phase 1 — Auth, sessions, page shell (3–4 pw)
 
@@ -279,6 +298,8 @@ gets one new switch: `APOTHEKE_BASE_URL`, so the same suite points at PHP or v4 
 | D10 | Write retries on rqlite after a `503` | **Answered 13:40 — every write unit carries an idempotency key** (`_write_log`, UUID per unit of work, conflict mapped to success). Reads retry freely; connect failures retry without a key; nothing after bytes leave the socket does | Rule 10 in §10; one table and one index in the schema, swept by the alarm job; same envelope on D1 so call sites are written once |
 | D11 | Hosted refusals for inline taxonomy (`422`) and photo duplication (`501`) | **Answered 21:15 — both are lifted in v4.** They exist only because the pre-batch code could not return a `Ref` from taxonomy create and `PhotoRepository::insert()` took `int`; the batch path removes the constraint, so re-shipping the refusal would port a limitation we just deleted | Audit sites #7 (`ItemController::save()`) and #8 (`Duplicate::copy()`) are rewritten in phase 1; `docs/api/openapi.yaml` and `docs/api.md` change in the same PR as the code. Revisit only if returning a `Ref` drags permission/auth paths into the rewrite, or if an external consumer of the documented `422`/`501` is found |
 | D12 | What is left of the `Installation` DO once it stops holding the database | **Answered 21:00 — keep one per installation, demoted** from database owner to scheduler + lock: `alarms` for per-installation jobs (Cron Triggers are per-Worker, not per-installation), `blockConcurrencyWhile` as the migration lock and refuse-if-newer gate, lease/cursor state only. No application data, off the request path. **Exception:** `DB_DRIVER=sqlite` still uses `ctx.storage.sql`, so the DO owns the database in exactly that one mode | S0.3; hosted D1 and rqlite both run the reduced DO, and no handler may know which mode it is in (the async `Sql` adapter's job). §10.1 updated |
+| D13 | What "identical schema" means now that v4 adds `_write_log` | **Answered 23:22 — a literal allowlist, checked in both directions.** The PHP runner's oracle is 64 objects (36 tables, 28 indexes) and v4 adds exactly `_write_log` and `idx_write_log_created`, both inside 0036 in the migration chain. G0 asserts TS ⊇ PHP object-for-object **and** TS minus that literal pair = PHP exactly | G0 amended in §5; the parity test compares a literal set pair, so a new object on either side fails CI instead of silently widening the allowlist |
+| D14 | First boot: seeding, and what readiness means before it finishes | **Answered 23:22 — a seed gate.** 64 settings, 4 roles and the first user are seeded inside `blockConcurrencyWhile` before the first request is served, and marked by a seed row rather than inferred from "the tables look empty"; `/readyz` answers **503 while a seed is pending**, `/healthz` answers **200 always** | S0.3; the PHP fixture's `seed_rows` (64 settings, 4 roles, 1 user) are compared on D1 and on DO SQLite, and a second seed is idempotent. The compose healthcheck probes `/healthz`, so an unseeded container is never restarted mid-seed |
 
 ### 8.1 D4 in plain terms (answered: G7 only)
 
@@ -326,6 +347,14 @@ sufficient: no dress rehearsal on a copy of real data, no shadow period. Two con
   become redundant on hosted. Net effort +1 pw against the original plan.
 - 2026-11-23 12:56 EET — **D1 reversed: PostgreSQL is dropped.** v4 supports SQLite (DO) and rqlite; rqlite is the self-host default. No migration path is built — a v3 backup ZIP exported and imported into v4 is sufficient, for v3 SQLite and v3 Postgres installs alike. Rationale: rqlite is SQLite over HTTP, so the SQL text, the schema, the migrations and the parity comparison stay single-dialect; it needs no Node shims under workerd; and it gives self-hosters replication and snapshots without a second engine to test. What it costs: no transaction spans a request (audit in S0.4), one extra process in the self-host stack, and every query becomes an HTTP round trip. Supersedes the 12:52 entry that kept Postgres.
 - 2026-11-23 12:56 EET — Clock correction: the earlier D1–D7 entries were stamped 13:05/13:22, ahead of the actual time. Relabelled 12:52/12:54; content unchanged.
+- 2026-11-24 00:20 EET — **Revision 8: the plan now describes the code that exists.** Rationale: four §3 rows had
+drifted (vitest plugin, `workerd` override, SWC parser, `secretbox.ts`), and three rules the slices settled (D13's
+allowlist, D14's seed gate, D10's bootstrap exception) lived only in the phase notes, so the next reader would have
+re-derived them. No scope change; effort and gates stand.
+- 2026-11-24 00:20 EET — **Phase-0 order set by the gate, not by the slice list: S0.8 next.** Rationale: G0 needs the
+rqlite leg and `v4.yml`'s rqlite job, nothing else outstanding does; the router (S0.5) and the compose skeleton (S0.9)
+are not G0 inputs, and S0.9 is cheaper after S0.8 because it pins the `RQLITE_URL` contract. What it costs: the
+phase-0 packaging deliverable slips behind the driver, which is the honest order anyway.
 
 ## 10. Database backends (D1, revised) — D1, rqlite, SQLite
 
@@ -394,6 +423,10 @@ Rules that make one code path work on all three:
     - `_write_log` is part of the schema on all three backends, carries a `created_at` index, is swept by the existing
       alarm job (`DELETE FROM _write_log WHERE created_at < ?`, 24 h), travels in the backup ZIP, and a restore keeps
       its keys so a retry that crosses a restore cannot double-apply.
+    - **Bootstrap exception.** A unit that runs *before* 0036 exists cannot open with an insert into `_write_log`,
+      because the table is not there yet. Those units — the migration runner's own apply-units — key on
+      `schema_migrations`' row instead: the unit inserts its `schema_migrations` row first, so a replay dies on that
+      primary key. Once 0036 is in, every write unit uses the `_write_log` envelope and no call site chooses which.
     - D1 does not need this (`batch()` is atomic and the binding reports per-statement failures), but it gets the same
       envelope so a call site is written once and tested once.
 
