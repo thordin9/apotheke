@@ -18,7 +18,6 @@ frontend/
   src/styles/base.css        reset and accessibility floor
   src/styles/landing.css     landing, privacy, 404 and the app shell
   src/consent.js             cookie notice; the app shell imports the same functions
-  src/styles/components.css  app components; imports tokens.css and base.css
   public/fonts/              self-hosted WOFF2 files and their OFL licence texts
   public/assets/icons.svg    icon sprite (<svg class="icon"><use href="/assets/icons.svg#search"/></svg>)
   public/assets/brand/       logo-light.svg, logo-dark.svg, mark.svg, mark-small.svg, app-icon.svg,
@@ -153,9 +152,7 @@ is not part of this site.
    `--color-error`, `--color-error-ink`, `--color-error-soft`, `--color-wordmark`, plus the
    neutrals (`--color-paper`, `-paper-2`, `-paper-3`, `-ink`, `-ink-2`, `-muted`, `-rule`,
    `-rule-2`, `-field-edge`), `--color-success`, `--color-overlay` and `--shadow-card`.
-
-3. **Components** (`components.css`) use only `--color-*`, the space, type and motion scales,
-   and the mascot sizes `--mascot-s` (48 px), `--mascot-m` (120 px) and `--mascot-l` (200 px).
+   Mascot sizes are `--mascot-s` (48 px), `--mascot-m` (120 px) and `--mascot-l` (200 px).
 
 Mode: the page follows `prefers-color-scheme`; `<html data-theme="light|dark">` overrides it.
 All durations become 0 under `prefers-reduced-motion: reduce`.

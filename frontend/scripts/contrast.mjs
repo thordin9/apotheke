@@ -30,6 +30,7 @@ export const PAIRS = [
   ['error', 'paper', 4.5, 'error and danger text'], ['error', 'paper-2', 4.5, 'error text on panels'], ['error-ink', 'error', 4.5, 'danger button'], ['error', 'error-soft', 4.5, 'error notice'], ['success', 'paper', 4.5, 'success text'],
   ['field-edge', 'paper', 3, 'field border'], ['field-edge', 'paper-2', 3, 'field border on panels'],
   ['focus', 'paper', 3, 'focus ring'], ['focus', 'paper-2', 3, 'focus ring on panels'], ['focus', 'paper-3', 3, 'focus ring on wells'],
+  ['focus', '--color-header', 3, 'focus ring on the header'],
   ['accent', 'paper-3', 3, 'progress and wake bar on track'],
   ['brand:primary-ink', 'brand:primary', 4.5, 'text on brand primary'],
   ['brand:secondary-ink', 'brand:secondary', 4.5, 'text on brand secondary (orange)'],
@@ -80,6 +81,11 @@ const ratio = (f, b) => { const [hi, lo] = [Y(f), Y(b)].sort((x, y) => y - x); r
 const name = (t) => (t.startsWith('--') ? t : t.startsWith('brand:') ? '--brand-' + t.slice(6) : '--color-' + t);
 
 const results = []; let fails = 0;
+const headerFocus = PAIRS.some((pair) => pair[0] === 'focus' && pair[1] === '--color-header' && pair[2] === 3 && pair[3] === 'focus ring on the header');
+if (!headerFocus) {
+  fails += 1;
+  results.push({ mode: 'light', fg: '--color-focus', bg: '--color-header', ratio: 0, min: 3, ok: false, what: 'focus ring on the header is missing from the pair list', gamut: '' });
+}
 for (const [mode, env] of [['light', light], ['dark', { ...light, ...darkA }]]) {
   for (const [fg, bg, min, what] of PAIRS) {
     const F = parse(resolveVar(`var(${name(fg)})`, env)), B = parse(resolveVar(`var(${name(bg)})`, env));

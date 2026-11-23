@@ -2,11 +2,17 @@
  * hero: the cupboard question beside the product shot · imagery: the product · signature: Where did you put the drill?
  * axes: light paper, grotesque sans, one violet · posture: sleek · contrast: pass · modes: light default, dark via prefers-color-scheme · v2.0.0
  * waive: 58. The page keeps the existing copy, so it is longer than a landing hero's word budget. */
-/* Hallmark · critique: tighter rhythm, a paper header in the light theme, the same ink and violet pairs */
+/* Hallmark · critique: tighter rhythm, a paper header in the light theme, the same ink and violet pairs.
+   The consent bar is the last flex row, so it takes its own height and the page above it scrolls. */
 @import url("./tokens.css");
 @import url("./base.css");
 
-body { font-weight: var(--body-weight); color: var(--color-ink-2); }
+body { font-weight: var(--body-weight); color: var(--color-ink-2); height: 100svh; display: flex; flex-direction: column; overflow: hidden; }
+/* Block layout, so a long .doc keeps its height. A flex column would let
+   min-height: 50svh shrink the article and park the footer in the middle. */
+.scroller { order: 1; flex: 1 1 auto; min-height: 0; overflow: auto; }
+#consent { order: 2; flex: none; }
+#consent[hidden] { display: none; }
 h1, h2, h3 { color: var(--color-ink); }
 a { font-weight: var(--strong-weight); color: var(--color-accent); transition: text-decoration-color var(--dur-micro) var(--ease-out); }
 a:hover { color: var(--color-accent-strong); }
@@ -16,26 +22,32 @@ a:hover { color: var(--color-accent-strong); }
 /* Light sticky bar. --color-header is paper in light and the dark bar only in dark mode. */
 .slab { position: sticky; top: 0; z-index: var(--z-sticky-nav); background: var(--color-header); color: var(--color-header-ink); border-bottom: var(--rule-hair) solid var(--color-rule); }
 .slab .container { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-sm); min-height: 56px; padding-block: var(--space-2xs); }
-.slab a { color: var(--color-header-ink); }
+.slab a:not(.btn-primary) { color: var(--color-header-ink); }
 .mark { font-family: var(--font-brand); font-weight: 800; display: inline-flex; align-items: center; gap: var(--space-xs); text-decoration: none; font-size: var(--text-lg); letter-spacing: -0.01em; min-height: 44px; white-space: nowrap; color: var(--color-header-ink); }
 .mark img { width: 32px; height: 32px; flex: none; display: block; }
 .slab nav { margin-left: auto; flex: none; }
 .slab ul { display: flex; gap: var(--space-2xs); list-style: none; margin: 0; padding: 0; }
 .slab nav a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: var(--space-sm); font-weight: var(--body-weight); text-decoration: none; white-space: nowrap; border-radius: var(--radius-control); }
-.slab nav a:hover { color: var(--color-header-ink); text-decoration: underline; text-decoration-color: var(--color-header-ink); }
+.slab nav a:not(.btn-primary):hover { color: var(--color-header-ink); text-decoration: underline; text-decoration-color: var(--color-header-ink); }
 .mark:hover { color: var(--color-header-ink); }
 .slab :focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .slab-actions { display: flex; flex-wrap: nowrap; gap: var(--space-2xs); align-items: center; justify-content: flex-end; }
 .nav-quiet { color: var(--color-header-ink); font-weight: var(--strong-weight); padding-inline: var(--space-xs); }
 .nav-quiet:hover { color: var(--color-header-ink); text-decoration: underline; text-decoration-color: var(--color-header-ink); }
-.slab a.btn { min-height: 44px; padding-inline: var(--space-sm); color: var(--color-ink); font-weight: var(--strong-weight); background: transparent; border-color: var(--color-rule); flex: 0 0 auto; }
-.slab a.btn:hover { background: var(--color-paper-2); color: var(--color-ink); text-decoration: none; }
-.slab a.btn-primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-ink); }
-.slab a.btn-primary:hover { background: var(--color-accent-strong); border-color: var(--color-accent-strong); color: var(--color-accent-ink); text-decoration: none; }
+.slab a.btn:not(.btn-primary) { min-height: 44px; padding-inline: var(--space-sm); color: var(--color-ink); font-weight: var(--strong-weight); background: transparent; border-color: var(--color-rule); flex: 0 0 auto; }
+.slab a.btn:not(.btn-primary):hover { background: var(--color-paper-2); color: var(--color-ink); text-decoration: none; }
 @media (max-width: 40rem) {
   .slab .container { flex-wrap: nowrap; }
   .mark { font-size: var(--text-md); }
-  .slab a.btn-primary { min-height: 44px; padding-inline: var(--space-xs); font-size: var(--text-sm); }
+}
+/* Below 24rem the wordmark, gaps, and control padding shrink so Sign in stays
+   on screen. The 44px target stays min-height plus padding, not a fixed width. */
+@media (max-width: 24rem) {
+  .slab .container { gap: var(--space-2xs); padding-inline: var(--space-xs); }
+  .mark { gap: var(--space-2xs); font-size: var(--text-sm); }
+  .mark img { width: 28px; height: 28px; }
+  .slab ul { gap: var(--space-3xs); }
+  .slab nav a { padding-inline: var(--space-xs); font-size: var(--text-sm); }
 }
 
 /* buttons: the pair */
@@ -44,6 +56,7 @@ a:hover { color: var(--color-accent-strong); }
 .btn:active { transform: translateY(1px); }
 .btn-primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-ink); }
 .btn-primary:hover { background: var(--color-accent-strong); border-color: var(--color-accent-strong); }
+.btn-s { min-height: 40px; padding-inline: var(--space-sm); }
 @media (prefers-reduced-motion: reduce) { .btn:active { transform: none; } }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-sm) var(--space-md); align-items: center; }
 .quiet { display: inline-flex; align-items: center; min-height: 44px; color: var(--color-ink-2); font-weight: var(--body-weight); text-decoration: none; }
@@ -55,7 +68,7 @@ a:hover { color: var(--color-accent-strong); }
 }
 
 /* hero: the question and the product, without a full-viewport slab */
-.hero { min-height: 0; display: grid; align-items: center; padding-block: var(--space-2xl); background: var(--color-paper); }
+.hero { min-height: 0; display: grid; align-items: center; padding-block: var(--space-xl); background: var(--color-paper); }
 @media (min-width: 60rem) { .hero .actions { flex-wrap: nowrap; } }
 .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-lg); align-items: center; }
 @media (min-width: 60rem) { .hero-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-xl); } }
@@ -66,9 +79,9 @@ a:hover { color: var(--color-accent-strong); }
 .hero .lead { margin: var(--space-sm) 0 var(--space-md); font-size: clamp(1.05rem, 0.4vw + 0.95rem, 1.25rem); line-height: 1.45; color: var(--color-ink-2); max-width: 34ch; }
 .hero-shot { margin: 0; }
 .hero-shot picture, .shots picture { display: block; }
-.hero-shot picture img { width: 100%; height: auto; border-radius: var(--radius-control); outline: var(--rule-hair) solid var(--color-rule); outline-offset: -1px; }
-@media (max-width: 40rem) {
-  .hero-shot picture img { width: auto; max-width: 100%; max-height: 10rem; margin-inline: auto; }
+.hero-shot picture img { width: 100%; height: min(70svh, 640px); max-height: min(70svh, 640px); object-fit: cover; object-position: top; border-radius: var(--radius-control); outline: var(--rule-hair) solid var(--color-rule); outline-offset: -1px; }
+@media (max-width: 59.99rem) {
+  .hero-shot picture img { height: min(42svh, 420px); max-height: min(42svh, 420px); }
 }
 .quick { margin-block: var(--space-lg); background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); padding: var(--space-md) var(--space-lg); }
 .quick h2 { font-size: var(--text-lg); letter-spacing: -0.02em; margin-bottom: var(--space-sm); max-width: none; }
@@ -86,14 +99,13 @@ a:hover { color: var(--color-accent-strong); }
 .answer { font-size: var(--text-lead); line-height: 1.45; max-width: 52ch; color: var(--color-ink-2); }
 .answer + .answer { margin-top: var(--space-md); }
 
-/* features: one column on a phone, two from a tablet up so ten cards fill every row */
-.shelf { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-md); grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+/* features: a ruled list, one column on a phone and two from a tablet up */
+.shelf { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); column-gap: var(--space-xl); }
 @media (min-width: 48rem) { .shelf { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.shelf li { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: var(--space-xs); margin: 0; padding: var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: var(--color-paper); }
-.shelf-mark { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: var(--radius-control); background: var(--color-accent-soft); color: var(--color-accent-soft-ink); }
-.shelf-icon { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
-.shelf strong { display: block; color: var(--color-ink); font-weight: var(--strong-weight); font-size: var(--text-md); }
-.shelf li div span { color: var(--color-ink-2); }
+.shelf > div { margin: 0; padding-block: var(--space-sm); border-bottom: var(--rule-hair) solid var(--color-rule); }
+.shelf dt { display: flex; align-items: center; gap: var(--space-xs); margin: 0 0 var(--space-2xs); color: var(--color-ink); font-weight: var(--strong-weight); font-size: var(--text-md); }
+.shelf dd { margin: 0; color: var(--color-ink-2); }
+.shelf-icon { width: 20px; height: 20px; flex: none; color: var(--color-accent); fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 
 /* screenshots */
 .shots { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-columns); align-items: end; }
@@ -108,10 +120,10 @@ a:hover { color: var(--color-accent-strong); }
 /* two-column answer + facts */
 .split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
 @media (min-width: 60rem) { .split { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: var(--space-2xl); align-items: start; } }
-.facts { list-style: none; margin: 0; padding: 0; border-top: var(--rule-hair) solid var(--color-ink); }
+.facts { list-style: none; margin: 0; padding: 0; border-top: var(--rule-hair) solid var(--color-rule); }
 .facts li { padding: var(--space-sm) 0; border-bottom: var(--rule-hair) solid var(--color-rule); }
 .facts li strong { display: block; color: var(--color-ink); }
-.links { list-style: none; margin: 0; padding: 0; border-top: var(--rule-hair) solid var(--color-ink); }
+.links { list-style: none; margin: 0; padding: 0; border-top: var(--rule-hair) solid var(--color-rule); }
 .links li { border-bottom: var(--rule-hair) solid var(--color-rule); }
 .links a { display: flex; align-items: center; min-height: 52px; text-decoration: none; }
 .links a:hover { text-decoration: underline; text-decoration-color: var(--color-accent); }
@@ -119,10 +131,9 @@ a:hover { color: var(--color-accent-strong); }
 .release .figure { display: block; font-variant-numeric: tabular-nums; font-size: var(--text-display-s); font-weight: var(--display-weight); letter-spacing: var(--tracking-display); line-height: 1.05; color: var(--color-ink); margin: var(--space-xs) 0; }
 .release p { color: var(--color-muted); }
 .release .actions { margin-top: var(--space-md); }
-.slot-text { box-shadow: inset 0 -2px 0 var(--color-accent); }
 
 /* FAQ disclosures */
-.faq { border-top: var(--rule-hair) solid var(--color-ink); margin: 0; }
+.faq { border-top: var(--rule-hair) solid var(--color-rule); margin: 0; }
 .faq > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3xs) var(--gap-columns); padding-block: var(--space-md); border-bottom: var(--rule-hair) solid var(--color-rule); }
 @media (min-width: 48rem) { .faq > div { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: baseline; } }
 .faq dt { font-weight: var(--strong-weight); font-size: var(--text-md); color: var(--color-ink); }
@@ -170,8 +181,8 @@ a:hover { color: var(--color-accent-strong); }
 :root[data-theme="dark"] .logo-l { display: none; } :root[data-theme="dark"] .logo-d { display: inline; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .logo-l { display: none; } :root:not([data-theme="light"]) .logo-d { display: inline; } }
 
-/* Cookie notice. Both actions use .btn so they have the same weight. Fixed to the bottom so the hero stays in the first screen; the page itself still scrolls and is not covered once the notice is dismissed. */
-.consent { position: fixed; inset-inline: 0; inset-block-end: 0; z-index: var(--z-sticky); background: var(--color-paper); color: var(--color-ink-2); border-block-start: var(--rule-hair) solid var(--color-ink); padding-block: var(--space-md); box-shadow: var(--shadow-card); }
+/* Cookie notice. Both actions use .btn so they have the same weight. It is the last row of the page, so its height is real and the footer scrolls clear of it. */
+.consent { position: sticky; bottom: 0; z-index: var(--z-sticky); background: var(--color-paper); color: var(--color-ink-2); border-block-start: var(--rule-hair) solid var(--color-rule); padding-block: var(--space-md); }
 .consent-inner { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-md); align-items: center; }
 .consent-title { margin: 0 0 var(--space-2xs); color: var(--color-ink); font-family: var(--font-body); font-size: var(--text-md); font-weight: var(--strong-weight); letter-spacing: 0; line-height: 1.3; }
 .consent-copy p { margin: 0; max-width: 62ch; }
@@ -179,13 +190,13 @@ a:hover { color: var(--color-accent-strong); }
 .consent-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-sm); }
 .consent-actions .btn { width: 100%; }
 @media (min-width: 60rem) { .consent-inner { grid-template-columns: minmax(0, 1fr) auto; } .consent-actions { min-width: 22rem; } }
-body:has(#consent:not([hidden])) { padding-block-end: 7.5rem; }
-@media (max-width: 40rem) { body:has(#consent:not([hidden])) { padding-block-end: 14rem; } }
 @media print { .consent { display: none; } }
 
-/* App shell. The page fills the viewport so the shared footer sits under the card. */
-body:has(#app) { min-height: 100svh; display: flex; flex-direction: column; }
-body:has(#app) #main { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; padding-block: var(--space-lg); }
+/* App shell. The card keeps its own height and starts at the top when the
+   notice leaves too little room to centre it. The footer does not shrink away. */
+body:has(#app) .scroller { display: flex; flex-direction: column; }
+body:has(#app) #main { flex: 1 0 auto; display: flex; align-items: safe center; justify-content: center; min-height: auto; padding-block: var(--space-lg); }
+body:has(#app) .scroller > .mast { flex-shrink: 0; }
 #app { display: grid; gap: var(--space-sm); width: min(100%, 24rem); }
 #app h1 { max-width: none; font-size: var(--app-text-2xl); letter-spacing: -0.02em; line-height: 1.2; }
 #app .answer { font-size: var(--app-text-md); }
