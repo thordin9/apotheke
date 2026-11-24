@@ -21,8 +21,22 @@
 //      driver, and the emulated D1 binding hands back a plain byte array, so the same column has
 //      three JS shapes on the three backends. No handler reads a BLOB column today (media lives in
 //      R2), which is why asserting this rather than normalising it is the smaller change.
+//   5. The engine's identity and its `PRAGMA` settings are refused, not reported: `PRAGMA
+//      journal_mode` answers `SQLITE_AUTH` and `SELECT sqlite_version()` answers "not authorized to
+//      use function", on this driver and on D1 alike. So `src/` may not tune or even name its engine
+//      from SQL, and `adapters.md`'s "measured, not inferred" has this spec behind it. The last test
+//      below is the only guard on that sentence.
 //
-// `v4.yml`'s `sqlite` job is the leg that runs these five specs by name.
+// `v4.yml`'s `sqlite` job is the leg that runs these six specs by name.
+//
+// Expected throws in this leg's log. Four lines in every job's output are deliberate refusals, not
+// damage — the suite prints them because workerd logs an uncaught exception even when a spec catches
+// it. All four, so nobody chases one at 2 a.m. and concludes the driver broke:
+//
+//   * `too many SQL variables at offset 997` — fact 3's negative control (101 binds).
+//   * `no such table: driver_missing` — fact 2's rollback probe, thrown mid-unit by design.
+//   * `table broken has no column named nope` — `migrations.spec.ts`'s deliberately broken migration.
+//   * `UNIQUE constraint failed: _write_log.id` — the replayed write in `migrations.spec.ts`.
 
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
@@ -112,5 +126,15 @@ describe("the sqlite driver (DO storage)", () => {
 		expect(row?.n).toBe(4);
 		expect(row?.data).toBeInstanceOf(ArrayBuffer);
 		expect(Array.from(new Uint8Array(row?.data as ArrayBuffer))).toEqual([1, 2, 255, 0]);
+	});
+
+	it("refuses to name or tune its own engine: no PRAGMA, no sqlite_version()", async () => {
+		const sql = sqlite("sqlite-driver");
+		// Fact 5. The sandbox answers both with a refusal rather than a value, which is why the
+		// absence is the contract: a statement here that returns a row would be a backend change.
+		await expect(sql.all({ sql: "PRAGMA journal_mode" })).rejects.toThrow(/SQLITE_AUTH/);
+		await expect(sql.all({ sql: "SELECT sqlite_version() AS v" })).rejects.toThrow(
+			/not authorized to use function/,
+		);
 	});
 });
