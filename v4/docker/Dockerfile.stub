@@ -19,6 +19,13 @@ WORKDIR /app
 ENV CI=1 \
     WRANGLER_SEND_METRICS=false
 
+# workerd refuses to start without a system CA bundle — "service internet: TLS configuration:
+# unexpected error: No CA certificates were loaded from the system" — and `node:*-slim` ships none.
+# It is the one OS package this skeleton needs, and it is needed before the Worker can boot at all.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Dependencies first, so a source edit does not re-run `npm ci`. The lockfile is the one CI uses.
 COPY package.json package-lock.json ./
 RUN npm ci
