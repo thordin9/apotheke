@@ -27,7 +27,7 @@ state that exists only inside one boot**, never between a request and its databa
 ```
 /healthz   always 200, never touches a database      ← the compose healthcheck probes THIS
 /readyz    200 {schema, seed:"done"} or 503 problem+json with the reason
-anything   503 until boot succeeded, then 404 (until S0.5 adds routes)
+anything   503 until boot succeeded, then the router (S0.5): 401/403/404/405/501 problem+json
 ```
 
 Two rules follow, and both are in the code rather than in a habit:
@@ -66,8 +66,8 @@ adopt, and why the gate above exists instead of a silent skip.
   fixture real libsodium produced (`test/fixtures/secretbox.json`), and — closed 2026-11-23 23:44 —
   against `sodium_crypto_secretbox` in both directions (a PHP-sealed `enc:v1:` value opens here, and
   a value sealed here opens in PHP 8.4.23). Plan §3's Crypto row records it.
-- **`/readyz` is unauthenticated** until phase 1's filter chain exists; that is why the compose
-  healthcheck above does not use it.
+- **`/readyz` is answered before the router** (S0.5), and stays unauthenticated until phase 1 moves it
+  behind the session/permission filter; that is why the compose healthcheck above does not use it.
 - **CI proves the emulated D1 binding, not hosted D1.** The `v4.yml` `d1` job boots workerd on the
   Miniflare D1 binding — SQLite under workerd — and then reads the database it wrote: 36
   `schema_migrations` rows, 0019's seven `search_fts` objects against the PHP oracle (so a backend
