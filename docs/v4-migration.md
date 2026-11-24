@@ -1,7 +1,7 @@
 # Apotheke v4 — TypeScript on Workers/workerd: execution plan
 
 Owner: Apotheke PM · Build: Apotheke FullStack Developer · Branch of record: `experimental-v4`
-Created 2026-11-23 12:50 EET · **Revision 14 at 03:40 EET on 2026-11-24** — a record correction, no scope change. §5 recorded S0.9's head as `e654d275`, which is where run `45305147064` was green, not where S0.9 ends: the sixth commit, `d3aaafb1`, adds the root-level-path line D16 asks the walkthrough to state, and it is green in run `45305655725` (six jobs, 47 steps, zero non-success, zero skipped). Revision 13's own timestamp is corrected too — it was committed at 03:33 EET, not 03:45. **Revision 13 at 03:33 EET on 2026-11-24** — records S0.9 landing and fixes the one table row the run proved wrong. Run `45305147064` (six jobs, 57 steps, zero non-success, zero skipped) brings both stacks up from `down -v`, answers `/readyz 200 {"schema":"0036","seed":"done"}` with `driver` `rqlite` and `sqlite` respectively, asserts both container healthchecks through `compose ps`, and proves a second boot over the same volume leaves the seeded rows identical — full row content, bcrypt hash included, with the row counts asserted before the comparison so a read that missed the WAL fails instead of passing quietly. The correction: **§11's rqlite volume row.** rqlite v10.7.4 keeps the raft log and the SQLite database inside **one** data directory and has no flag to split them; the image pre-creates `/rqlite/file` owned by uid 1000, so the stack mounts one volume there with `DATA_DIR=/rqlite/file/data` — not `rqlite-raft:/data/raft` + `rqlite-db:/data/db`, a layout this image does not have at all. Adds **D17**. Revision 12 at 03:30 EET — names where the compose skeleton actually lives in phase 0: under `v4/`, not at the repo root, because the root already ships v3's `docker-compose.yml` (blob `d631dc53`, 4,734 bytes: nginx/php-fpm and FrankenPHP images, `./data:/data`) and v3's `.env.example` (blob `7c3da402`), which are the files today's self-hosters run and the ones `docs/getting-started.md` and `docs/deployment-and-operations.md` describe. Overwriting them in phase 0 would hand a v3 operator a stack the v4 app cannot serve yet — S0.5 is not landed, and auth, pages and API are phases 1–2. The root swap becomes the cutover step (P7), with v3's compose kept for one release as `docker-compose.v3.yml`. Adds **D16**. Revision 11 at 02:05 EET — one correction, no scope change: §11's service contract named the published URL `PUBLIC_BASE_URL`, a name that appears nowhere else in the repo; the variable is `PUBLIC_URL` (`v4/src/env.ts`, `v4/src/platform/config.ts`, `v4/wrangler.jsonc`) and it is the same name v3 already ships, so adopting the table's wording would break every existing self-host `.env`. Revision 10 text follows. **Revision 10 at 00:50 EET on 2026-11-24** — records S0.6's D1 job landing (run `45282360833`: five jobs, the emulated D1 binding booted and its bytes inspected) and **signs off G0**, naming what that sign-off does not cover. Narrows what is next to S0.9, the compose skeleton, which now has an environment contract to pin. Revision 9 at 00:35 EET on 2026-11-24 — records S0.8 (the rqlite driver) and, with it, G0's last unproven leg: `rqlite` from inside workerd, proven in run `45279526055` with the two remaining gaps (TLS to a self-signed node, retry across a real election) named rather than glossed. Narrows what is next to S0.6's D1 job, and states that a CI D1 job proves the emulated binding, not hosted D1. Revision 8 at 00:20 EET on 2026-11-24 — records what S0.2–S0.4 actually built
+Created 2026-11-23 12:50 EET · **Revision 15 at 04:10 EET on 2026-11-24** — records S0.5 landing, which **closes phase 0**, and slices phase 1 (S1.1–S1.4 plus the gate) so the next dispatch is a definition of done rather than a phase title. Phase 0 ends with nine slices landed and gate G0 signed at 00:50, and with the surface it deliberately does not serve written down rather than implied: no page renders, no session exists, and every page route answers 401 or 501 problem+json. Slicing phase 1 is organisation, not new scope — the contents are §5's phase-1 paragraph, unchanged. **Revision 14 at 03:40 EET on 2026-11-24** — a record correction, no scope change. §5 recorded S0.9's head as `e654d275`, which is where run `45305147064` was green, not where S0.9 ends: the sixth commit, `d3aaafb1`, adds the root-level-path line D16 asks the walkthrough to state, and it is green in run `45305655725` (six jobs, 47 steps, zero non-success, zero skipped). Revision 13's own timestamp is corrected too — it was committed at 03:33 EET, not 03:45. **Revision 13 at 03:33 EET on 2026-11-24** — records S0.9 landing and fixes the one table row the run proved wrong. Run `45305147064` (six jobs, 57 steps, zero non-success, zero skipped) brings both stacks up from `down -v`, answers `/readyz 200 {"schema":"0036","seed":"done"}` with `driver` `rqlite` and `sqlite` respectively, asserts both container healthchecks through `compose ps`, and proves a second boot over the same volume leaves the seeded rows identical — full row content, bcrypt hash included, with the row counts asserted before the comparison so a read that missed the WAL fails instead of passing quietly. The correction: **§11's rqlite volume row.** rqlite v10.7.4 keeps the raft log and the SQLite database inside **one** data directory and has no flag to split them; the image pre-creates `/rqlite/file` owned by uid 1000, so the stack mounts one volume there with `DATA_DIR=/rqlite/file/data` — not `rqlite-raft:/data/raft` + `rqlite-db:/data/db`, a layout this image does not have at all. Adds **D17**. Revision 12 at 03:30 EET — names where the compose skeleton actually lives in phase 0: under `v4/`, not at the repo root, because the root already ships v3's `docker-compose.yml` (blob `d631dc53`, 4,734 bytes: nginx/php-fpm and FrankenPHP images, `./data:/data`) and v3's `.env.example` (blob `7c3da402`), which are the files today's self-hosters run and the ones `docs/getting-started.md` and `docs/deployment-and-operations.md` describe. Overwriting them in phase 0 would hand a v3 operator a stack the v4 app cannot serve yet — S0.5 is not landed, and auth, pages and API are phases 1–2. The root swap becomes the cutover step (P7), with v3's compose kept for one release as `docker-compose.v3.yml`. Adds **D16**. Revision 11 at 02:05 EET — one correction, no scope change: §11's service contract named the published URL `PUBLIC_BASE_URL`, a name that appears nowhere else in the repo; the variable is `PUBLIC_URL` (`v4/src/env.ts`, `v4/src/platform/config.ts`, `v4/wrangler.jsonc`) and it is the same name v3 already ships, so adopting the table's wording would break every existing self-host `.env`. Revision 10 text follows. **Revision 10 at 00:50 EET on 2026-11-24** — records S0.6's D1 job landing (run `45282360833`: five jobs, the emulated D1 binding booted and its bytes inspected) and **signs off G0**, naming what that sign-off does not cover. Narrows what is next to S0.9, the compose skeleton, which now has an environment contract to pin. Revision 9 at 00:35 EET on 2026-11-24 — records S0.8 (the rqlite driver) and, with it, G0's last unproven leg: `rqlite` from inside workerd, proven in run `45279526055` with the two remaining gaps (TLS to a self-signed node, retry across a real election) named rather than glossed. Narrows what is next to S0.6's D1 job, and states that a CI D1 job proves the emulated binding, not hosted D1. Revision 8 at 00:20 EET on 2026-11-24 — records what S0.2–S0.4 actually built
 and corrects four §3 rows that had drifted from the code: the vitest plugin (`@cloudflare/vitest-plugin`, the
 supported successor to the deprecated `vitest-pool-workers`), the `workerd` override that running
 `compatibility_date 2026-10-29` requires, `dependency-cruiser`'s SWC parser, and a hand-written `secretbox.ts` in
@@ -165,7 +165,7 @@ and G0 is no longer blocked on it. Two gaps stay open and are recorded, not wave
 `rqlited` with a self-signed certificate** is implemented but unexercised, and **retry across a real leader election**
 is proven only against a stub `503` — killing and restarting a leader belongs with G3's restart-with-data.
 
-Slices landed by 2026-11-24 03:31 EET: S0.1 (`0e46d908`), S0.2 (`9aedb9e0`), S0.4 with its audit (`f1473b17`;
+Slices landed by 2026-11-24 03:56 EET: S0.1 (`0e46d908`), S0.2 (`9aedb9e0`), S0.4 with its audit (`f1473b17`;
 audit `ac08ea6f` merged as `f27b79de`), S0.3 (`744bc946`), S0.8 (`94309317`, five commits `bc801feb` driver and
 tests, `bc472f50` the rqlite job, `4d179942` and `864a0efb` its two defects fixed, `94309317` the gaps recorded),
 S0.6's D1 job (`48d7dc00`, plus `d2c1c173` correcting `adapters.md`), and S0.9 (`d3aaafb1`, six commits:
@@ -173,6 +173,8 @@ S0.6's D1 job (`48d7dc00`, plus `d2c1c173` correcting `adapters.md`), and S0.9 (
 failure-path fix, `9eefa7a5` the missing CA bundle, `e654d275` the healthcheck assertions, `d3aaafb1` the
 root-level-path line D16 asks the walkthrough to state). S0.7's D1 driver landed
 early inside S0.3 because S0.4's parity test needs a backend, and S0.8 delivered S0.6's rqlite job with it.
+S0.5 (`c79f8389`, three commits: `90f9e81e` the router, chain and problem+json, `7f3898b4` the
+walkthrough correction, `c79f8389` `adapters.md`).
 
 **D1 from the emulated binding — pass, 2026-11-24 00:44 EET** (run `45282360833`, run 15, job `d1 (emulated
 binding, parity, workerd boot)` 12/12; five jobs, zero non-success and zero skipped steps): the suite's own JSON
@@ -210,12 +212,60 @@ an EXIT trap while the log dump lived in an ERR trap — one EXIT trap now dumps
 the wait fails in seconds when the container is `exited`; run 20's single line was `No CA certificates were loaded
 from the system`, because `node:22-slim` ships no CA bundle and workerd refuses to boot — the stub image now
 installs `ca-certificates`. What S0.9 does **not** prove: G6's acceptance list (claim admin, create an item, upload
-a photo, download and restore the backup ZIP) needs S0.5's router and pages, so this slice pins packaging and the
+a photo, download and restore the backup ZIP) needs S0.5's router (landed 03:56) and P2's pages, so this slice pins packaging and the
 readiness/seed contract, not the product; the image is a **stub**, not a release image; TLS to rqlite is G6 and
 retry across a live election is G3.
 
-**Next is S0.5** — the router and the filter chain — the last phase-0 slice, and the one that makes G6's acceptance
-list testable at all: the compose stack can be smoke-tested today but not accepted until it lands.
+**S0.5 — landed 03:56 EET**, head `c79f8389`, three commits, 19 files in the first of them. Green in run
+`45308153624` at `90f9e81e` and again in `45308619604` at the docs head `c79f8389`: six jobs, 58 steps, zero
+non-success and zero skipped. What it actually is, checked against the tree rather than the report: **281 route rows**
+generated from the PHP app's own artifact (`app/Config/RoutesCompiled.php` + `app/Config/Filters.php`), the chain in
+CI4's real order as data (14 required before, the globals with their `except` lists, `apicsrf` per path, then
+`securityheaders` and the three required after filters), `problem.ts` with both header sets copied verbatim from
+`SecurityPolicy`/`ApiSecurityPolicy`, and exactly two live handlers — the frozen `/api` 404 and 501 "not ported yet".
+Fail-closed is **demonstrated, not asserted**: every one of the 281 rows is turned into a request and run through the
+real chain, no row answers 2xx except the CORS preflight, the parity test compares each row's method, path, name,
+handler, permission and filter list against the PHP fixture in both directions, and `npm run routes:check` fails when
+`Routes.php` or `Filters.php` changes without regeneration (adding one newline to `Routes.php` was shown to turn CI
+red). Two answers are scaffold and documented as scaffold: a page route that needs a session answers **401** where v3
+redirects 303 to `/login` — there is no login page until P1/P2 — and page 404/405 are problem+json where v3 renders
+the error page. `/healthz` and `/readyz` are untouched and still answered before the router (D14, §11 rule 7).
+
+**Phase 0 — complete at 03:56 EET on 2026-11-24.** Nine slices, S0.7 inside S0.3, every phase-0 spike closed or
+assigned to the gate that exercises it, and G0 signed at 00:50 with its three limits named (emulated D1 is not hosted
+D1 — P1; TLS to a self-signed `rqlited` — G6; retry across a real leader election — G3). What phase 0 produced is
+machinery: one schema, one runner, three drivers, a boot gate, a router that fails closed, and CI that runs all of it
+on all three backends. Nothing in it is a product yet — no page renders and no one can sign in — and that is the
+phase-1 job.
+
+**Phase 1 — sliced.** Contents unchanged from the paragraph above; the slices exist so each one can be refused or
+accepted on evidence. Sequence is set by dependency, not by size: a login form needs a shell to render in, and users
+and roles need a session to check.
+
+- **S1.1 Page shell and the login page (HTML identity).** Template engine, layout and partials, flash and CSRF form
+  fields, CSS/JS served from the Worker with the right content types and cache headers, v3's error pages in place of
+  the 404/405 scaffold, and `/login` rendering the same HTML the PHP app renders. DoD: a golden-HTML test compares v4's
+  `/login` against a PHP-rendered fixture, normalised only for the CSRF token and session id, and fails on a changed
+  whitespace run or attribute order; assets are byte-identical to `public/`'s; no page route still answers
+  `501 route.not_implemented`.
+- **S1.2 Sessions, cookies, CSRF, throttle, sign-in/out, first-admin claim.** Session store and epoch, `__Host-`
+  cookie with no `Domain`, rotation on password change and on privilege change, the sign-in throttle, `POST /login`,
+  `GET /logout`, `/claim` for the first admin. DoD: a session v4 issues is the row v3 would have written (columns and
+  serialisation compared against the PHP fixture); no cookie carries `Domain`; a pre-rotation session stops
+  authenticating once the epoch moves; N failed sign-ins are throttled with a 429 and the same N from a fresh
+  session are not.
+- **S1.3 Users and roles admin, and the `RoleAdmin` last-manager check.** List/create/edit/delete users, roles and
+  permissions through the ported controllers. The last-manager race (plan §10.1) gets its `EXISTS` assertion inside
+  the write unit **here**, whichever way Stathis rules on the `main` fix: the assert is the same work, and S1.3 is not
+  blocked by that decision. DoD: the role permission matrix matches PHP route-for-route; removing the last holder of a
+  permission answers 422 with the same message v3 sends; two concurrent edits in one unit cannot both remove it.
+- **S1.4 `/api/v1/session` and the API auth path.** The one API route phase 1 owns, plus the api chain's own
+  behaviour once a session exists (`apicsrf`, the API header set on success as well as refusal). DoD: the contract
+  test compares status, headers and body against the OpenAPI document for the route, and `docs/api.md` changes in the
+  same commit.
+
+**Gate G1** is not a slice: it is the proof that S1.1–S1.4 hang together — `visual-login.spec.ts` and the auth
+functional specs green with untouched baselines, and the permission matrix equal to PHP route-for-route.
 
 **Gate G0 (amended by D13):** TS runner vs PHP runner schema identical (normalised) on an empty database and on a
 v3.72 dump, on **all three** backends (one SQLite schema, so one comparison run three times), where "identical" means
@@ -422,6 +472,15 @@ re-derived them. No scope change; effort and gates stand.
   rqlite has no such route — while the principle it was reaching for is rule 7's own. `depends_on: service_healthy` on
   rqlite stays (rule 2, cold start); it is not a correctness mechanism, and the 1s-cooldown `/readyz` retry is.
   What it costs: nothing. What it changes: the builder is unblocked on S0.9 with the plan and the code agreeing on names.
+- 2026-11-24 04:10 EET — **Revision 15: S0.5 lands, phase 0 closes, phase 1 is sliced.** Rationale: the last
+  phase-0 slice shipped green in runs `45308153624` and `45308619604` (six jobs, 58 steps, zero non-success, zero
+  skipped) and its evidence is a closed surface rather than a claim — 281 rows turned into requests, no 2xx outside
+  the CORS preflight, parity both ways against the PHP fixture, and a routes step that goes red when the PHP sources
+  move. That makes phase 0's machinery complete, so the plan's job changes from "what to build in phase 0" to "what
+  to refuse in phase 1", which is why phase 1 got slices with definitions of done. What it costs: nothing. What it
+  changes: §11's acceptance sentence no longer blames the router for the missing pages, and phase 1 has an order.
+  What it does **not** do: it does not decide the `RoleAdmin` question, and it does not promise a page — nothing here
+  renders.
 - 2026-11-24 03:40 EET — **Revision 14: a record correction, no scope change.** Rationale: §5 named S0.9's head as
   `e654d275`, which is where run `45305147064` went green, but the slice's sixth commit `d3aaafb1` (the
   root-level-path line D16 asks for) is the actual head and has its own green run, `45305655725`. Revision 13's
