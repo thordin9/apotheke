@@ -1,7 +1,7 @@
 # Apotheke v4 — TypeScript on Workers/workerd: execution plan
 
 Owner: Apotheke PM · Build: Apotheke FullStack Developer · Branch of record: `experimental-v4`
-Created 2026-11-23 12:50 EET · **Revision 10 at 00:50 EET on 2026-11-24** — records S0.6's D1 job landing (run `45282360833`: five jobs, the emulated D1 binding booted and its bytes inspected) and **signs off G0**, naming what that sign-off does not cover. Narrows what is next to S0.9, the compose skeleton, which now has an environment contract to pin. Revision 9 at 00:35 EET on 2026-11-24 — records S0.8 (the rqlite driver) and, with it, G0's last unproven leg: `rqlite` from inside workerd, proven in run `45279526055` with the two remaining gaps (TLS to a self-signed node, retry across a real election) named rather than glossed. Narrows what is next to S0.6's D1 job, and states that a CI D1 job proves the emulated binding, not hosted D1. Revision 8 at 00:20 EET on 2026-11-24 — records what S0.2–S0.4 actually built
+Created 2026-11-23 12:50 EET · **Revision 12 at 03:30 EET on 2026-11-24** — names where the compose skeleton actually lives in phase 0: under `v4/`, not at the repo root, because the root already ships v3's `docker-compose.yml` (blob `d631dc53`, 4,734 bytes: nginx/php-fpm and FrankenPHP images, `./data:/data`) and v3's `.env.example` (blob `7c3da402`), which are the files today's self-hosters run and the ones `docs/getting-started.md` and `docs/deployment-and-operations.md` describe. Overwriting them in phase 0 would hand a v3 operator a stack the v4 app cannot serve yet — S0.5 is not landed, and auth, pages and API are phases 1–2. The root swap becomes the cutover step (P7), with v3's compose kept for one release as `docker-compose.v3.yml`. Adds **D16**. Revision 11 at 02:05 EET — one correction, no scope change: §11's service contract named the published URL `PUBLIC_BASE_URL`, a name that appears nowhere else in the repo; the variable is `PUBLIC_URL` (`v4/src/env.ts`, `v4/src/platform/config.ts`, `v4/wrangler.jsonc`) and it is the same name v3 already ships, so adopting the table's wording would break every existing self-host `.env`. Revision 10 text follows. **Revision 10 at 00:50 EET on 2026-11-24** — records S0.6's D1 job landing (run `45282360833`: five jobs, the emulated D1 binding booted and its bytes inspected) and **signs off G0**, naming what that sign-off does not cover. Narrows what is next to S0.9, the compose skeleton, which now has an environment contract to pin. Revision 9 at 00:35 EET on 2026-11-24 — records S0.8 (the rqlite driver) and, with it, G0's last unproven leg: `rqlite` from inside workerd, proven in run `45279526055` with the two remaining gaps (TLS to a self-signed node, retry across a real election) named rather than glossed. Narrows what is next to S0.6's D1 job, and states that a CI D1 job proves the emulated binding, not hosted D1. Revision 8 at 00:20 EET on 2026-11-24 — records what S0.2–S0.4 actually built
 and corrects four §3 rows that had drifted from the code: the vitest plugin (`@cloudflare/vitest-plugin`, the
 supported successor to the deprecated `vitest-pool-workers`), the `workerd` override that running
 `compatibility_date 2026-10-29` requires, `dependency-cruiser`'s SWC parser, and a hand-written `secretbox.ts` in
@@ -132,9 +132,12 @@ Slices:
 - S0.6 CI `v4.yml`: typecheck → lint → unit → schema parity → workerd smoke (boot, `/healthz`, one table read), plus a **rqlite job** that starts a real `rqlited` and repeats migration, parity and handler suites, plus a **D1 job** using the Miniflare-emulated D1 binding under `@cloudflare/vitest-plugin`. Real-D1 smoke (a database created through the API) runs on the branch only when a Cloudflare token is present, because the emulator is SQLite and would hide D1-specific limits.
 - S0.7 D1 driver: the `Sql` implementation over `env.DB` (`prepare`/`bind`/`all`, `batch` as the unit of work, `meta.changes`/`last_row_id` for results), the binding-name contract, and the local emulation path so the same code runs in tests.
 - S0.8 rqlite driver (self-host default): `Sql` implementation over the HTTP API, `DB_DRIVER=rqlite` boot path, plan-then-flush unit of work (`/db/execute?transaction`), read-consistency and retry/timeout policy, auth/TLS from the environment, and a documented `RQLITE_URL` contract for self-host.
-- S0.9 Self-host compose skeleton: `docker-compose.yml` (`apotheke` + `rqlite`), `docker-compose.sqlite.yml`
-  (single process), `.env.example`, `scripts/selfhost-smoke.sh` — run against a stub `workerd` that serves `/healthz`,
-  so ports, volumes, healthcheck ordering and env names are pinned before the app exists. Contract in §11.
+- S0.9 Self-host compose skeleton: **`v4/docker-compose.yml`** (`apotheke` + `rqlite`), **`v4/docker-compose.sqlite.yml`**
+  (single process), **`v4/.env.example`**, and `scripts/selfhost-smoke.sh` — run against a stub `workerd` that serves
+  `/healthz`, so ports, volumes, healthcheck ordering and env names are pinned before the app exists. The `v4/` prefix
+  is D16, not taste: the root `docker-compose.yml` is v3's live self-host file and stays untouched until the cutover.
+  The smoke script takes the compose file as its argument, so phase 0 passes `v4/docker-compose.yml` and the same
+  script runs the root files unchanged after P7. Contract in §11.
 
 Timeboxed spikes inside phase 0 (one day each, result written into the phase notes):
 FTS5 available in DO SQLite under local `workerd`; DO alarms firing with `localDisk` storage; the bundled R2 disk
@@ -328,6 +331,8 @@ gets one new switch: `APOTHEKE_BASE_URL`, so the same suite points at PHP or v4 
 | D12 | What is left of the `Installation` DO once it stops holding the database | **Answered 21:00 — keep one per installation, demoted** from database owner to scheduler + lock: `alarms` for per-installation jobs (Cron Triggers are per-Worker, not per-installation), `blockConcurrencyWhile` as the migration lock and refuse-if-newer gate, lease/cursor state only. No application data, off the request path. **Exception:** `DB_DRIVER=sqlite` still uses `ctx.storage.sql`, so the DO owns the database in exactly that one mode | S0.3; hosted D1 and rqlite both run the reduced DO, and no handler may know which mode it is in (the async `Sql` adapter's job). §10.1 updated |
 | D13 | What "identical schema" means now that v4 adds `_write_log` | **Answered 23:22 — a literal allowlist, checked in both directions.** The PHP runner's oracle is 64 objects (36 tables, 28 indexes) and v4 adds exactly `_write_log` and `idx_write_log_created`, both inside 0036 in the migration chain. G0 asserts TS ⊇ PHP object-for-object **and** TS minus that literal pair = PHP exactly | G0 amended in §5; the parity test compares a literal set pair, so a new object on either side fails CI instead of silently widening the allowlist |
 | D14 | First boot: seeding, and what readiness means before it finishes | **Answered 23:22 — a seed gate.** 64 settings, 4 roles and the first user are seeded inside `blockConcurrencyWhile` before the first request is served, and marked by a seed row rather than inferred from "the tables look empty"; `/readyz` answers **503 while a seed is pending**, `/healthz` answers **200 always** | S0.3; the PHP fixture's `seed_rows` (64 settings, 4 roles, 1 user) are compared on D1 and on DO SQLite, and a second seed is idempotent. The compose healthcheck probes `/healthz`, so an unseeded container is never restarted mid-seed |
+| D15 | How `enc:v1:` secrets are sealed once `libsodium-wrappers` cannot run in workerd | **Answered 23:44 — write XSalsa20-Poly1305 by hand in `src/platform/secretbox.ts`.** workerd disables WebAssembly codegen, so the library does not load at all — this is not a packaging preference, it is a hard runtime limit. The format is libsodium's own secretbox, so existing `enc:v1:` values keep working and no user re-enters a secret | §3's crypto row; the interop question was closed by sealing and opening values in both directions against real `sodium_crypto_secretbox` (PHP 8.4.23), which is the only evidence that counts. Recorded as a numbered decision because it changes what every secret at rest depends on |
+| D16 | Where v4's compose files and `.env.example` live before the cutover | **Answered 03:30 — under `v4/`.** The repo root already ships v3's `docker-compose.yml` (`d631dc53`, the file every current self-hoster runs) and v3's `.env.example` (`7c3da402`), and `docs/getting-started.md` / `docs/deployment-and-operations.md` describe them. Overwriting them in phase 0 would replace a working v3 stack with a v4 one that has no router, no auth and no pages yet | S0.9 writes `v4/docker-compose.yml`, `v4/docker-compose.sqlite.yml`, `v4/.env.example`, and `scripts/selfhost-smoke.sh` takes the compose path as an argument. P7 moves them to the root in one PR, keeps v3's file for one release as `docker-compose.v3.yml`, and rewrites the two v3 docs in the same PR |
 
 ### 8.1 D4 in plain terms (answered: G7 only)
 
@@ -385,6 +390,16 @@ re-derived them. No scope change; effort and gates stand.
   its own limits — emulated D1 is not hosted D1 (phase 1), TLS to a self-signed `rqlited` is G6, retry across a real
   election is G3. What it costs: nothing new. What it cuts: no further phase-0 work on either backend, which from here
   is a regression to keep green rather than a leg to build. What it unblocks: S0.9, then S0.5.
+- 2026-11-24 02:05 EET — **Revision 11: `PUBLIC_URL`, and the healthcheck rule read as written.** Two corrections to my
+  own instructions, both caught by the builder holding instead of reconciling them by hand. (1) The variable is
+  `PUBLIC_URL`; `PUBLIC_BASE_URL` was a typo in §11's table and nothing else in the repo carries it. Not a "code beats
+  plan" precedent — the plan was simply wrong about a name the shipped product already uses, so following it would have
+  silently renamed a variable operators already have in their `.env`. (2) §11 rule 7 stands unamended: the `apotheke`
+  container probes `/healthz`, and the `rqlite` container probes rqlite's own `/readyz` with `RQLITE_AUTH` from `.env`,
+  falling back to a TCP connect on 4001 when no auth is configured. "Every container probes `/healthz`" was wrong —
+  rqlite has no such route — while the principle it was reaching for is rule 7's own. `depends_on: service_healthy` on
+  rqlite stays (rule 2, cold start); it is not a correctness mechanism, and the 1s-cooldown `/readyz` retry is.
+  What it costs: nothing. What it changes: the builder is unblocked on S0.9 with the plan and the code agreeing on names.
 - 2026-11-24 00:35 EET — **Revision 9: S0.8 lands, and G0's rqlite leg is proven.** Rationale: the spike that read
   "unproven, not a pass" was settled by the rqlite job in run `45279526055` — workerd answers `/readyz 200
   {"schema":"0036","seed":"done","driver":"rqlite"}` against a real `rqlited` v10.7.4 with `-auth` — so the plan could
@@ -532,7 +547,8 @@ Out of scope: PostgreSQL anywhere in v4; Hyperdrive; multi-tenant Postgres on th
 ## 11. Self-host packaging: one compose file, two containers
 
 The promise to an end user, in one line: clone, `cp .env.example .env`, `docker compose up -d`, open
-`http://localhost:9091`, claim the first admin. Nothing to install, nothing to compile, no database to prepare.
+`http://localhost:9091`, claim the first admin. That promise is read **from the repo root, and takes effect at the
+cutover** (D16); until then the same files sit under `v4/` and the root files stay v3's. Nothing to install, nothing to compile, no database to prepare.
 
 | File | Purpose |
 |---|---|
@@ -542,11 +558,13 @@ The promise to an end user, in one line: clone, `cp .env.example .env`, `docker 
 | `docs/self-host-docker.md` | the literal walkthrough, including upgrade, backup, restore, troubleshooting |
 | `scripts/selfhost-smoke.sh` | boots a stack, runs the acceptance steps, tears it down; used by CI and by operators |
 
+**Where these files live, and when (D16).** In phase 0 the first four are written as `v4/docker-compose.yml`, `v4/docker-compose.sqlite.yml` and `v4/.env.example`, plus `docs/self-host-docker.md`; `scripts/selfhost-smoke.sh` stays where it is, at the root of `scripts/`, and takes the compose file it should test as its first argument. The move to the repo root is the cutover step in P7, in one PR that also turns v3's `docker-compose.yml` into `docker-compose.v3.yml` (kept for exactly one release, so an operator can roll back by pointing at it) and rewrites `docs/getting-started.md` and `docs/deployment-and-operations.md`, which today describe the root compose. Nothing at the root is touched before then: pulling the branch must never break a v3 install.
+
 Service contract (this is what S0.9 pins, and what the docs are written from):
 
 | Service | Image | Published | Volumes | Key env |
 |---|---|---|---|---|
-| `apotheke` | `ghcr.io/thordin9/apotheke:<version>` | `9091:9091` | `apotheke-data:/data` (uploads, exports) | `DB_DRIVER=rqlite`, `RQLITE_URL=http://rqlite:4001`, `APP_KEY`, `PUBLIC_BASE_URL` |
+| `apotheke` | `ghcr.io/thordin9/apotheke:<version>` | `9091:9091` | `apotheke-data:/data` (uploads, exports) | `DB_DRIVER=rqlite`, `RQLITE_URL=http://rqlite:4001`, `APP_KEY`, `PUBLIC_URL` |
 | `rqlite` | `rqlite/rqlite:10` (pinned to the tested major: v10.7.4, SQLite 3.54.1) | **nothing** (4001 stays on the compose network) | `rqlite-raft:/data/raft`, `rqlite-db:/data/db` | `-http-addr 0.0.0.0:4001`, `-raft-addr 0.0.0.0:4002`, optional `-auth` file |
 
 Rules that keep the self-host path honest:
@@ -570,7 +588,7 @@ Rules that keep the self-host path honest:
    so it passes `RQLITE_AUTH` from `.env`, and with no auth configured it degrades to a TCP connect on 4001. A 401
    read as "unhealthy" would put the app in a restart loop against a perfectly good database.
 8. **Both files are smoke-tested in CI** on every PR that touches packaging, so the docs cannot drift from the
-   artifacts: `scripts/selfhost-smoke.sh docker-compose.yml` and `... docker-compose.sqlite.yml`.
+   artifacts: `scripts/selfhost-smoke.sh v4/docker-compose.yml` and `... v4/docker-compose.sqlite.yml` in phase 0, and the same two arguments without the prefix once P7 has moved them.
 9. No Postgres service, no external object store, no volume the operator must pre-create.
 
 Acceptance for G6 (and for S0.9 once the stub image exists): stack up on a clean machine with no Docker cache, claim
