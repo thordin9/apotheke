@@ -68,7 +68,11 @@ curl -s http://localhost:9091/readyz; echo
 `"title":"seed.refused"` it will not finish until you fix what the `detail` names (usually a too-short
 `APP_PASSWORD`).
 
-Then open <http://localhost:9091> and sign in as `admin` with the password from `.env`.
+**That is the whole surface in phase 0.** Do not go looking for a page to open or a sign-in form: there
+is none yet. `http://localhost:9091/` answers `501` `route.not_implemented` problem+json — the router
+and the filter chain landed in S0.5, sign-in is phase 1 and the pages are phase 2 — and every other
+route answers either a refusal or the same 501. The seeded `admin` account exists in the database;
+nothing can authenticate against it yet (see item 6 below).
 
 To set `APP_KEY` (encrypts stored credentials at rest), generate one and paste it in:
 
@@ -132,7 +136,8 @@ backup below matters more than the upgrade.
 ## Backup and restore
 
 The backup of record is the app's own ZIP export, from the UI. It is the same format v3 uses, and it
-is the only thing restore accepts.
+is the only thing restore accepts. There is no UI until phase 2, so the ZIP export is not reachable
+from this stack yet — see item 6.
 
 For rqlite operators, a node-level extra (not a second product format):
 
@@ -177,10 +182,16 @@ Stated plainly, because a self-host promise that hides its edges is worse than n
    that can reach the host.
 4. **No hosted-D1 coverage.** These files are the self-host path only. Hosted installations run on D1
    (plan §10.4); the emulated binding is tested in CI, hosted D1 is phase 1.
-5. **One volume for rqlite, not two.** Plan §11's table lists separate raft and database volumes.
-   rqlite v10.7.4 keeps both inside one data directory (`raft.db`, `raft/`, `db.sqlite`) and has no
-   flag to split them, so this stack mounts one volume at `/rqlite/file`. Recorded for the plan, not
-   silently changed.
+5. **One volume for rqlite, not two.** rqlite v10.7.4 keeps the raft log and the SQLite database
+   inside one data directory (`raft.db`, `raft/`, `db.sqlite`) and has no flag to split them, so this
+   stack mounts one volume at `/rqlite/file` with `DATA_DIR=/rqlite/file/data`. Plan §11's two-volume
+   row was **corrected to match** in revision 13 (**D17**): the plan and these files now agree.
+6. **No UI and no sign-in.** `/` and every page route answer `501` `route.not_implemented`: the router
+   and the filter chain are S0.5, sign-in is P1 and the pages are P2. The seeded `admin` account is in
+   the database and nothing can authenticate against it yet — there is no session store, no CSRF token
+   and no page to submit to, so every route that needs a session answers `401` `auth.required`. What
+   does answer: `/healthz`, `/readyz`, the `/api` 404 (`not_found`, problem+json) and 405s with `Allow`.
+   `/readyz`'s `"seed":"done"` therefore means the install is complete, not that it is usable.
 
 ## Where the automation lives
 
