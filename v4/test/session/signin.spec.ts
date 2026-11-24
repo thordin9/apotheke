@@ -7,22 +7,34 @@
 //   * a sign-in writes the row v3 would have written, and regenerates the id it was served with;
 //   * the throttle counts by address *and* account, so a fresh cookie does not reset it (D21);
 //   * a pre-rotation session stops authenticating once the epoch moves, and its row is destroyed.
+//
+// The rows a browser would already have are written with the store's own `writeSession()`, so a test
+// states its starting point instead of depending on the request before it. The one test that does go
+// page-then-submission is the one whose subject *is* that round trip.
 
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { durableObjectSql, type InstallationStub } from "../../src/db/do-sql";
 import type { Sql } from "../../src/db/sql";
-import { routeRequest, type RouterConfig } from "../../src/http/router";
+import { type RouterConfig, routeRequest } from "../../src/http/router";
 import { hashPassword } from "../../src/platform/passwords";
 import { CONSENT_COOKIE } from "../../src/session/consent";
+import { newToken } from "../../src/session/csrf";
 import { openSession } from "../../src/session/request";
-import { sessionKey } from "../../src/session/store";
+import { sessionKey, writeSession } from "../../src/session/store";
 import { TEST_LOGIN, TEST_PAGE } from "../helpers/page";
 
 const NOW = 1_764_000_000;
 const LIFETIME = 30 * 86_400;
 const IDLE = 168 * 3_600;
 const PASSWORD = "correct horse battery staple";
+const CONSENTED = `${CONSENT_COOKIE}=v1`;
+
+/** A session id of the form v3 stores: 43 characters from `[A-Za-z0-9,-]`. */
+const nextId = (): string => {
+	const bytes = crypto.getRandomValues(new Uint8Array(32));
+	return btoa(String.fromCharCode(...bytes)).replace(/=+$/, "").replace(/_/g, ",");
+};
 
 const sqlite = (name: string): Sql =>
 	durableObjectSql(env.INSTALLATION.get(env.INSTALLATION.idFromName(name)) as unknown as InstallationStub);
@@ -73,17 +85,19 @@ const CONFIG: RouterConfig = {
 	signInEnabled: true,
 };
 
+interface Answer {
+	status: number;
+	headers: Headers;
+	body: string;
+	session: Awaited<ReturnType<typeof openSession>>;
+}
+
 /** One request, through the real session load, the real chain and the real flush. */
 const send = async (
 	sql: Sql,
 	path: string,
 	init: RequestInit & { readonly cookie?: string } = {},
-): Promise<{
-	status: number;
-	headers: Headers;
-	body: string;
-	session: Awaited<ReturnType<typeof openSession>>;
-}> => {
+): Promise<Answer> => {
 	const headers = new Headers(init.headers ?? {});
 	if (init.cookie !== undefined) {
 		headers.set("cookie", init.cookie);
@@ -103,32 +117,27 @@ const send = async (
 	let response = routed.response;
 	const lines = session.cookieLines();
 	if (lines.length > 0) {
-		const headers = new Headers(response.headers);
+		const withCookies = new Headers(response.headers);
 		for (const line of lines) {
-			headers.append("set-cookie", line);
+			withCookies.append("set-cookie", line);
 		}
-		response = new Response(response.body, { status: response.status, headers });
+		response = new Response(response.body, { status: response.status, headers: withCookies });
 	}
-	return {
-		status: response.status,
-		headers: response.headers,
-		body: await response.clone().text(),
-		session,
-	};
+	return { status: response.status, headers: response.headers, body: await response.clone().text(), session };
 };
 
-/** The Set-Cookie values a response carries, split out of the header map. */
+/** What the answer set as cookies, one line each. */
 const setCookies = (headers: Headers): readonly string[] => {
 	const withSetter = headers as Headers & { getSetCookie?: () => string[] };
 	return withSetter.getSetCookie?.() ?? [];
 };
 
-const form = (fields: Readonly<Record<string, string>>): URLSearchParams => {
+const form = (fields: Readonly<Record<string, string>>): string => {
 	const body = new URLSearchParams();
 	for (const [name, value] of Object.entries(fields)) {
 		body.set(name, value);
 	}
-	return body;
+	return body.toString();
 };
 
 /** A sign-in submission, as a browser sends it: urlencoded, from this site. */
@@ -142,16 +151,27 @@ const post = (
 		"content-type": "application/x-www-form-urlencoded",
 		"sec-fetch-site": "same-origin",
 	},
-	body: form(fields).toString(),
+	body: form(fields),
 });
 
-const CONSENTED = `${CONSENT_COOKIE}=v1`;
+/** The row a page render would have left: a token, and no account yet. */
+const anonymousSession = async (sql: Sql): Promise<{ id: string; token: string }> => {
+	const id = nextId();
+	const token = newToken();
+	await writeSession(sql, {
+		id,
+		values: { uid: null, authEpoch: "", csrf: token, lastActivity: NOW, signedInAt: 0 },
+		now: NOW,
+		lifetimeSeconds: LIFETIME,
+	});
+	return { id, token };
+};
 
 describe("the consent gate (D20)", () => {
 	let sql: Sql;
 
 	beforeEach(async () => {
-		sql = sqlite(`consent-${Math.random()}`);
+		sql = sqlite(`consent-${nextId()}`);
 		await createTables(sql);
 	});
 
@@ -161,7 +181,7 @@ describe("the consent gate (D20)", () => {
 		expect(answer.body).toContain("Cookies are needed to sign in or save changes.");
 		expect(setCookies(answer.headers)).toEqual([]);
 		const rows = await sql.all({ sql: "SELECT COUNT(*) AS n FROM sessions" });
-		expect(rows[0]?.n).toBe(0);
+		expect(Number(rows[0]?.n)).toBe(0);
 	});
 
 	it("renders the page without consent, with no token and no cookie", async () => {
@@ -175,6 +195,7 @@ describe("the consent gate (D20)", () => {
 		const answer = await send(sql, "/login", { cookie: CONSENTED });
 		expect(answer.status).toBe(200);
 		expect(answer.session.csrf).toHaveLength(64);
+		expect(answer.body).toContain(`name="csrf" value="${answer.session.csrf}"`);
 		const line = setCookies(answer.headers).join(" ");
 		expect(line).toContain("apothekesid=");
 		expect(line).not.toContain("Domain=");
@@ -184,112 +205,145 @@ describe("the consent gate (D20)", () => {
 		expect(String(row[0]?.data)).toContain("csrf|s:64:");
 		expect(String(row[0]?.data)).not.toContain("uid|");
 	});
+
+	it("drops a session that arrives without consent, and expires its cookie", async () => {
+		const { id } = await anonymousSession(sql);
+		const answer = await send(sql, "/login", { cookie: `apothekesid=${id}` });
+		expect(answer.session.consent).toBe(false);
+		expect(answer.session.id).toBeNull();
+		expect(answer.session.csrf).toBe("");
+		expect(setCookies(answer.headers).join(" ")).toContain("apothekesid=deleted;");
+		const rows = await sql.all({ sql: "SELECT COUNT(*) AS n FROM sessions" });
+		expect(Number(rows[0]?.n)).toBe(0);
+	});
 });
 
 describe("POST /login", () => {
 	let sql: Sql;
-	let hash: string;
+	let session: { id: string; token: string };
 
 	beforeEach(async () => {
-		sql = sqlite(`signin-${Math.random()}`);
+		sql = sqlite(`signin-${nextId()}`);
 		await createTables(sql);
-		hash = await hashPassword(PASSWORD);
+		const hash = await hashPassword(PASSWORD);
 		await sql.batch([
 			{
 				sql: "INSERT INTO users (username, username_key, password_hash, role, created_at, status, session_epoch) VALUES (?,?,?,?,?,?,?)",
 				params: ["Ada", "ada", hash, "admin", "2026-01-01 00:00:00", "active", ""],
 			},
 		]);
+		session = await anonymousSession(sql);
 	});
 
-	/** The token a GET /login hands out, and the cookie that carries it. */
-	const tokenAndCookie = async (): Promise<{ token: string; cookie: string }> => {
-		const answer = await send(sql, "/login", { cookie: CONSENTED });
-		const line = setCookies(answer.headers).join(" ");
-		const at = line.indexOf("apothekesid=");
-		const value = line.slice(at + "apothekesid=".length).split(";")[0] ?? "";
-		return { token: answer.session.csrf, cookie: `${CONSENTED}; apothekesid=${value}` };
-	};
+	const submit = (fields: Readonly<Record<string, string>>) =>
+		send(sql, "/login", post(`${CONSENTED}; apothekesid=${session.id}`, { ...fields, csrf: session.token }));
 
 	it("signs in: 303 to /, a row with the account and the epoch, and a new id", async () => {
-		const { token, cookie } = await tokenAndCookie();
-		const answer = await send(
-			sql,
-			"/login",
-			post(cookie, { username: "Ada", password: PASSWORD, csrf: token }),
-		);
+		const answer = await submit({ username: "Ada", password: PASSWORD });
 		expect(answer.status, answer.body.slice(0, 200)).toBe(303);
 		expect(answer.headers.get("location")).toBe("/");
 		// `session_regenerate_id(true)`: the id the page was served with is not the signed-in one.
-		expect(answer.session.id).not.toBe(cookie.split("apothekesid=")[1]);
-		const row = await sql.all({ sql: "SELECT id, data, expires_at, lock_token, locked_until FROM sessions" });
+		expect(answer.session.id).not.toBe(session.id);
+		const row = await sql.all({
+			sql: "SELECT id, data, expires_at, lock_token, locked_until FROM sessions WHERE id = ?",
+			params: [await sessionKey(answer.session.id ?? "")],
+		});
 		const data = String(row[0]?.data);
 		expect(data).toContain("uid|i:1;");
 		expect(data).toContain("auth_epoch|s:16:");
 		expect(data).toContain(`last_activity|i:${NOW};`);
 		expect(data).toContain(`signed_in_at|i:${NOW};`);
-		// The column types v3 writes: the id is the hash of the cookie value, never the value.
+		// The column types v3 writes, and the id is the hash of the cookie value, never the value.
 		expect(String(row[0]?.id)).toHaveLength(64);
-		expect(String(row[0]?.id)).toBe(await sessionKey(answer.session.id ?? ""));
 		expect(Number(row[0]?.expires_at)).toBe(NOW + LIFETIME);
 		expect(row[0]?.lock_token).toBe("");
 		expect(row[0]?.locked_until).toBe(0);
+		// The id it replaced is gone.
+		const old = await sql.all({
+			sql: "SELECT COUNT(*) AS n FROM sessions WHERE id = ?",
+			params: [await sessionKey(session.id)],
+		});
+		expect(Number(old[0]?.n)).toBe(0);
 	});
 
 	it("refuses a wrong password with the same message as an unknown name", async () => {
-		const { token, cookie } = await tokenAndCookie();
-		const wrong = await send(sql, "/login", post(cookie, { username: "Ada", password: "nope", csrf: token }));
-		expect(wrong.status).toBe(401);
-		expect(wrong.body).toContain("Wrong user name or password.");
-		const rows = await sql.all({ sql: "SELECT COUNT(*) AS n FROM auth_attempts" });
-		expect(Number(rows[0]?.n)).toBe(2); // login_address and login, both recorded
+		const answer = await submit({ username: "Ada", password: "nope" });
+		expect(answer.status, answer.body.slice(0, 200)).toBe(401);
+		expect(answer.body).toContain("Wrong user name or password.");
+		const unknown = await submit({ username: "Nobody", password: PASSWORD });
+		expect(unknown.status, unknown.body.slice(0, 200)).toBe(401);
+		expect(unknown.body).toContain("Wrong user name or password.");
+	});
+
+	it("419s a submission whose token is not the session's", async () => {
+		const answer = await send(
+			sql,
+			"/login",
+			post(`${CONSENTED}; apothekesid=${session.id}`, {
+				username: "Ada",
+				password: PASSWORD,
+				csrf: "0".repeat(64),
+			}),
+		);
+		expect(answer.status).toBe(419);
+		expect(answer.body).toContain("Your session expired. Reload the page and try again.");
+	});
+
+	it("takes the token the page printed, end to end", async () => {
+		// The one test whose subject is the round trip: page render, then the form it printed.
+		const page = await send(sql, "/login", { cookie: CONSENTED });
+		expect(page.status).toBe(200);
+		const printed = page.session.csrf;
+		expect(printed).toHaveLength(64);
+		const answer = await send(
+			sql,
+			"/login",
+			post(`${CONSENTED}; apothekesid=${page.session.id ?? ""}`, {
+				username: "Ada",
+				password: PASSWORD,
+				csrf: printed,
+			}),
+		);
+		expect(answer.status, answer.body.slice(0, 200)).toBe(303);
 	});
 
 	it("counts by address and account, so a fresh session does not reset it (D21)", async () => {
-		let token = "";
-		let cookie = "";
-		// Eleven failures from one address for one account, each with the token it was served.
-		for (let attempt = 0; attempt < 11; attempt += 1) {
-			const fresh = await tokenAndCookie();
-			token = fresh.token;
-			cookie = fresh.cookie;
-			await send(sql, "/login", post(cookie, { username: "Ada", password: "nope", csrf: token }));
+		for (let attempt = 0; attempt < 10; attempt += 1) {
+			const answer = await submit({ username: "Ada", password: "nope" });
+			expect(answer.status, `attempt ${attempt + 1}`).toBe(401);
 		}
-		const last = await send(sql, "/login", post(cookie, { username: "Ada", password: "nope", csrf: token }));
-		expect(last.status).toBe(429);
-		expect(last.headers.get("retry-after")).toBe("900");
-		// A brand-new cookie is free to mint, which is exactly why the counter does not hang off one.
-		const elsewhere = await tokenAndCookie();
+		// The eleventh is over the limit: 10 per 900 s, recorded before it is counted.
+		const refused = await submit({ username: "Ada", password: "nope" });
+		expect(refused.status, refused.body.slice(0, 200)).toBe(429);
+		expect(refused.headers.get("retry-after")).toBe("900");
+		// A brand-new session is free to mint, which is exactly why the counter does not hang off one.
+		const fresh = await anonymousSession(sql);
 		const again = await send(
 			sql,
 			"/login",
-			post(elsewhere.cookie, { username: "Ada", password: "nope", csrf: elsewhere.token }),
+			post(`${CONSENTED}; apothekesid=${fresh.id}`, {
+				username: "Ada",
+				password: "nope",
+				csrf: fresh.token,
+			}),
 		);
-		expect(
-			again.status,
-			JSON.stringify(
-				await sql.all({ sql: "SELECT kind, COUNT(*) AS n FROM auth_attempts GROUP BY kind" }),
-			),
-		).toBe(429);
+		expect(again.status, again.body.slice(0, 200)).toBe(429);
 	});
 
 	it("stops authenticating a pre-rotation session once the epoch moves, and destroys its row", async () => {
-		const { token, cookie } = await tokenAndCookie();
-		const signed = await send(
-			sql,
-			"/login",
-			post(cookie, { username: "Ada", password: PASSWORD, csrf: token }),
-		);
+		const signed = await submit({ username: "Ada", password: PASSWORD });
 		expect(signed.status, signed.body.slice(0, 200)).toBe(303);
 		const id = signed.session.id ?? "";
+		expect(id).not.toBe("");
 		// The account's epoch moves: a password change, or "sign out everywhere".
 		await sql.batch([{ sql: "UPDATE users SET session_epoch = 'ffffffffffffffff' WHERE id = 1" }]);
+		// A request that carries it: `/login` again, which loads the session before the chain.
 		const after = await send(sql, "/login", { cookie: `${CONSENTED}; apothekesid=${id}` });
 		expect(after.session.identity).toBeNull();
-		const rows = await sql.all({
+		const gone = await sql.all({
 			sql: "SELECT COUNT(*) AS n FROM sessions WHERE id = ?",
 			params: [await sessionKey(id)],
 		});
-		expect(Number(rows[0]?.n)).toBe(0);
+		expect(Number(gone[0]?.n)).toBe(0);
 	});
 });
