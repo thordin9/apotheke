@@ -31,6 +31,15 @@ export { Installation } from "./installation";
 /** Self-host and local dev are one installation per process; hosted resolves this in S0.7. */
 const INSTALLATION = "default";
 
+/**
+ * The only two paths answered before the router and the filter chain (plan §5 S0.5, §11 rule 7).
+ * Adding a third is a decision, not an edit: `test/http/probes.spec.ts` pins this list and sends
+ * every route in the table with a rejected Host to prove that nothing else skips `hostcheck`.
+ */
+export const HEALTHZ_PATH = "/healthz";
+export const READYZ_PATH = "/readyz";
+export const PROBE_PATHS = [HEALTHZ_PATH, READYZ_PATH] as const;
+
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), {
 		status,
@@ -55,7 +64,7 @@ export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const { pathname } = new URL(request.url);
 
-		if (pathname === "/healthz") {
+		if (pathname === HEALTHZ_PATH) {
 			// The driver name is reported but not probed: `/healthz` says "the process is up".
 			return json({ ok: true, driver: env.DB_DRIVER });
 		}
@@ -75,7 +84,7 @@ export default {
 			return problem(503, "boot", error instanceof Error ? error.message : String(error));
 		}
 
-		if (pathname === "/readyz") {
+		if (pathname === READYZ_PATH) {
 			return readinessResponse(readiness, env.DB_DRIVER);
 		}
 		if (!readiness.ok) {

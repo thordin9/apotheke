@@ -14,6 +14,7 @@ import { isApi } from "../../src/http/problem";
 import { type RouterConfig, routeRequest } from "../../src/http/router";
 import { ROUTES } from "../../src/http/routes.generated";
 import { TEST_LOGIN, TEST_PAGE } from "../helpers/page";
+import { samplePath as sample } from "../helpers/paths";
 
 const CONFIG: RouterConfig = {
 	publicUrl: "",
@@ -22,42 +23,6 @@ const CONFIG: RouterConfig = {
 	maxUploadMb: 20,
 	page: TEST_PAGE,
 	login: TEST_LOGIN,
-};
-
-/** A concrete path for a route pattern: `item/([0-9]+)` → `item/1`, `media/(full|thumb)/([^/]+)` → … */
-const sample = (pattern: string): string => {
-	let out = "";
-	let i = 0;
-	while (i < pattern.length) {
-		if (pattern[i] !== "(") {
-			out += pattern[i];
-			i += 1;
-			continue;
-		}
-		let depth = 0;
-		let j = i;
-		let inner = "";
-		for (; j < pattern.length; j += 1) {
-			if (pattern[j] === "(") {
-				depth += 1;
-				if (depth === 1) {
-					continue;
-				}
-			}
-			if (pattern[j] === ")") {
-				depth -= 1;
-				if (depth === 0) {
-					break;
-				}
-			}
-			inner += pattern[j];
-		}
-		const alternatives = inner.split("|");
-		const first = alternatives[0] ?? "";
-		out += alternatives.length > 1 ? sample(first) : inner.includes("0-9") ? "1" : "x";
-		i = j + 1;
-	}
-	return out;
 };
 
 /** Verbs a `Request` cannot be constructed with (workerd forbids them, as browsers do). */
