@@ -75,7 +75,7 @@ Two consequences worth knowing:
 | Route needs a session (under `/api`) | 401 problem+json | `auth.required` |
 | Role lacks the route's permission | 403, v3's error page (fetch: 403 JSON); `/api`: 403 problem+json | `permission.denied` |
 | Route with no permission recorded | 403 problem+json | `permission.denied` |
-| Unsafe write, no session to hold a token | 403 problem+json | `csrf.unavailable` |
+| Unsafe write without the session's token (S1.3) | 419: v3's error page, or `{"ok":false,…}` for a fetch | — (`CsrfCheck`) |
 | Unsafe write from another site | 403 problem+json | `origin.refused` |
 | Unknown Host | 421 `text/plain`, legacy's text | — |
 | Path no route serves (page) | 404, the app's error page | — |
@@ -88,11 +88,14 @@ Two consequences worth knowing:
 | Sign-in accepted, a sign-out, a consent answer (S1.2) | 303, `Location`, `no-store` | — |
 | Hosted operator console path (`/internal/…`) | 501 problem+json | `route.not_implemented` |
 
-The only 2xx answers are the two page routes — `/login` (GET and HEAD) and, on a hosted install,
-`/claim` — and the CORS preflight (204, which carries no data and needs no session). `test/http/router.spec.ts`
-turns **every row** of the table into a request and asserts both: the answer is one of the above, and
-the 2xx rows are exactly those — a route that starts answering 200 without being in that list fails
-the test. It runs with `APOTHEKE_HOSTED` unset, so there `/claim` is the 404 below, not a 2xx.
+The 2xx answers are the page routes — `/login` (GET and HEAD) and, on a hosted install, `/claim` —
+plus, since S1.3, `GET /settings/security` for a role that has the `users` permission, and the CORS
+preflight (204, which carries no data and needs no session). `test/http/router.spec.ts` turns **every
+row** of the table into a request and asserts both: the answer is one of the above, and the 2xx rows
+of that sweep are exactly `/login` — a route that starts answering 200 without being in that list
+fails the test. The sweep signs nobody in, so `/settings/security` answers its 303 there and its 200
+is proved by `test/http/security.spec.ts` instead. It runs with `APOTHEKE_HOSTED` unset, so `/claim`
+is the 404 below, not a 2xx.
 
 `problem+json` is the PHP app's shape (`ApiResponse::problem()`): `type` is `about:blank`, `title` is
 the HTTP reason phrase, `status`, `detail` for a human, and `code` for a client to match on.
@@ -110,7 +113,6 @@ on `/api` (CSP `default-src 'none'`, `no-store`, HSTS only when `PUBLIC_URL` is 
 | Filter | Why not yet | What keeps it closed |
 |---|---|---|
 | `session` | the session store is P1 | it records "no identity", and `permission` refuses every route that needs one |
-| `sessioncsrf` | the token lives in the session | an unsafe request is refused (403) instead of allowed |
 | `apicsrf` | Origin + token need the session | an unsafe `/api` write is refused (403) |
 | `consent` | the consent cookie arrives with the session layer | the writes it would refuse are refused first (401/403) |
 | `formfields` | a validation rule, not an access decision | the writes it would 422 are refused before it |
@@ -139,8 +141,16 @@ then:
   legacy `/health` alias goes through the chain like any other route.
 - **Every unsafe `/api` write is refused with 403 so far**, because the Origin/token rules the API's
   CSRF check needs are part of the session contract (P1). It is a refusal, not a bypass. The page
-  routes' own POSTs — `/login`, `/logout`, `/consent`, `/claim` — are not `/api` writes and answer as
-  their handlers do above; `/login` has signed in since S1.2.
+  routes' own POSTs — `/login`, `/logout`, `/consent`, `/claim`, `/settings/users…` — are not `/api`
+  writes and answer as their handlers do above; `/login` has signed in since S1.2.
+- **The Users & sign-in page answers, and so does its users half (S1.3).** `GET /settings/security`
+  renders `SecurityView::page()` for a role with `users`, and `POST /settings/users…` creates, changes,
+  approves, renames and deletes accounts. A refusal re-renders *that page* with v3's message and v3's
+  status (409 last admin, 422 a taken name, 403 the admin-only guards, 404 an unknown action) rather
+  than an error page of ours — the page is the answer, as it is in v3. Two parts of the document are
+  not there yet: the header (`Page::simpleHeader()` and the menu behind it) is P2, so the section
+  renders without the bar above it; and the roles editor's own POSTs and the section's settings form
+  still answer 501, which is what the generated table says they do.
 - **`ALLOWED_HOSTS` is not read.** It is not in v4's sixteen-name environment contract (§11), so
   `hostcheck` accepts IP literals, `localhost`, `*.localhost` and `PUBLIC_URL`'s host only. A self-hoster
   who adds the name to `PUBLIC_URL` is fine; one who relies on `ALLOWED_HOSTS` is not, yet.
@@ -159,7 +169,9 @@ then:
 | `routes-parity.spec.ts` | every row exists once, with the PHP app's method, path, handler, permission and filter list — and nothing extra. Removing a row, adding one or changing a permission fails it |
 | `chain.spec.ts` | the chain a request runs is the one `Config/Filters.php` declares, asserted by *running* it (the trace), for the representative paths and for all 281 rows |
 | `filters.spec.ts` | each filter on its own, including the fail-closed branches, and that the deferred list is exactly the written-down one |
-| `router.spec.ts` | no row answers 2xx except `/login` and the preflight; every refusal is problem+json (or the two plain-text guards); the page 404/405 are v3's error page; the `/api` 404 and the `Allow` header are v3's |
+| `router.spec.ts` | with nobody signed in, no row answers 2xx except `/login` and the preflight; every refusal is problem+json (or the two plain-text guards); the page 404/405 are v3's error page; the `/api` 404 and the `Allow` header are v3's |
+| `http/security.spec.ts` | the Users & sign-in page renders for `users` and is refused to a viewer; a users POST without the token is v3's 419; a create writes the row and redirects with v3's toast; a refusal re-renders the page at v3's status; the roles POSTs still answer 501 |
+| `html/security.spec.ts` | `SecurityView::page()` is byte-identical to the PHP app's output on a pinned state, in both its normal and its re-rendered form |
 | `html/golden.spec.ts` | `/login`, the 404 and the 405 are byte-identical to the PHP app's own output, headers included |
 | `html/assets.spec.ts` | every bundled asset is served with the SHA-256 the bundle recorded from `public/assets/`, the documented content types and cache headers, and a miss is uncacheable |
 | `html/unported.spec.ts` | every page route that does not need a session still answers 501 `route.not_implemented` — as a list from the table, so one that silently starts answering 200 fails |

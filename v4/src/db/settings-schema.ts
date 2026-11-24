@@ -189,3 +189,72 @@ export const settingDefault = (key: string, config: AppConfig): SettingValue => 
 /** Every key's default, as the seed writes them. */
 export const allSettingDefaults = (config: AppConfig): ReadonlyMap<string, SettingValue> =>
 	new Map(SETTING_SPECS.map(([key]) => [key, settingDefault(key, config)]));
+
+/**
+ * The fields the Users & sign-in form edits, with the labels, types, help and options PHP's
+ * `SettingsSchema::DEFINITIONS` carries for them (`sectionKeys('security')` without the protected
+ * `auth_enabled` and `password_hash`). `SETTING_SPECS` above still owns the defaults — that table is
+ * the one place a default is spelled — and this one is only what the form prints.
+ *
+ * The rendered result is pinned, not this table: `test/fixtures/php-security.json` is the output of
+ * the real PHP view, so a label or a help line that moves here without moving there is a red test.
+ */
+export interface SectionField {
+	readonly key: string;
+	readonly label: string;
+	readonly type: string;
+	readonly help: string;
+	readonly options: Readonly<Record<string, unknown>>;
+}
+
+export const SECURITY_SECTION_FIELDS: readonly SectionField[] = [
+	{
+		key: "auth_guest_disabled",
+		label: "Disable guest browsing",
+		type: "bool",
+		help: "On: visitors must sign in before they see anything. Off: they can look around with the permissions of the Guest role.",
+		options: {},
+	},
+	{
+		key: "auth_register_disabled",
+		label: "Disable registrations",
+		type: "bool",
+		help: "Off: anyone who can reach this address can create an account at /register (limited to 5 per hour per address).",
+		options: {},
+	},
+	{
+		key: "auth_register_role",
+		label: "Role for new registrations",
+		type: "role",
+		help: "Admin cannot be chosen.",
+		options: {},
+	},
+	{
+		key: "auth_register_approval",
+		label: "Registrations need an admin\u2019s approval",
+		type: "bool",
+		help: "New accounts can only sign in once an admin approves them under Users.",
+		options: {},
+	},
+	{
+		key: "session_days",
+		label: "Stay signed in for (days)",
+		type: "int",
+		help: "The longest a sign-in lasts, counted from sign-in. Later visits do not extend it. The server ends it when this time has passed.",
+		options: { min: 1, max: 365 },
+	},
+	{
+		key: "session_idle_hours",
+		label: "Sign out after idle (hours)",
+		type: "int",
+		help: "End a sign-in after this many hours with no request. 1\u20138760 (365 days). The stay-signed-in limit above still applies.",
+		options: { min: 1, max: 8760 },
+	},
+	{
+		key: "trust_proxy",
+		label: "Trust the reverse proxy",
+		type: "bool",
+		help: "Turn on only when the app sits behind your own HTTPS proxy (nginx, Caddy, Traefik) that sets X-Forwarded-Proto. Then sign-in cookies are marked Secure. Leave off when the app is reachable directly.",
+		options: {},
+	},
+];

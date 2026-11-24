@@ -16,11 +16,13 @@
 // else. That is what makes the fail-closed promise checkable: no route in the table answers 2xx.
 
 import { resolveActor } from "../auth/permission";
+import { securityPageHandler, userHandler } from "../auth/security-routes";
 import { claimHandler, consentHandler, logoutHandler, signInHandler } from "../auth/session-routes";
 import type { PageSettings } from "../html/page";
 import { SessionRequest } from "../session/request";
 import { afterChain, beforeChain, refusalAfterChain } from "./chain";
 import { type Ctx, DEFERRED, FILTERS } from "./filters";
+import { formFields } from "./form";
 import { problem } from "./problem";
 import { allowedMethods, catchAllRoute, effectiveMethod, matchRoute } from "./route-table";
 
@@ -76,6 +78,10 @@ const HANDLERS: ReadonlyMap<string, Handler> = new Map([
 	["\\Apotheke\\Auth\\Controllers\\SignInController::login", signInHandler],
 	["\\Apotheke\\Auth\\Controllers\\SignInController::logout", logoutHandler],
 	["\\Apotheke\\Auth\\Controllers\\ClaimController::claim", claimHandler],
+	["\\Apotheke\\Auth\\Controllers\\SecurityController::index", securityPageHandler],
+	["\\Apotheke\\Auth\\Controllers\\SecurityController::user", userHandler],
+	["\\Apotheke\\Auth\\Controllers\\SecurityController::user/$1", userHandler],
+	["\\Apotheke\\Auth\\Controllers\\SecurityController::user/$1/$2", userHandler],
 ]);
 
 const runAfter = (ctx: Ctx, response: Response, names: readonly string[]): Response => {
@@ -137,6 +143,14 @@ export const routeRequest = async (
 		}
 	}
 
+	// `sessioncsrf` is a decision a filter must take, and a filter cannot await: the body is parsed
+	// here, once, only for the unsafe requests whose chain checks the token.
+	if (ctx.post.size === 0 && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+		if (beforeChain(path).includes("sessioncsrf")) {
+			ctx.post = await formFields(request.clone());
+		}
+	}
+
 	for (const name of beforeChain(path)) {
 		const filter = FILTERS[name];
 		if (filter === undefined) {
@@ -182,6 +196,7 @@ export const createContext = (request: Request, config: RouterConfig, session?: 
 		session: carried,
 		identity: carried.identity,
 		actor: null,
+		post: new Map<string, string>(),
 		trace: [],
 		deferred: new Set<string>(),
 	};

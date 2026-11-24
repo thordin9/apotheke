@@ -64,13 +64,11 @@ describe("the registry", () => {
 			"opsaccounts",
 			"opsbackup",
 			"requestcleanup",
-			"sessioncsrf",
 		]);
 	});
 
 	it("fails closed in the filters it defers, or names what closes the gap", () => {
-		// The three that gate access refuse rather than pass; the rest cannot decide anything in phase 0.
-		expect(DEFERRED.sessioncsrf).toContain("refused");
+		// `apicsrf` still refuses rather than pass; the rest cannot decide anything in phase 0.
 		expect(DEFERRED.apicsrf).toContain("refused");
 	});
 });
@@ -223,8 +221,8 @@ describe("permission", () => {
 });
 
 describe("the CSRF filters", () => {
-	it("refuse an unsafe request that cannot be checked, rather than allow it", () => {
-		expect(run("sessioncsrf", "/theme", { method: "POST" })?.status).toBe(403);
+	it("answer v3's 419 for a form write without the session's token", () => {
+		expect(run("sessioncsrf", "/theme", { method: "POST" })?.status).toBe(419);
 		expect(run("apicsrf", "/api/v1/settings", { method: "POST" })?.status).toBe(403);
 	});
 

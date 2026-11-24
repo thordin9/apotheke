@@ -18,6 +18,7 @@
 import { statement } from "../db/sql";
 import { claimPage, errorPage, loginPage } from "../html/views";
 import type { Ctx } from "../http/filters";
+import { formFields } from "../http/form";
 import { html, json, problem } from "../http/problem";
 import { verifyPassword } from "../platform/passwords";
 import {
@@ -61,7 +62,7 @@ const wantsJson = (ctx: Ctx): boolean =>
 	(ctx.request.headers.get("accept") ?? "").includes("application/json");
 
 /** `AuthPages::redirectTo()`: 303 with `Location`, or `{ok, redirect}` for a fetch. */
-const redirectTo = (ctx: Ctx, to: string): Response => {
+export const redirectTo = (ctx: Ctx, to: string): Response => {
 	if (wantsJson(ctx)) {
 		return json({ ok: true, redirect: to }, 200, ctx.config.https);
 	}
@@ -75,7 +76,7 @@ const redirectTo = (ctx: Ctx, to: string): Response => {
 const page = (body: string, status = 200): Response => html(body, status);
 
 /** The page settings this request renders with: its token and whether it carries consent. */
-const pageSettings = (ctx: Ctx) => ({
+export const pageSettings = (ctx: Ctx) => ({
 	...ctx.config.page,
 	csrf: ctx.session.csrf,
 	consent: ctx.session.consent,
@@ -91,26 +92,6 @@ const clientAddress = (ctx: Ctx): string => {
 	const forwarded = ctx.request.headers.get("x-forwarded-for") ?? "";
 	const first = (forwarded.split(",")[0] ?? "").trim();
 	return first;
-};
-
-/** The form fields a POST carries. An unreadable body is an empty one, as PHP's `getPost()` is. */
-const formFields = async (ctx: Ctx): Promise<Map<string, string>> => {
-	const out = new Map<string, string>();
-	const type = (ctx.request.headers.get("content-type") ?? "").toLowerCase();
-	if (!type.includes("application/x-www-form-urlencoded") && !type.includes("multipart/form-data")) {
-		return out;
-	}
-	try {
-		const form = await ctx.request.formData();
-		for (const [name, value] of form.entries()) {
-			if (typeof value === "string" && !out.has(name)) {
-				out.set(name, value);
-			}
-		}
-	} catch {
-		// A malformed body is no fields: every check below then refuses, which is the safe direction.
-	}
-	return out;
 };
 
 /** The account row a user name names, or null. `users.username_key` is the repository's key. */
@@ -195,7 +176,7 @@ export const signInHandler = async (ctx: Ctx): Promise<Response> => {
 		);
 	}
 
-	const post = await formFields(ctx);
+	const post = await formFields(ctx.request);
 	if (!csrfPasses(ctx.session.csrf, post, ctx.request.headers.get("x-csrf-token"))) {
 		return errorAnswer(ctx, CSRF_STATUS, CSRF_MESSAGE);
 	}
@@ -267,7 +248,7 @@ const errorAnswerWithUser = (ctx: Ctx, status: number, message: string, username
  */
 export const logoutHandler = async (ctx: Ctx): Promise<Response> => {
 	if (ctx.identity !== null) {
-		const post = await formFields(ctx);
+		const post = await formFields(ctx.request);
 		if (!csrfPasses(ctx.session.csrf, post, ctx.request.headers.get("x-csrf-token"))) {
 			return errorAnswer(ctx, CSRF_STATUS, CSRF_MESSAGE);
 		}
@@ -298,7 +279,7 @@ export const consentHandler = async (ctx: Ctx): Promise<Response> => {
 	if (!sameOriginStrict(ctx)) {
 		return errorAnswer(ctx, 403, "This request came from another site and was refused.");
 	}
-	const post = await formFields(ctx);
+	const post = await formFields(ctx.request);
 	const choice = post.get("consent");
 	if (choice !== "accept" && choice !== "decline") {
 		return errorAnswer(ctx, 400, "Bad request");
@@ -343,7 +324,7 @@ export const claimHandler = async (ctx: Ctx): Promise<Response> => {
 		await ctx.session.ensureToken();
 		return page(claimPage(pageSettings(ctx), { error: null, username: "" }));
 	}
-	const post = await formFields(ctx);
+	const post = await formFields(ctx.request);
 	if (!csrfPasses(ctx.session.csrf, post, ctx.request.headers.get("x-csrf-token"))) {
 		return errorAnswer(ctx, CSRF_STATUS, CSRF_MESSAGE);
 	}

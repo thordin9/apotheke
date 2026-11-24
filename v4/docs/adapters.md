@@ -31,9 +31,10 @@ anything   503 until boot succeeded, then the router (S0.5): 401/403/404/405/419
            problem+json — and the page routes: a page that needs a session is 303 to `/login`
            since S1.3 (a fetch gets 401 JSON), a role without the permission gets 403;
            `/login` (GET/HEAD) as 200 text/html since S1.1, its
-           POST as 303 to `/`, `/logout` as 303, `/consent` as 303, and `/claim` as 200 with a
-           hosted install (404 without). With the CORS preflight (204) those are the only 2xx
-           answers here; `router.md` lists them
+           POST as 303 to `/`, `/logout` as 303, `/consent` as 303, `/claim` as 200 with a
+           hosted install (404 without), and `/settings/security` as 200 for a role with `users`
+           since S1.3 — whose users POSTs answer 303, or re-render that page with v3's 409/422.
+           With the CORS preflight (204) those are the 2xx answers here; `router.md` lists them
 ```
 
 Two rules follow, and both are in the code rather than in a habit:

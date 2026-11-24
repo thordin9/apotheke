@@ -9,7 +9,8 @@
 //
 //   session       no session store yet, so it records "no identity" — and `permission` refuses every
 //                 route that needs one. It never invents a user.
-//   sessioncsrf   a form token cannot be checked without a session, so an unsafe request is refused.
+//   sessioncsrf   real since S1.3: the token lives in the session, the body is parsed before the
+//                 chain, and a request without the token answers v3's 419.
 //   apicsrf      the same for /api's Origin + token check.
 //   consent      the cookie contract arrives with sessions (P1); the writes it would refuse are
 //                 refused by `permission` (401) and `sessioncsrf`/`apicsrf` (403) first.
@@ -24,6 +25,7 @@ import { type Actor, refusal as permissionRefusal, SIGN_IN } from "../auth/permi
 import type { PageSettings } from "../html/page";
 import { errorPage } from "../html/views";
 import { CONSENT_CODE, CONSENT_MESSAGE, CONSENT_STATUS, consentNeeded } from "../session/consent";
+import { CSRF_MESSAGE, CSRF_STATUS, csrfPasses } from "../session/csrf";
 import type { SessionRequest } from "../session/request";
 import type { Identity } from "../session/store";
 import { apiHeaders, html, isApi, PAGE_HEADERS, problem } from "./problem";
@@ -77,6 +79,11 @@ export interface Ctx {
 	 * once before the chain, because a filter cannot await and this is a database read.
 	 */
 	actor: Actor | null;
+	/**
+	 * The form fields this request carries, read once before the chain (`src/http/form.ts`), because
+	 * `sessioncsrf` is a filter and a filter cannot await. Empty for a safe method.
+	 */
+	post: ReadonlyMap<string, string>;
 	/** Filter names in the order they ran — the order test reads this. */
 	readonly trace: string[];
 	/** Filters that declared themselves deferred on this request. */
@@ -518,20 +525,38 @@ const permission: Filter = {
 	},
 };
 
+/**
+ * `CsrfFilter` (S1.3): every non-safe method carries the session's token in `csrf` or
+ * `X-CSRF-Token`, and a request without it answers v3's 419 — the error page for a page, and
+ * `{"ok":false,"error":"Your session expired."}` for a client that wants JSON. The token itself is in
+ * the session, so this reads `ctx.session.csrf` and the body the router parsed before the chain.
+ */
 const sessioncsrf: Filter = {
 	before: (ctx) => {
 		if (isSafe(ctx.request.method)) {
 			return null;
 		}
-		return problem(
-			ctx.path,
-			ctx.config.https,
-			403,
-			"csrf.unavailable",
-			"A form write needs the session's CSRF token, which phase 0 cannot check; the write is refused (P1).",
+		if (csrfPasses(ctx.session.csrf, ctx.post, ctx.request.headers.get("x-csrf-token"))) {
+			return null;
+		}
+		if (wantsJson(ctx.request)) {
+			return new Response('{"ok":false,"error":"Your session expired."}', {
+				status: CSRF_STATUS,
+				headers: {
+					...PAGE_HEADERS,
+					"Content-Type": "application/json; charset=utf-8",
+					"Cache-Control": "no-store",
+				},
+			});
+		}
+		return html(
+			errorPage(
+				{ ...ctx.config.page, csrf: ctx.session.csrf, consent: ctx.session.consent, requestUri: ctx.path },
+				CSRF_MESSAGE,
+			),
+			CSRF_STATUS,
 		);
 	},
-	deferred: "the CSRF token lives in the session (P1); an unsafe request is refused rather than allowed",
 };
 
 const formfields: Filter = {

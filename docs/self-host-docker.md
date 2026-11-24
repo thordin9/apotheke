@@ -192,11 +192,19 @@ Stated plainly, because a self-host promise that hides its edges is worse than n
    to `/`, `GET /logout` answers `303` (to `/login`), and `POST /consent` records the notice's answer.
    Without consent a write is refused `403` `consent_required` and no session cookie is set — that
    gate is the contract (D20), not a bug to work around. Every other page route answers `501`, or
-   `401` `auth.required` where the route needs a session.
+   `303` to `/login` where the route needs a session.
    `/claim` is the hosted first-admin link: `404` unless `APOTHEKE_HOSTED` is on — this walkthrough
    does not set it, so expect the 404 — and with it a valid token creates the admin once (S1.2b).
+   Since S1.3 the Control Panel's Users & sign-in page answers too: sign in as the seeded admin, then
+   `GET /settings/security` is `200` and lists the accounts and the roles editor. Its users half
+   works — `POST /settings/users` (and `/settings/users/{id}/{role,password,rename,approve,delete}`)
+   adds and changes accounts and answers `303` to `/settings/security?done=…#users`, or re-renders the
+   page with v3's own message and status (`409` for the last admin, `422` for a taken name, `403` for
+   the admin-only guards). The settings form on that page and the roles editor's own POSTs
+   (`POST /settings/security`, `POST /settings/roles…`) still answer `501`.
    What does answer: `/healthz`, `/readyz`, `/assets/…` (the bundle), `/login` (GET/HEAD `200`, POST
-   `303`), `/logout`, `/consent`, `/claim` (hosted), the page error pages, the `/api` 404
+   `303`), `/logout`, `/consent`, `/claim` (hosted), `/settings/security` (`200` for a role with
+   `users`, `303` to `/login` otherwise), the page error pages, the `/api` 404
    (`not_found`, problem+json) and 405s with `Allow`. `/readyz`'s `"seed":"done"` therefore means the
    install is complete; the seeded `admin` can sign in with the `APP_PASSWORD` you set above.
 

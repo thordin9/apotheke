@@ -90,3 +90,13 @@ export const allowedMethods = (path: string): readonly string[] => {
 
 /** Every distinct path in the table, for the tests that walk it. */
 export const distinctPaths = (): readonly string[] => [...new Set(ROUTES.map((route) => route.path))];
+
+/**
+ * The placeholders a route pattern captured (`$1`, `$2` in CI4's handler string), for a handler that
+ * needs them: `/settings/users/([0-9]+)/(role|...)` gives `["7", "role"]`. Empty when the pattern does
+ * not match, which a handler treats as "no parameter" rather than as a refusal.
+ */
+export const routeParams = (route: RouteRow, path: string): string[] => {
+	const matched = patternFor(route.path).exec(matchPath(path));
+	return matched === null ? [] : matched.slice(1).map((value) => value ?? "");
+};
