@@ -95,6 +95,12 @@ Same app, same port, same first-boot behaviour; the installation's SQLite databa
 snapshots, and you gain one less process to watch. Both files use their own compose project name, so
 you can keep both around — but they both want port 9091, so stop one before starting the other.
 
+That file is an ordinary SQLite database under `<volume>/state`, in WAL mode. The app never opens it
+itself — the installation's Durable Object does — so read it with the `sqlite3` CLI only while the
+stack is stopped, and do not expect a second process to write beside it. CI's `sqlite` job boots this
+driver and reads what it wrote (36 migrations, the seeded `admin`, 64 settings rows);
+`v4/docs/adapters.md` says what that proves and, more usefully, what it does not.
+
 ## Healthchecks, and why they are what they are
 
 - **The app is probed on `/healthz`, never `/readyz`.** `/readyz` moves behind sign-in in phase 1, and
@@ -226,3 +232,8 @@ scripts/selfhost-smoke.sh v4/docker-compose.sqlite.yml
 
 It fails — it does not skip — when the Docker CLI is missing, because a smoke test that skips is how
 a green job ends up testing nothing.
+
+`v4.yml` also carries a `sqlite` job beside `d1` and `rqlite`: the same suite with `DB_DRIVER=sqlite`
+named rather than inherited, `test/sqlite.spec.ts` (the driver's own contract), and a workerd boot
+whose database file is then inspected as bytes — migrations, seed and FTS5 objects, and no D1 file at
+all, which is the inverse of what the `d1` job asserts about the same file.

@@ -82,6 +82,10 @@ adopt, and why the gate above exists instead of a silent skip.
   without FTS5 fails loudly rather than skipping them), and no application table in the Durable
   Object's own storage (D12). A real D1 database is first exercised when a hosted installation is
   provisioned, which is phase 1; plan §5 states the same limit.
+- **The `sqlite` job proves workerd's SQLite, not a host's file.** The single-process driver's
+  database is a Durable Object's storage: an ordinary SQLite file, but one the app never opens and
+  cannot tune or name (`PRAGMA` and `sqlite_version()` are refused). The job reads it with the
+  `sqlite3` CLI; a second process opening it is not covered, and the contract above says why.
 - **TLS from workerd to rqlited is unproven.** The `v4.yml` rqlite job runs plain HTTP on loopback,
   which is what a compose network looks like, so `https://` is implemented but not exercised. A
   self-signed certificate would additionally need to be trusted by the runtime, and the worker has no
@@ -135,3 +139,38 @@ What falls out of the plan's rules, in the order they bite:
    per second — `depends_on` does not survive an rqlite restart mid-session (§11 rule 2). A schema
    newer than the code and a refused seed are *not* retried: those are decisions, and retrying would
    only hide them.
+
+## The sqlite contract (single process, `DB_DRIVER=sqlite`)
+
+The third backend of §10, and `docker-compose.sqlite.yml`'s mode: no database process, no binding to
+resolve. The installation's Durable Object owns `ctx.storage.sql` (D12), and `src/db/do-sql.ts` is a
+thin RPC client of it, so `transactionSync` is the unit of work and one `batch()` is one transaction.
+
+Four facts are this backend's own. `test/sqlite.spec.ts` asserts each, because every behavioural spec
+in the suite runs on this driver by default (`wrangler.jsonc`), so the contract was covered by
+inheritance and stated nowhere:
+
+| Fact | Consequence |
+|---|---|
+| `changes` and `lastRowId` are `null` for every statement (D26) | A unit that changed a row and one that changed nothing report identically. Never branch on `changes`; read the state back — what `users.ts` and `roles.ts` do. |
+| A failing statement rolls the whole unit back, DDL included | The same contract as D1's `batch()` and rqlite's `?transaction`; 0019's `optional` FTS5 statements rely on it. |
+| At most 100 bound variables — D1's cap (§10 rule 3), not SQLite's 999 | 100 placeholders bind; 101 answers `too many SQL variables`. Rule 3 holds here too, so no handler needs a per-backend limit. |
+| A BLOB arrives as an `ArrayBuffer` | The rqlite driver returns a `Uint8Array` (`rqlite-live.spec.ts` asserts it) and the emulated D1 binding a plain byte array: the same column has three JS shapes. No handler reads one today (media is in R2), so the shape is asserted rather than normalised. |
+
+### What the `v4.yml` `sqlite` job proves, and what it does not
+
+It runs the whole suite with `DB_DRIVER` named rather than inherited, fails if anything other than the
+six rqlite live specs is pending, boots workerd on the driver, and reads the file the DO wrote: 36
+`schema_migrations` rows, 64 `settings` rows, one active `admin`, 0019's seven `search_fts` objects
+against the PHP oracle, the application tables **present** — the exact inverse of the `d1` job, where
+the same file must hold none — and no D1 database file at all.
+
+**What that does not prove, because the difference is the point:** the engine is workerd's own SQLite,
+reached through Durable Object storage; it is not a self-hoster's `node:sqlite` or system `sqlite3`.
+The file *is* an ordinary WAL-mode SQLite database — which is how the job, and an operator, read it —
+but the app never opens it, has exactly one writer (the DO), and cannot tune or even name the engine:
+`PRAGMA journal_mode` answers `SQLITE_AUTH` and `SELECT sqlite_version()` answers "not authorized to
+use function" on this driver and on the emulated D1 binding (measured, not inferred). Schema
+compatibility is therefore proven across two engines — PHP's SQLite in the fixture, workerd's here —
+and nothing here says two processes may open that file at once. The compose smoke is where the stack
+itself is proven: boot, migrate, `/readyz`, and a second boot that changes no row.

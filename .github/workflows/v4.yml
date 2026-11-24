@@ -322,6 +322,144 @@ jobs:
         if: always()
         run: tail -n 100 dev.log || true
 
+  # The third backend of §10, and the one the plan promises as the self-host default for a single
+  # node: `DB_DRIVER=sqlite`, where the installation's Durable Object owns `ctx.storage.sql` (D12).
+  #
+  # Read what this leg adds before reading its green tick. The suite *already* runs on this driver in
+  # every job — `wrangler.jsonc` sets `DB_DRIVER=sqlite` — so this is not the app's first proof on
+  # sqlite; it is the driver's own. Three things existed nowhere else: an explicit driver rather than
+  # an inherited default, the count rule applied to *this* leg (no job asserted that nothing but the
+  # six rqlite live specs is pending here), and the database the DO wrote read as bytes rather than
+  # inferred from a passing suite. `v4/docs/adapters.md` states what that proves and what it does
+  # not: the engine is workerd's own SQLite, reached through DO storage, never a self-hoster's file.
+  sqlite:
+    name: sqlite (driver contract, workerd boot, database bytes)
+    needs: workspace
+    if: needs.workspace.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: v4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v4/package-lock.json
+      - run: npm ci
+
+      # Named, not inherited: `vitest.config.ts` carries DB_DRIVER into the test bindings when it is
+      # set, so this leg proves the backend it says it proves. The evidence is still the Worker's own
+      # answer — `health.spec.ts` asserts `{"driver":"sqlite"}` from /healthz — not the env var.
+      - name: Suite on DB_DRIVER=sqlite
+        env:
+          DB_DRIVER: sqlite
+        run: |
+          set -euo pipefail
+          npm test -- --reporter=default --reporter=json --outputFile.json=test.json 2>&1 | tee test.log
+
+      # The count rule, stated so a quiet skip fails: only the six rqlite live specs may be pending
+      # (there is no rqlited here) and all six must still be present, nothing else may be skipped or
+      # failed, and the five contract specs `test/sqlite.spec.ts` adds must all have run. A file that
+      # stopped being collected moves this count, which is the one thing a green step would hide.
+      - name: Assert the sqlite run is complete
+        run: |
+          set -euo pipefail
+          # `skipped` is the reporter's own word for an assertion that did not run; `.numPendingTests`
+          # still counts it as pending, and reading the aggregate instead of the assertion is how a
+          # skip check passes against a spec that never ran.
+          jq -e '
+            ([.testResults[] | select((.name | test("rqlite-live")) | not)
+                | .assertionResults[] | select(.status != "passed")] | length) == 0
+              and ([.testResults[] | select(.name | test("rqlite-live")) | .assertionResults[]] | length) == 6
+              and ([.testResults[] | select(.name | test("rqlite-live")) | .assertionResults[]]
+                    | map(.status) | unique) == ["skipped"]
+              and ([.testResults[] | select(.name | test("sqlite")) | .assertionResults[]] | length) == 5
+              and .numFailedTests == 0
+          ' test.json
+          jq -r '"files=\(.testResults | length) tests=\(.numTotalTests) failed=\(.numFailedTests) pending=\(.numPendingTests)"' test.json
+
+      # From nothing, for the same reason as the d1 job: `npm test` keeps its state outside
+      # `.wrangler`, so this removes only what an earlier boot of this job could have written. Every
+      # probe is bounded — an app that accepts and never answers must cost seconds, not the job's
+      # timeout (run 45367702792, and the smoke script's own header).
+      - name: Boot workerd on DB_DRIVER=sqlite
+        run: |
+          set -euo pipefail
+          rm -rf .wrangler
+          npx wrangler dev --port 8799 --ip 127.0.0.1 --var DB_DRIVER:sqlite > dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 5 --connect-timeout 3 http://127.0.0.1:8799/healthz > health.json; then break; fi
+            sleep 1
+          done
+          cat health.json
+          test "$(jq -r .ok health.json)" = "true"
+          test "$(jq -r .driver health.json)" = "sqlite"
+          # `/readyz` is the one that proves the driver: it runs the whole migration chain, the seed
+          # phase and the readiness gate over the DO's storage before it can answer 200.
+          code=""
+          for i in $(seq 1 60); do
+            code=$(curl -s --max-time 5 --connect-timeout 3 -o ready.json -w '%{http_code}' http://127.0.0.1:8799/readyz || true)
+            if [ "$code" = "200" ]; then break; fi
+            sleep 1
+          done
+          cat ready.json
+          test "$code" = "200"
+          test "$(jq -r .schema ready.json)" = "0036"
+          test "$(jq -r .seed ready.json)" = "done"
+          test "$(jq -r .driver ready.json)" = "sqlite"
+
+      # Bytes, not inference — and the exact inverse of the d1 job's last assertion. There, the DO's
+      # file must hold **zero** application tables (D12: under d1 the database is `env.DB`). Here that
+      # file *is* the database, so the same questions are asked of it: the 36 migrations, 0019's seven
+      # `search_fts` objects against the PHP oracle, and the seeded install the app just wrote (one
+      # active admin, 64 settings rows). SQLite recovers its WAL, so the file is read in place; the
+      # check is what the app wrote, not a file-copy procedure — and that is also the limit, stated in
+      # adapters.md: read the file with the `sqlite3` CLI, never with the app running beside it.
+      - name: Inspect the DO's database file
+        run: |
+          set -euo pipefail
+          db=$(find .wrangler/state/v3/do -name '*.sqlite' ! -name 'metadata.sqlite' | head -n 1)
+          test -n "$db"
+          echo "database: $db"
+
+          applied=$(sqlite3 "$db" 'select count(*) from schema_migrations')
+          echo "schema_migrations rows: $applied"
+          test "$applied" = "36"
+
+          settings=$(sqlite3 "$db" 'select count(*) from settings')
+          echo "settings rows: $settings"
+          test "$settings" = "64"
+
+          admins=$(sqlite3 "$db" "select count(*) from users where role = 'admin' and status = 'active'")
+          echo "active admins: $admins"
+          test "$admins" = "1"
+
+          # Measured 37 under this driver; `-ge 35` leaves room for an object appearing without
+          # weakening the point, which is that the application schema is *here* and not in D1.
+          tables=$(sqlite3 "$db" \
+            "select count(*) from sqlite_master where type='table' and name not like 'sqlite_%' and name not like '_cf%' and name not like '__miniflare%'")
+          echo "application tables in the DO's own storage: $tables"
+          test "$tables" -ge 35
+
+          # And the binding really went unused: no D1 database file beyond the emulator's metadata.
+          stray=$(find .wrangler/state/v3/d1 -name '*.sqlite' ! -name 'metadata.sqlite' | wc -l)
+          echo "D1 database files: $stray"
+          test "$stray" = "0"
+
+          expected=$(jq -r '.objects[].name | select(startswith("search_fts"))' \
+            test/fixtures/php-v4.0.0-schema.json | sort)
+          actual=$(sqlite3 "$db" "select name from sqlite_master where name like 'search_fts%'" | sort)
+          echo "FTS5 objects expected (PHP oracle):"; echo "$expected"
+          echo "FTS5 objects in the DO's database:"; echo "$actual"
+          diff <(echo "$expected") <(echo "$actual")
+
+      - name: Dump logs
+        if: always()
+        run: tail -n 100 dev.log || true
+
   # S0.9's packaging leg (plan §11 rule 8): both compose files, on a clean state, in the stack a
   # self-hoster actually runs. What makes this job honest is that neither the author's machine nor
   # the PM's has a Docker daemon — the compose files have only ever been checked by reading them, so
