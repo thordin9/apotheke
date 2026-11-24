@@ -19,6 +19,9 @@ import { ROUTES } from "../../src/http/routes.generated";
 // The entrypoint's own text: the sweep below proves no *route* bypasses the chain, and this proves
 // no third path was hard-coded beside the two (a path that is not in the table would escape the
 // sweep silently, which is the hole the ruling asks to close).
+// Scope, stated so nobody reads this as total: it covers `src/index.ts` only. A third path
+// hard-coded in a module the entry calls before the chain is invisible to both arms — whoever
+// moves a `pathname` comparison out of the entry carries this `?raw` target with it.
 // @ts-expect-error Vite's `?raw` suffix has no type declaration for this import
 import workerSource from "../../src/index.ts?raw";
 import { samplePath } from "../helpers/paths";
