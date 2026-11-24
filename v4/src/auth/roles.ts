@@ -230,7 +230,14 @@ export const update = async (
 /** `RoleAdmin::deleteLocked()`'s write: the accounts move only when the role's deletion is allowed. */
 export const deleteStatements = (key: string, moveTo: string): readonly Statement[] => [
 	// `r4` is the receiving role: the accounts' new permissions are what the manager count must use.
-	statement(`UPDATE users SET role = ? WHERE role = ? AND ${DELETE_SAFE}`, [moveTo, key, key, key, key, moveTo]),
+	statement(`UPDATE users SET role = ? WHERE role = ? AND ${DELETE_SAFE}`, [
+		moveTo,
+		key,
+		key,
+		key,
+		key,
+		moveTo,
+	]),
 	statement(`DELETE FROM roles WHERE role_key = ? AND ${DELETE_SAFE}`, [key, key, key, key, moveTo]),
 ];
 
