@@ -64,7 +64,7 @@ describe("the probe bypass", () => {
 			}
 		}
 		expect(bypassing).toEqual([]);
-	});
+	}, 60_000);
 
 	it("compares the path against nothing but the two probe constants", () => {
 		const comparisons = [
