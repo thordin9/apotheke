@@ -19,6 +19,12 @@ Read the section **What is not exercised here** before you trust this stack with
 root is touched before P7 — pulling this branch must never break a working v3 install. The commands
 below assume you are in `v4/`.
 
+**What ships at release is the root-level path.** P7's cutover moves these three files to the
+repository root in one PR, leaving v3's stack beside them for exactly one release as
+`docker-compose.v3.yml`, so an operator can roll back by pointing at that file. From then on the
+commands below run from the repository root and `scripts/selfhost-smoke.sh` takes
+`docker-compose.yml` as its argument — the same script, unchanged.
+
 Both files publish exactly one port, `9091`, for the app. The database port is **not** published: the
 app reaches rqlite at `http://rqlite:4001` on the compose network.
 
