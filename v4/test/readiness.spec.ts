@@ -29,10 +29,12 @@ describe("/readyz and /healthz", () => {
 		expect(await res.json()).toEqual({ ok: true, driver: "sqlite" });
 	});
 
-	it("still 404s other paths, as json, once the installation is ready", async () => {
-		const res = await SELF.fetch("http://apotheke-v4.test/nope");
+	it("still 404s other paths, as problem+json, once the installation is ready", async () => {
+		// `localhost` on purpose: `hostcheck` (S0.5) answers 421 for a Host that is neither a local
+		// name, an IP literal, nor PUBLIC_URL's host — and the harness host is not PUBLIC_URL's.
+		const res = await SELF.fetch("http://localhost/nope");
 		expect(res.status).toBe(404);
-		expect(res.headers.get("content-type")).toContain("application/json");
+		expect(res.headers.get("content-type")).toBe("application/problem+json");
 	});
 });
 

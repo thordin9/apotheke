@@ -10,6 +10,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "test": "vitest run",
+    "routes:check": "node scripts/gen-routes.mjs --check",
+    "routes": "node scripts/gen-routes.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "biome check . && depcruise src",
     "format": "biome check --write ."

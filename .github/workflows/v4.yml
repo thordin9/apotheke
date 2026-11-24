@@ -57,6 +57,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
+      # S0.5: the route table in src/http/routes.generated.ts and its fixture are generated from the PHP
+      # app's own routes artifact. This fails when either is stale, so the parity test cannot pass against
+      # a table that has drifted from app/Config/Routes.php or app/Config/Filters.php.
+      - run: npm run routes:check
       - run: npm test
 
   workerd-smoke:

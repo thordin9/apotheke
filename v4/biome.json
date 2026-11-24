@@ -1,7 +1,7 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
 	"files": {
-		"includes": ["src/**/*.ts", "test/**/*.ts", "*.config.ts"]
+		"includes": ["src/**/*.ts", "test/**/*.ts", "*.config.ts", "!src/http/routes.generated.ts"]
 	},
 	"formatter": {
 		"enabled": true,
