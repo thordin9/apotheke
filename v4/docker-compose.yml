@@ -1,0 +1,114 @@
+# Apotheke v4 — self-host stack, default (plan §11, S0.9): the app on workerd + rqlite beside it.
+#
+# This file is the contract §11 pins: ports, volumes, healthchecks, start order and env names. The
+# walkthrough that goes with it is docs/self-host-docker.md.
+#
+# What this file is NOT: a published image. v4 has no shipping container yet (that is P6, plan §5),
+# so `apotheke` builds the *skeleton* image from docker/Dockerfile.stub, which runs the real Worker
+# under `wrangler dev`. Same code, same migration chain, same seed phase — dev tooling, not hardened.
+#
+# No secret is written here (§11 rule 4): every secret is `${VAR:-}` from `.env`, so this file is
+# safe to paste into an issue. Values *are* interpolated by `docker compose config` when a `.env`
+# sits next to it, so quote it from a checkout that has none.
+name: apotheke
+
+services:
+  apotheke:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.stub
+    image: apotheke:4-skeleton
+    restart: unless-stopped
+    ports:
+      # The only published port. rqlite stays on the compose network (§11 rule 1).
+      - "9091:9091"
+    volumes:
+      # Uploads, exports and — under DB_DRIVER=sqlite — the database. Named, not a bind mount
+      # (§11 rule 3): root-owned files from a relative bind mount are the classic self-host foot-gun.
+      - apotheke-data:/data
+    environment:
+      # Pinned per file, not taken from .env: the file you start decides the backend, so a stale
+      # .env cannot leave the rqlite stack pointing at nothing.
+      DB_DRIVER: rqlite
+      RQLITE_URL: ${RQLITE_URL:-http://rqlite:4001}
+      RQLITE_AUTH: ${RQLITE_AUTH:-}
+      RQLITE_READ_CONSISTENCY: ${RQLITE_READ_CONSISTENCY:-weak}
+      APP_PASSWORD: ${APP_PASSWORD:-}
+      APP_KEY: ${APP_KEY:-}
+      APOTHEKE_CLOCK: ${APOTHEKE_CLOCK:-}
+      APOTHEKE_HOSTED: ${APOTHEKE_HOSTED:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      CURRENCY: ${CURRENCY:-EUR}
+      TZ: ${TZ:-UTC}
+      PAGE_SIZE: ${PAGE_SIZE:-60}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+      IMAGE_FULL_MAX: ${IMAGE_FULL_MAX:-1600}
+      IMAGE_THUMB_MAX: ${IMAGE_THUMB_MAX:-480}
+      EXPIRY_SOON_DAYS: ${EXPIRY_SOON_DAYS:-30}
+    # Cold-start ordering only (§11 rule 2). depends_on does not survive rqlite restarting
+    # mid-session; the driver's retry policy and `/readyz`'s 1 s-cooldown retry are what make the
+    # app come up correctly if it wins the race.
+    depends_on:
+      rqlite:
+        condition: service_healthy
+    healthcheck:
+      # The app's own `/healthz`, never `/readyz` (§11 rule 7, D14): `/readyz` is behind auth from
+      # phase 1, and a 401 read as "unhealthy" would restart-loop the app against a healthy database.
+      # `node -e` rather than `curl`: the image is Node-based and curl is not assumed to exist.
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:9091/healthz')
+          .then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # Generous on purpose: the first boot runs the migration chain and the seed phase before it
+      # answers anything but /healthz, and the skeleton image starts Node and wrangler first.
+      start_period: 120s
+
+  rqlite:
+    # Pinned to the release the driver was written and tested against (§11, 10.7.4 / SQLite 3.54.1).
+    # A new SQLite would make the parity fixture and this stack disagree for no reason.
+    image: rqlite/rqlite:10.7.4
+    restart: unless-stopped
+    volumes:
+      # One data volume, because rqlite v10 keeps the raft log and the database inside one data
+      # directory (raft.db, raft/, db.sqlite) and has no flag to split them. Mounted at
+      # /rqlite/file, the path the image pre-creates owned by uid 1000 — mounting an empty named
+      # volume elsewhere would leave it root-owned and rqlited unable to write.
+      - rqlite-data:/rqlite/file
+      # Turns RQLITE_AUTH into the `-auth` file at start (see the script for why it is a wrapper).
+      - ./docker/rqlite-entrypoint.sh:/usr/local/bin/rqlite-entrypoint.sh:ro
+    environment:
+      RQLITE_AUTH: ${RQLITE_AUTH:-}
+      # A stable node id, so recreating the container does not look like a different node to itself.
+      NODE_ID: apotheke
+      DATA_DIR: /rqlite/file/data
+      # Stable advertised addresses: the service name, not the container hostname, which changes on
+      # every recreate and would make a single-node cluster refuse its own old address.
+      HTTP_ADV_ADDR: rqlite:4001
+      RAFT_ADV_ADDR: rqlite:4002
+    entrypoint: ["/bin/sh", "/usr/local/bin/rqlite-entrypoint.sh"]
+    healthcheck:
+      # §11 rule 7: rqlite's own `/readyz`, with RQLITE_AUTH from `.env` because `/readyz` requires
+      # credentials as soon as `-auth` is on. With no auth configured this degrades to a TCP connect.
+      # BusyBox `wget` (the image's only HTTP client) reads `user:pass@host` from the URL; `nc` has
+      # no `-z`, so the plain connect form is what tests the port.
+      test:
+        - CMD-SHELL
+        - >-
+          if [ -n "$${RQLITE_AUTH:-}" ];
+          then wget -q -T 3 -O /dev/null "http://$${RQLITE_AUTH}@127.0.0.1:4001/readyz";
+          else nc -w 2 127.0.0.1 4001 < /dev/null;
+          fi
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  apotheke-data:
+  rqlite-data:

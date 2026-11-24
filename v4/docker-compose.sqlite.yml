@@ -1,0 +1,57 @@
+# Apotheke v4 — self-host stack, single process (plan §11, S0.9): workerd alone on local SQLite.
+#
+# Same app, no database container: `DB_DRIVER=sqlite` makes the installation's Durable Object its own
+# SQLite database, which is the documented option for one node on one disk (§10.3). What you give up
+# is replication, snapshots and the ability to attach a second node; what you avoid is a second
+# process to back up and monitor.
+#
+# Separate project name, so both files can exist on one machine without sharing volumes.
+name: apotheke-sqlite
+
+services:
+  apotheke:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.stub
+    image: apotheke:4-skeleton
+    restart: unless-stopped
+    ports:
+      - "9091:9091"
+    volumes:
+      # Under DB_DRIVER=sqlite this also holds the database (`<volume>/state`), so this volume is the
+      # whole installation: lose it and only the last export brings the catalogue back.
+      - apotheke-data:/data
+    environment:
+      DB_DRIVER: sqlite
+      # Kept for the same names everywhere; an empty RQLITE_URL is "not an rqlite install".
+      RQLITE_URL: ""
+      RQLITE_AUTH: ${RQLITE_AUTH:-}
+      RQLITE_READ_CONSISTENCY: ${RQLITE_READ_CONSISTENCY:-weak}
+      APP_PASSWORD: ${APP_PASSWORD:-}
+      APP_KEY: ${APP_KEY:-}
+      APOTHEKE_CLOCK: ${APOTHEKE_CLOCK:-}
+      APOTHEKE_HOSTED: ${APOTHEKE_HOSTED:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      CURRENCY: ${CURRENCY:-EUR}
+      TZ: ${TZ:-UTC}
+      PAGE_SIZE: ${PAGE_SIZE:-60}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+      IMAGE_FULL_MAX: ${IMAGE_FULL_MAX:-1600}
+      IMAGE_THUMB_MAX: ${IMAGE_THUMB_MAX:-480}
+      EXPIRY_SOON_DAYS: ${EXPIRY_SOON_DAYS:-30}
+    healthcheck:
+      # Same rule as the two-container stack (§11 rule 7, D14): `/healthz`, never `/readyz`.
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:9091/healthz')
+          .then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
+volumes:
+  apotheke-data:

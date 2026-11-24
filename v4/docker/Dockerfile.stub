@@ -1,0 +1,26 @@
+# Apotheke v4 skeleton image (plan §5 S0.9) — NOT the shipping image.
+#
+# The v4 app is a Worker bundle for workerd, and the image that ships it is P6's work. Until then the
+# compose files and scripts/selfhost-smoke.sh need *something* honest to run, so this image installs
+# the workspace the way CI does and runs the real Worker under `wrangler dev`:
+#
+#   - same code, same `wrangler.jsonc`, same workerd version pin;
+#   - real `/healthz` and `/readyz`, real migration chain, real seed phase;
+#   - dev tooling, root user, no build step, ~1 GB — fine for a skeleton, wrong for production.
+#
+# It is deliberately not called `Dockerfile`, so nobody mistakes it for the release image, and the
+# compose files point at it by name. See docs/self-host-docker.md, "what is not exercised here".
+FROM node:22-slim
+
+WORKDIR /app
+
+# Dependencies first, so a source edit does not re-run `npm ci`. The lockfile is the one CI uses.
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+
+# 9091 is the published port in both compose files (§11).
+EXPOSE 9091
+
+ENTRYPOINT ["/app/docker/stub-entrypoint.sh"]
