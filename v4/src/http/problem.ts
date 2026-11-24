@@ -111,6 +111,23 @@ export const problem = (
 	});
 };
 
+/**
+ * A page answer: `text/html; charset=UTF-8`, `no-store`, and the page header set (plan §5 S1.1).
+ * The single `no-store` is what `ConsentFilter::after()` adds to a response that carries none — no
+ * consent cookie, no session — and a refusal answered from a before filter carries the header set
+ * itself, because the globals after filters do not run for it (`RouteMethodFilter::notAllowed()`).
+ */
+export const html = (body: string, status = 200, extra: Readonly<Record<string, string>> = {}): Response =>
+	new Response(body, {
+		status,
+		headers: {
+			...PAGE_HEADERS,
+			"Content-Type": "text/html; charset=UTF-8",
+			"Cache-Control": "no-store",
+			...extra,
+		},
+	});
+
 /** `application/json` for a handler's own answer, with the no-store the API contract asks for. */
 export const json = (body: unknown, status = 200, https = false): Response =>
 	new Response(JSON.stringify(body), {

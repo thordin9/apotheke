@@ -12,8 +12,16 @@ import {
 import { DEFERRED, FILTERS, HOST_REFUSAL, splitHost } from "../../src/http/filters";
 import { matchRoute } from "../../src/http/route-table";
 import { createContext, type RouterConfig } from "../../src/http/router";
+import { TEST_LOGIN, TEST_PAGE } from "../helpers/page";
 
-const CONFIG: RouterConfig = { publicUrl: "", https: false, hosted: false, maxUploadMb: 20 };
+const CONFIG: RouterConfig = {
+	publicUrl: "",
+	https: false,
+	hosted: false,
+	maxUploadMb: 20,
+	page: TEST_PAGE,
+	login: TEST_LOGIN,
+};
 const HTTPS: RouterConfig = { ...CONFIG, publicUrl: "https://apotheke.example", https: true };
 
 /** Runs one filter on a request, the way the chain would: through a real context. */

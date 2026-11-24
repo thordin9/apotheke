@@ -15,12 +15,14 @@
 // chain — a route whose permission is `none` or `public`, on a safe method — gets 501 and nothing
 // else. That is what makes the fail-closed promise checkable: no route in the table answers 2xx.
 
+import type { PageSettings } from "../html/page";
+import { loginPage } from "../html/views";
 import { afterChain, beforeChain, refusalAfterChain } from "./chain";
 import { type Ctx, DEFERRED, FILTERS } from "./filters";
-import { problem } from "./problem";
+import { html, problem } from "./problem";
 import { allowedMethods, catchAllRoute, effectiveMethod, matchRoute } from "./route-table";
 
-/** What the router needs from the app's configuration (§11). */
+/** What the router needs from the app's configuration (§11) and its settings row (§5 S1.1). */
 export interface RouterConfig {
 	/** `PUBLIC_URL`, trailing slash removed; empty when unset. */
 	readonly publicUrl: string;
@@ -28,6 +30,13 @@ export interface RouterConfig {
 	readonly https: boolean;
 	readonly hosted: boolean;
 	readonly maxUploadMb: number;
+	/** The shell's values, read once per request (`src/settings.ts`). */
+	readonly page: PageSettings;
+	/** The two decisions `/login` prints: `registrationOpen` and `guestBrowsing`. */
+	readonly login: {
+		readonly registrationOpen: boolean;
+		readonly guestBrowsing: boolean;
+	};
 }
 
 type Handler = (ctx: Ctx) => Response;
@@ -35,6 +44,35 @@ type Handler = (ctx: Ctx) => Response;
 /** `ApiController::notFound()`: the frozen /api 404 (§4 rule 3). */
 const apiNotFound: Handler = (ctx) =>
 	problem(ctx.path, ctx.config.https, 404, "not_found", "No such API endpoint.");
+
+/**
+ * `SignInController::login()` for GET/HEAD: the page, rendered from the settings row.
+ *
+ * Every other verb on this route is the sign-in *submission*, which needs the session and CSRF
+ * machinery of S1.2 — so it answers 501 rather than a page that would ignore the form it was sent.
+ * That is the one method-level difference from v3, where any verb shows the page; it is bounded by
+ * the route table (which declares all verbs) and named in `v4/docs/router.md`.
+ */
+const signInLogin: Handler = (ctx) => {
+	if (ctx.method !== "GET") {
+		return problem(
+			ctx.path,
+			ctx.config.https,
+			501,
+			"route.not_implemented",
+			"POST /login is the sign-in submission: S1.2 ports the session and CSRF it needs.",
+		);
+	}
+	return html(
+		loginPage(ctx.config.page, {
+			error: null,
+			username: "",
+			note: null,
+			registrationOpen: ctx.config.login.registrationOpen,
+			guestBrowsing: ctx.config.login.guestBrowsing,
+		}),
+	);
+};
 
 /** The one honest answer for a route whose controller has not been ported: 501, never a pretend 200. */
 const notPorted: Handler = (ctx) => {
@@ -50,6 +88,7 @@ const notPorted: Handler = (ctx) => {
 
 const HANDLERS: ReadonlyMap<string, Handler> = new Map([
 	["\\Apotheke\\Core\\Controllers\\ApiController::notFound", apiNotFound],
+	["\\Apotheke\\Auth\\Controllers\\SignInController::login", signInLogin],
 ]);
 
 const runAfter = (ctx: Ctx, response: Response, names: readonly string[]): Response => {

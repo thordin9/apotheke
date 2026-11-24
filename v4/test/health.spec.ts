@@ -14,12 +14,16 @@ describe("/healthz", () => {
 		expect(await res.json()).toMatchObject({ driver: "sqlite" });
 	});
 
-	it("404s anything else as problem+json (the router's 404, S0.5)", async () => {
+	it("404s anything else with the app's error page (S1.1; the /api 404 stays problem+json)", async () => {
 		// `localhost` on purpose: `hostcheck` accepts local names and IP literals, and the harness
 		// host `apotheke-v4.test` is not PUBLIC_URL's, so it would get 421 (correctly) first.
 		const res = await SELF.fetch("http://localhost/nope");
 		expect(res.status).toBe(404);
-		expect(res.headers.get("content-type")).toBe("application/problem+json");
-		expect(await res.json()).toMatchObject({ type: "about:blank", status: 404, code: "not_found" });
+		expect(res.headers.get("content-type")).toBe("text/html; charset=UTF-8");
+		expect(await res.text()).toContain("<p>Page not found.</p>");
+
+		const api = await SELF.fetch("http://localhost/api/v1/nope");
+		expect(api.status).toBe(404);
+		expect(api.headers.get("content-type")).toBe("application/problem+json");
 	});
 });

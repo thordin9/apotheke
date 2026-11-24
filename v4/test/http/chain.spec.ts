@@ -13,8 +13,16 @@ import { beforeChain } from "../../src/http/chain";
 import { matchPath } from "../../src/http/route-table";
 import { type RouterConfig, routeRequest } from "../../src/http/router";
 import { CHAINS, ROUTES } from "../../src/http/routes.generated";
+import { TEST_LOGIN, TEST_PAGE } from "../helpers/page";
 
-const CONFIG: RouterConfig = { publicUrl: "", https: false, hosted: false, maxUploadMb: 20 };
+const CONFIG: RouterConfig = {
+	publicUrl: "",
+	https: false,
+	hosted: false,
+	maxUploadMb: 20,
+	page: TEST_PAGE,
+	login: TEST_LOGIN,
+};
 
 const request = (path: string, method = "GET"): Request => new Request(`http://localhost${path}`, { method });
 
@@ -49,7 +57,11 @@ describe("the filter chain a request runs", () => {
 	it("runs the globals when the permission check passes, and reaches the handler", () => {
 		const routed = routeRequest(request("/login"), CONFIG);
 		expect(routed.trace).toEqual([...REQUIRED, "formfields", ...AFTER]);
-		expect(routed.response.status).toBe(501);
+		// `/login` renders since S1.1; `/register` is the same chain without a handler.
+		expect(routed.response.status).toBe(200);
+		const unported = routeRequest(request("/register"), CONFIG);
+		expect(unported.trace).toEqual([...REQUIRED, "formfields", ...AFTER]);
+		expect(unported.response.status).toBe(501);
 	});
 
 	it("runs the globals-minus-except list, then apicsrf last, on an /api route", () => {

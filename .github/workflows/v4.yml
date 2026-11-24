@@ -61,6 +61,12 @@ jobs:
       # app's own routes artifact. This fails when either is stale, so the parity test cannot pass against
       # a table that has drifted from app/Config/Routes.php or app/Config/Filters.php.
       - run: npm run routes:check
+      # S1.1: the served CSS/JS/icons are embedded from public/assets/, and the golden HTML fixture is
+      # the PHP app's own output. Both checks fail when the committed artifact no longer matches its
+      # source, so neither can pass against something that drifted. The fixture check hashes the PHP
+      # files rather than rendering them: CI carries no PHP toolchain, and the script says so.
+      - run: npm run assets:check
+      - run: npm run fixtures:check
       - run: npm test
 
   workerd-smoke:

@@ -20,7 +20,9 @@
 //
 // The refusals answer problem+json with the PHP app's header set for their path — see `problem.ts`.
 
-import { apiHeaders, isApi, PAGE_HEADERS, problem } from "./problem";
+import type { PageSettings } from "../html/page";
+import { errorPage } from "../html/views";
+import { apiHeaders, html, isApi, PAGE_HEADERS, problem } from "./problem";
 import type { RouteRow } from "./route-table";
 
 /** What the filters decide on: the request, the resolved route, and what earlier filters set. */
@@ -46,6 +48,12 @@ export interface Ctx {
 		readonly https: boolean;
 		readonly hosted: boolean;
 		readonly maxUploadMb: number;
+		/** The shell's values, for the error pages a page-path refusal renders (S1.1). */
+		readonly page: PageSettings;
+		readonly login: {
+			readonly registrationOpen: boolean;
+			readonly guestBrowsing: boolean;
+		};
 	};
 	/** Set by `publicbase`: the origin the app thinks it is served from. */
 	baseUrl: string;
@@ -245,6 +253,40 @@ const api: Filter = {
 	deferred: "CORS_ALLOWED_ORIGINS is not in v4's env contract; the list is empty as it is by default",
 };
 
+/**
+ * `RouteMethodFilter`: the verbs a 405 lists, with `HEAD` spliced in after `GET` exactly once. The
+ * table carries explicit `HEAD` rows (the PHP side declares them), and the filter's own list does
+ * not — it inserts one — so both inputs must land on the same header.
+ */
+const allowHeader = (allow: readonly string[]): string => {
+	const verbs = allow.filter((verb) => verb !== "HEAD");
+	const at = verbs.indexOf("GET");
+	return (at === -1 ? verbs : [...verbs.slice(0, at + 1), "HEAD", ...verbs.slice(at + 1)]).join(", ");
+};
+
+/** `WantsJson`: a fetch (`X-Requested-With: fetch`) or an `Accept` that names JSON. */
+const wantsJson = (request: Request): boolean =>
+	request.headers.get("x-requested-with") === "fetch" ||
+	(request.headers.get("accept") ?? "").includes("application/json");
+
+/**
+ * CI4's error response for a page path, as the PHP app sends it: `Cache-Control: no-store,
+ * max-age=0, no-cache` on top of the page header set, which a before-filter refusal must carry
+ * itself because the globals after filters do not run for it.
+ */
+const ERROR_PAGE_CACHE: Readonly<Record<string, string>> = {
+	"Cache-Control": "no-store, max-age=0, no-cache",
+};
+
+/** `Services::errorPage()->html($status, $message)`: the app's error page, with the page headers. */
+const pageError = (
+	ctx: Ctx,
+	status: number,
+	message: string,
+	extra: Readonly<Record<string, string>>,
+	cache: Readonly<Record<string, string>>,
+): Response => html(errorPage(ctx.config.page, message), status, { ...cache, ...extra });
+
 const routemethod: Filter = {
 	before: (ctx) => {
 		if (ctx.route !== null) {
@@ -256,25 +298,42 @@ const routemethod: Filter = {
 			return problem(ctx.path, ctx.config.https, 404, "not_found", "No such API endpoint.");
 		}
 		if (ctx.allow.length > 0) {
-			return problem(
-				ctx.path,
-				ctx.config.https,
+			if (isApi(collapsed)) {
+				return problem(
+					ctx.path,
+					ctx.config.https,
+					405,
+					"method_not_allowed",
+					"This endpoint does not take this method.",
+					{ extra: { Allow: allowHeader(ctx.allow) } },
+				);
+			}
+			// A page path: v3's error page, or legacy JSON for a fetch (`RouteMethodFilter::notAllowed`).
+			const allow = allowHeader(ctx.allow);
+			if (wantsJson(ctx.request)) {
+				return new Response(JSON.stringify({ ok: false, error: "Method not allowed" }), {
+					status: 405,
+					headers: {
+						...PAGE_HEADERS,
+						"Content-Type": "application/json; charset=utf-8",
+						"Cache-Control": "no-store",
+						Allow: allow,
+					},
+				});
+			}
+			return pageError(
+				ctx,
 				405,
-				"method_not_allowed",
-				"This endpoint does not take this method.",
-				{
-					extra: { Allow: ctx.allow.join(", ") },
-				},
+				"This page does not take this kind of request.",
+				{ Allow: allow },
+				ERROR_PAGE_CACHE,
 			);
 		}
-		// v3 renders its error page here; that is P2. Until then every 404 is problem+json.
-		return problem(
-			ctx.path,
-			ctx.config.https,
-			404,
-			"not_found",
-			isApi(collapsed) ? "No such API endpoint." : "No such page.",
-		);
+		if (isApi(collapsed)) {
+			return problem(ctx.path, ctx.config.https, 404, "not_found", "No such API endpoint.");
+		}
+		// `PlainHandler`: an unknown page is 404 "Page not found." on the app's own error page.
+		return pageError(ctx, 404, "Page not found.", {}, ERROR_PAGE_CACHE);
 	},
 };
 
