@@ -202,7 +202,7 @@ export const update = async (sql: Sql, key: string, rawName: string | null, rawP
 };
 
 /** `RoleAdmin::deleteLocked()`'s write: the accounts move only when the role's deletion is allowed. */
-export export const deleteStatements = (key: string, moveTo: string): readonly Statement[] => [
+export const deleteStatements = (key: string, moveTo: string): readonly Statement[] => [
 	statement(`UPDATE users SET role = ? WHERE role = ? AND ${DELETE_SAFE}`, [moveTo, key, key, key, key, key]),
 	statement(`DELETE FROM roles WHERE role_key = ? AND ${DELETE_SAFE}`, [key, key, key, key, key]),
 ];
