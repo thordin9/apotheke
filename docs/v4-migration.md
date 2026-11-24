@@ -1,7 +1,7 @@
 # Apotheke v4 — TypeScript on Workers/workerd: execution plan
 
 Owner: Apotheke PM · Build: Apotheke FullStack Developer · Branch of record: `experimental-v4`
-Created 2026-11-23 12:50 EET · **Revision 12 at 03:30 EET on 2026-11-24** — names where the compose skeleton actually lives in phase 0: under `v4/`, not at the repo root, because the root already ships v3's `docker-compose.yml` (blob `d631dc53`, 4,734 bytes: nginx/php-fpm and FrankenPHP images, `./data:/data`) and v3's `.env.example` (blob `7c3da402`), which are the files today's self-hosters run and the ones `docs/getting-started.md` and `docs/deployment-and-operations.md` describe. Overwriting them in phase 0 would hand a v3 operator a stack the v4 app cannot serve yet — S0.5 is not landed, and auth, pages and API are phases 1–2. The root swap becomes the cutover step (P7), with v3's compose kept for one release as `docker-compose.v3.yml`. Adds **D16**. Revision 11 at 02:05 EET — one correction, no scope change: §11's service contract named the published URL `PUBLIC_BASE_URL`, a name that appears nowhere else in the repo; the variable is `PUBLIC_URL` (`v4/src/env.ts`, `v4/src/platform/config.ts`, `v4/wrangler.jsonc`) and it is the same name v3 already ships, so adopting the table's wording would break every existing self-host `.env`. Revision 10 text follows. **Revision 10 at 00:50 EET on 2026-11-24** — records S0.6's D1 job landing (run `45282360833`: five jobs, the emulated D1 binding booted and its bytes inspected) and **signs off G0**, naming what that sign-off does not cover. Narrows what is next to S0.9, the compose skeleton, which now has an environment contract to pin. Revision 9 at 00:35 EET on 2026-11-24 — records S0.8 (the rqlite driver) and, with it, G0's last unproven leg: `rqlite` from inside workerd, proven in run `45279526055` with the two remaining gaps (TLS to a self-signed node, retry across a real election) named rather than glossed. Narrows what is next to S0.6's D1 job, and states that a CI D1 job proves the emulated binding, not hosted D1. Revision 8 at 00:20 EET on 2026-11-24 — records what S0.2–S0.4 actually built
+Created 2026-11-23 12:50 EET · **Revision 13 at 03:45 EET on 2026-11-24** — records S0.9 landing and fixes the one table row the run proved wrong. Run `45305147064` (six jobs, 57 steps, zero non-success, zero skipped) brings both stacks up from `down -v`, answers `/readyz 200 {"schema":"0036","seed":"done"}` with `driver` `rqlite` and `sqlite` respectively, asserts both container healthchecks through `compose ps`, and proves a second boot over the same volume leaves the seeded rows identical — full row content, bcrypt hash included, with the row counts asserted before the comparison so a read that missed the WAL fails instead of passing quietly. The correction: **§11's rqlite volume row.** rqlite v10.7.4 keeps the raft log and the SQLite database inside **one** data directory and has no flag to split them; the image pre-creates `/rqlite/file` owned by uid 1000, so the stack mounts one volume there with `DATA_DIR=/rqlite/file/data` — not `rqlite-raft:/data/raft` + `rqlite-db:/data/db`, a layout this image does not have at all. Adds **D17**. Revision 12 at 03:30 EET — names where the compose skeleton actually lives in phase 0: under `v4/`, not at the repo root, because the root already ships v3's `docker-compose.yml` (blob `d631dc53`, 4,734 bytes: nginx/php-fpm and FrankenPHP images, `./data:/data`) and v3's `.env.example` (blob `7c3da402`), which are the files today's self-hosters run and the ones `docs/getting-started.md` and `docs/deployment-and-operations.md` describe. Overwriting them in phase 0 would hand a v3 operator a stack the v4 app cannot serve yet — S0.5 is not landed, and auth, pages and API are phases 1–2. The root swap becomes the cutover step (P7), with v3's compose kept for one release as `docker-compose.v3.yml`. Adds **D16**. Revision 11 at 02:05 EET — one correction, no scope change: §11's service contract named the published URL `PUBLIC_BASE_URL`, a name that appears nowhere else in the repo; the variable is `PUBLIC_URL` (`v4/src/env.ts`, `v4/src/platform/config.ts`, `v4/wrangler.jsonc`) and it is the same name v3 already ships, so adopting the table's wording would break every existing self-host `.env`. Revision 10 text follows. **Revision 10 at 00:50 EET on 2026-11-24** — records S0.6's D1 job landing (run `45282360833`: five jobs, the emulated D1 binding booted and its bytes inspected) and **signs off G0**, naming what that sign-off does not cover. Narrows what is next to S0.9, the compose skeleton, which now has an environment contract to pin. Revision 9 at 00:35 EET on 2026-11-24 — records S0.8 (the rqlite driver) and, with it, G0's last unproven leg: `rqlite` from inside workerd, proven in run `45279526055` with the two remaining gaps (TLS to a self-signed node, retry across a real election) named rather than glossed. Narrows what is next to S0.6's D1 job, and states that a CI D1 job proves the emulated binding, not hosted D1. Revision 8 at 00:20 EET on 2026-11-24 — records what S0.2–S0.4 actually built
 and corrects four §3 rows that had drifted from the code: the vitest plugin (`@cloudflare/vitest-plugin`, the
 supported successor to the deprecated `vitest-pool-workers`), the `workerd` override that running
 `compatibility_date 2026-10-29` requires, `dependency-cruiser`'s SWC parser, and a hand-written `secretbox.ts` in
@@ -165,11 +165,13 @@ and G0 is no longer blocked on it. Two gaps stay open and are recorded, not wave
 `rqlited` with a self-signed certificate** is implemented but unexercised, and **retry across a real leader election**
 is proven only against a stub `503` — killing and restarting a leader belongs with G3's restart-with-data.
 
-Slices landed by 2026-11-24 00:44 EET: S0.1 (`0e46d908`), S0.2 (`9aedb9e0`), S0.4 with its audit (`f1473b17`;
+Slices landed by 2026-11-24 03:45 EET: S0.1 (`0e46d908`), S0.2 (`9aedb9e0`), S0.4 with its audit (`f1473b17`;
 audit `ac08ea6f` merged as `f27b79de`), S0.3 (`744bc946`), S0.8 (`94309317`, five commits `bc801feb` driver and
 tests, `bc472f50` the rqlite job, `4d179942` and `864a0efb` its two defects fixed, `94309317` the gaps recorded),
-and S0.6's D1 job (`48d7dc00`, plus `d2c1c173` correcting `adapters.md`). S0.7's D1 driver landed early inside S0.3
-because S0.4's parity test needs a backend, and S0.8 delivered S0.6's rqlite job with it.
+S0.6's D1 job (`48d7dc00`, plus `d2c1c173` correcting `adapters.md`), and S0.9 (`e654d275`, five commits:
+`7a918ad8` the compose skeleton and `.env.example`, `ea1908a0` the smoke script and its CI job, `91d07ca4` the
+failure-path fix, `9eefa7a5` the missing CA bundle, `e654d275` the healthcheck assertions). S0.7's D1 driver landed
+early inside S0.3 because S0.4's parity test needs a backend, and S0.8 delivered S0.6's rqlite job with it.
 
 **D1 from the emulated binding — pass, 2026-11-24 00:44 EET** (run `45282360833`, run 15, job `d1 (emulated
 binding, parity, workerd boot)` 12/12; five jobs, zero non-success and zero skipped steps): the suite's own JSON
@@ -192,9 +194,26 @@ but unexercised, which is G6's compose stack; and retry across a real leader ele
 `503`, which is G3's restart-with-data. None of the three is a phase-0 input, and each is scheduled to the gate that
 will actually exercise it.
 
-**Next is S0.9** — the self-host compose skeleton, `.env.example` and `scripts/selfhost-smoke.sh` — because S0.8 has
-pinned the `RQLITE_URL` / `RQLITE_AUTH` / `RQLITE_READ_CONSISTENCY` contract S0.9 has to expose and G0 no longer
-blocks it. S0.5 (the router) follows as the last phase-0 slice.
+**S0.9 — landed 03:28 EET**, five commits on top of revision 12, head `e654d275`, green in run `45305147064` (six
+jobs, 57 steps, zero non-success, zero skipped). Both files boot from `down -v`: `v4/docker-compose.yml` answers
+`/healthz 200 {"ok":true,"driver":"rqlite"}` then `/readyz 200 {"ok":true,"schema":"0036","seed":"done","driver":"rqlite"}`,
+`v4/docker-compose.sqlite.yml` the same with `"driver":"sqlite"`, both containers report `healthy` from their own
+healthchecks (asserted through `compose ps`, not assumed), and a second boot over the same volume leaves the seeded
+rows identical — the snapshot asserts 1 user and 64 settings before it compares, so an identical-but-empty read
+fails. The rqlite stack runs with `-auth` and a generated `RQLITE_AUTH`, so the credential path is exercised rather
+than assumed; `.env.example` carries the sixteen names the code reads, checked programmatically
+(`extra: []`, `missing: []`, `PUBLIC_URL` and no `PUBLIC_BASE_URL`). Two of its five commits are the slice's own red
+runs, kept in the record: run 19 answered no `/healthz` for 300 s and printed nothing, because `die`'s `exit` fired
+an EXIT trap while the log dump lived in an ERR trap — one EXIT trap now dumps `compose ps -a` and 300 lines, and
+the wait fails in seconds when the container is `exited`; run 20's single line was `No CA certificates were loaded
+from the system`, because `node:22-slim` ships no CA bundle and workerd refuses to boot — the stub image now
+installs `ca-certificates`. What S0.9 does **not** prove: G6's acceptance list (claim admin, create an item, upload
+a photo, download and restore the backup ZIP) needs S0.5's router and pages, so this slice pins packaging and the
+readiness/seed contract, not the product; the image is a **stub**, not a release image; TLS to rqlite is G6 and
+retry across a live election is G3.
+
+**Next is S0.5** — the router and the filter chain — the last phase-0 slice, and the one that makes G6's acceptance
+list testable at all: the compose stack can be smoke-tested today but not accepted until it lands.
 
 **Gate G0 (amended by D13):** TS runner vs PHP runner schema identical (normalised) on an empty database and on a
 v3.72 dump, on **all three** backends (one SQLite schema, so one comparison run three times), where "identical" means
@@ -333,6 +352,7 @@ gets one new switch: `APOTHEKE_BASE_URL`, so the same suite points at PHP or v4 
 | D14 | First boot: seeding, and what readiness means before it finishes | **Answered 23:22 — a seed gate.** 64 settings, 4 roles and the first user are seeded inside `blockConcurrencyWhile` before the first request is served, and marked by a seed row rather than inferred from "the tables look empty"; `/readyz` answers **503 while a seed is pending**, `/healthz` answers **200 always** | S0.3; the PHP fixture's `seed_rows` (64 settings, 4 roles, 1 user) are compared on D1 and on DO SQLite, and a second seed is idempotent. The compose healthcheck probes `/healthz`, so an unseeded container is never restarted mid-seed |
 | D15 | How `enc:v1:` secrets are sealed once `libsodium-wrappers` cannot run in workerd | **Answered 23:44 — write XSalsa20-Poly1305 by hand in `src/platform/secretbox.ts`.** workerd disables WebAssembly codegen, so the library does not load at all — this is not a packaging preference, it is a hard runtime limit. The format is libsodium's own secretbox, so existing `enc:v1:` values keep working and no user re-enters a secret | §3's crypto row; the interop question was closed by sealing and opening values in both directions against real `sodium_crypto_secretbox` (PHP 8.4.23), which is the only evidence that counts. Recorded as a numbered decision because it changes what every secret at rest depends on |
 | D16 | Where v4's compose files and `.env.example` live before the cutover | **Answered 03:30 — under `v4/`.** The repo root already ships v3's `docker-compose.yml` (`d631dc53`, the file every current self-hoster runs) and v3's `.env.example` (`7c3da402`), and `docs/getting-started.md` / `docs/deployment-and-operations.md` describe them. Overwriting them in phase 0 would replace a working v3 stack with a v4 one that has no router, no auth and no pages yet | S0.9 writes `v4/docker-compose.yml`, `v4/docker-compose.sqlite.yml`, `v4/.env.example`, and `scripts/selfhost-smoke.sh` takes the compose path as an argument. P7 moves them to the root in one PR, keeps v3's file for one release as `docker-compose.v3.yml`, and rewrites the two v3 docs in the same PR |
+| D17 | How rqlite's storage is mounted, once §11's two-volume row proved impossible | **Answered 03:40 — one volume at `/rqlite/file`.** rqlite v10.7.4 keeps the raft log and the SQLite database inside one data directory, and the released binary has no `-raft-dir`-style flag to split them; the image pre-creates `/rqlite/file` owned by uid 1000, so mounting an empty named volume elsewhere leaves it root-owned and unwritable. The stack therefore mounts `rqlite-data:/rqlite/file` with `DATA_DIR=/rqlite/file/data` | S0.9 shipped this and reported it rather than editing the plan; §10.3 and §11's service contract are corrected here. The advertised addresses stay pinned to the service name (`HTTP_ADV_ADDR`/`RAFT_ADV_ADDR`), because a single-node cluster that re-advertises a new hostname after `docker compose up --force-recreate` can refuse its own old address |
 
 ### 8.1 D4 in plain terms (answered: G7 only)
 
@@ -400,6 +420,7 @@ re-derived them. No scope change; effort and gates stand.
   rqlite has no such route — while the principle it was reaching for is rule 7's own. `depends_on: service_healthy` on
   rqlite stays (rule 2, cold start); it is not a correctness mechanism, and the 1s-cooldown `/readyz` retry is.
   What it costs: nothing. What it changes: the builder is unblocked on S0.9 with the plan and the code agreeing on names.
+- 2026-11-24 03:45 EET — **Revision 13: S0.9 lands, and the row it disproved.** Rationale: the compose skeleton shipped and was *executed* — run `45305147064` boots both stacks from nothing, gets `/readyz 200` with `seed:"done"` from each, and proves a second boot does not re-seed — which is the first time self-host packaging has been tested rather than read. It also settled §11's rqlite volume row the only way that counts: rqlite v10.7.4 has one data directory and the image pre-creates `/rqlite/file` owned by uid 1000, so the two-volume row could never have worked. What it costs: nothing shipped is affected — no release exists and the root v3 compose is untouched. What it changes: D17, and a documented stub image in place of the release image until P6. What it does not prove: the acceptance list (needs S0.5), TLS (G6), election retry (G3).
 - 2026-11-24 00:35 EET — **Revision 9: S0.8 lands, and G0's rqlite leg is proven.** Rationale: the spike that read
   "unproven, not a pass" was settled by the rqlite job in run `45279526055` — workerd answers `/readyz 200
   {"schema":"0036","seed":"done","driver":"rqlite"}` against a real `rqlited` v10.7.4 with `-auth` — so the plan could
@@ -522,7 +543,7 @@ Whether the same fix ships on frozen `main` as a security patch is Stathis's cal
 
 ### 10.3 Self-host footprint
 
-Default: `rqlited` (one process, `/data/raft` + `/data/db`) beside `workerd`. Single-process option: `workerd` alone
+Default: `rqlited` (one process, one data directory at `/rqlite/file` — D17) beside `workerd`. Single-process option: `workerd` alone
 with `DB_DRIVER=sqlite`, accepting one node and local disk. Both documented in the self-host guide with ports, volumes
 and backup steps.
 
@@ -565,7 +586,11 @@ Service contract (this is what S0.9 pins, and what the docs are written from):
 | Service | Image | Published | Volumes | Key env |
 |---|---|---|---|---|
 | `apotheke` | `ghcr.io/thordin9/apotheke:<version>` | `9091:9091` | `apotheke-data:/data` (uploads, exports) | `DB_DRIVER=rqlite`, `RQLITE_URL=http://rqlite:4001`, `APP_KEY`, `PUBLIC_URL` |
-| `rqlite` | `rqlite/rqlite:10` (pinned to the tested major: v10.7.4, SQLite 3.54.1) | **nothing** (4001 stays on the compose network) | `rqlite-raft:/data/raft`, `rqlite-db:/data/db` | `-http-addr 0.0.0.0:4001`, `-raft-addr 0.0.0.0:4002`, optional `-auth` file |
+| `rqlite` | `rqlite/rqlite:10` (pinned to the tested major: v10.7.4, SQLite 3.54.1) | **nothing** (4001 stays on the compose network) | `rqlite-data:/rqlite/file` — **one** volume (**D17**: the image pre-creates this path owned by uid 1000, so the volume inherits that ownership; the raft log, `raft.db` and `db.sqlite` all live under it) | `DATA_DIR=/rqlite/file/data`, `NODE_ID`, `HTTP_ADV_ADDR`/`RAFT_ADV_ADDR` set to the service name (the image's own entrypoint turns these into flags; the advertised address must not be the container hostname, which changes on every recreate), `-http-addr 0.0.0.0:4001`, `-raft-addr 0.0.0.0:4002`, and `RQLITE_AUTH` turned into an `-auth` file by a thin entrypoint wrapper (one secret in `.env`, never in the compose file) |
+
+In phase 0 the `apotheke` image is a **stub** — `v4/docker/Dockerfile.stub`, tagged `apotheke:4-skeleton`, running
+the real Worker under `wrangler dev` with real migrations, a real seed and real `/healthz`/`/readyz`. It is named so
+it cannot be mistaken for the release image, which is P6's `ghcr.io/thordin9/apotheke:<version>`.
 
 Rules that keep the self-host path honest:
 
