@@ -45,10 +45,21 @@ const fallbackPerms = (role: string): readonly string[] => {
 };
 
 /** Resolve the actor for this request. One roles read, plus the account row when there is a session. */
-export const resolveActor = async (sql: Sql, identity: Identity | null, config: ActorConfig): Promise<Actor | null> => {
+export const resolveActor = async (
+	sql: Sql,
+	identity: Identity | null,
+	config: ActorConfig,
+): Promise<Actor | null> => {
 	if (!config.signInEnabled) {
 		// `CurrentUser` with accounts off: the anonymous admin, full rights, never a real account.
-		return { id: null, role: "admin", anon: true, guest: false, roleName: "Admin", perms: [...ALL.map(([key]) => key)] };
+		return {
+			id: null,
+			role: "admin",
+			anon: true,
+			guest: false,
+			roleName: "Admin",
+			perms: [...ALL.map(([key]) => key)],
+		};
 	}
 	const roles = await listed(sql);
 	const forRole = (role: string): Pick<Actor, "roleName" | "perms"> => ({

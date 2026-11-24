@@ -13,7 +13,15 @@
 // present or it is not. The refusal is decided afterwards by reading the row back (D26).
 
 import { type Sql, type Statement, statement, utcNow } from "../db/sql";
-import { ALL_KEYS, clean, fromStored, NOT_FOR_GUESTS, permsJson, ROLE_DEFAULTS, USERS_PERM } from "./permissions";
+import {
+	ALL_KEYS,
+	clean,
+	fromStored,
+	NOT_FOR_GUESTS,
+	permsJson,
+	ROLE_DEFAULTS,
+	USERS_PERM,
+} from "./permissions";
 import { cleanLine, UserError } from "./users";
 
 /** `RoleAdmin::KEY_MAX` / `NAME_MAX`. */
@@ -48,7 +56,9 @@ export const listed = async (sql: Sql): Promise<RoleRow[]> => {
 		counts.set(String(row.role ?? ""), Number(row.n ?? 0));
 	}
 	const out: RoleRow[] = [];
-	const rows = await sql.all(statement("SELECT role_key, name, perms, builtin FROM roles ORDER BY builtin DESC, id"));
+	const rows = await sql.all(
+		statement("SELECT role_key, name, perms, builtin FROM roles ORDER BY builtin DESC, id"),
+	);
 	for (const row of rows) {
 		const key = String(row.role_key ?? "");
 		out.push({
@@ -106,12 +116,13 @@ export const validPerms = (perms: readonly string[]): string[] => {
 
 /** `EXISTS (active account other than $key that is an admin or a role holding users)`. */
 const OTHER_MANAGER = (keyParam: string): string =>
-	`EXISTS (SELECT 1 FROM users u WHERE u.status = 'active' AND u.role <> ${keyParam}`
-	+ ` AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM roles r2 WHERE r2.role_key = u.role AND instr(r2.perms, ${USERS_PERM}) > 0)))`;
+	`EXISTS (SELECT 1 FROM users u WHERE u.status = 'active' AND u.role <> ${keyParam}` +
+	` AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM roles r2 WHERE r2.role_key = u.role AND instr(r2.perms, ${USERS_PERM}) > 0)))`;
 
 /** `NOT EXISTS (any active account that is an admin or a role holding users)`: v3's `managers() > 0`. */
-const NO_MANAGER = "NOT EXISTS (SELECT 1 FROM users u WHERE u.status = 'active'"
-	+ ` AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM roles r3 WHERE r3.role_key = u.role AND instr(r3.perms, ${USERS_PERM}) > 0)))`;
+const NO_MANAGER =
+	"NOT EXISTS (SELECT 1 FROM users u WHERE u.status = 'active'" +
+	` AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM roles r3 WHERE r3.role_key = u.role AND instr(r3.perms, ${USERS_PERM}) > 0)))`;
 
 /** The predicate `updateLocked()` uses: this change may not leave the install without a manager. */
 const UPDATE_SAFE = `(? = 1 OR instr(perms, ${USERS_PERM}) = 0 OR ${OTHER_MANAGER("?")} OR ${NO_MANAGER})`;
@@ -121,12 +132,18 @@ const UPDATE_SAFE = `(? = 1 OR instr(perms, ${USERS_PERM}) = 0 OR ${OTHER_MANAGE
  * The deleted role's own permissions are read through a subselect and not as `perms`, because this
  * predicate is also carried by the `UPDATE users` that moves them — and `users` has no `perms` column.
  */
-const DELETE_SAFE = `(instr((SELECT r5.perms FROM roles r5 WHERE r5.role_key = ?), ${USERS_PERM}) = 0 OR ${OTHER_MANAGER("?")}`
-	+ ` OR (EXISTS (SELECT 1 FROM users u2 WHERE u2.status = 'active' AND u2.role = ?)`
-	+ ` AND instr((SELECT r4.perms FROM roles r4 WHERE r4.role_key = ?), ${USERS_PERM}) > 0) OR ${NO_MANAGER})`;
+const DELETE_SAFE =
+	`(instr((SELECT r5.perms FROM roles r5 WHERE r5.role_key = ?), ${USERS_PERM}) = 0 OR ${OTHER_MANAGER("?")}` +
+	` OR (EXISTS (SELECT 1 FROM users u2 WHERE u2.status = 'active' AND u2.role = ?)` +
+	` AND instr((SELECT r4.perms FROM roles r4 WHERE r4.role_key = ?), ${USERS_PERM}) > 0) OR ${NO_MANAGER})`;
 
 /** `RoleAdmin::create()`: a new custom role. Returns its key; the row is read back, not counted. */
-export const create = async (sql: Sql, rawName: string, rawPerms: readonly string[], now: number): Promise<string> => {
+export const create = async (
+	sql: Sql,
+	rawName: string,
+	rawPerms: readonly string[],
+	now: number,
+): Promise<string> => {
 	const name = cleanLine(rawName, NAME_MAX);
 	if (name === "") {
 		throw new UserError("Enter a name for the role.", 422);
@@ -158,7 +175,11 @@ export const create = async (sql: Sql, rawName: string, rawPerms: readonly strin
 };
 
 /** `RoleAdmin::updateLocked()`'s write: the row changes only when a manager would remain. */
-export const updateStatements = (key: string, name: string, perms: readonly string[]): readonly Statement[] => [
+export const updateStatements = (
+	key: string,
+	name: string,
+	perms: readonly string[],
+): readonly Statement[] => [
 	statement(`UPDATE roles SET name = ?, perms = ? WHERE role_key = ? AND ${UPDATE_SAFE}`, [
 		name,
 		permsJson(perms),
@@ -169,7 +190,12 @@ export const updateStatements = (key: string, name: string, perms: readonly stri
 ];
 
 /** `RoleAdmin::update()` — legacy `role_update()`. The admin role and a manager-less install are v3's refusals. */
-export const update = async (sql: Sql, key: string, rawName: string | null, rawPerms: readonly string[]): Promise<void> => {
+export const update = async (
+	sql: Sql,
+	key: string,
+	rawName: string | null,
+	rawPerms: readonly string[],
+): Promise<void> => {
 	const roles = await listed(sql);
 	const role = roles.find((row) => row.key === key);
 	if (role === undefined) {
@@ -203,8 +229,9 @@ export const update = async (sql: Sql, key: string, rawName: string | null, rawP
 
 /** `RoleAdmin::deleteLocked()`'s write: the accounts move only when the role's deletion is allowed. */
 export const deleteStatements = (key: string, moveTo: string): readonly Statement[] => [
-	statement(`UPDATE users SET role = ? WHERE role = ? AND ${DELETE_SAFE}`, [moveTo, key, key, key, key, key]),
-	statement(`DELETE FROM roles WHERE role_key = ? AND ${DELETE_SAFE}`, [key, key, key, key, key]),
+	// `r4` is the receiving role: the accounts' new permissions are what the manager count must use.
+	statement(`UPDATE users SET role = ? WHERE role = ? AND ${DELETE_SAFE}`, [moveTo, key, key, key, key, moveTo]),
+	statement(`DELETE FROM roles WHERE role_key = ? AND ${DELETE_SAFE}`, [key, key, key, key, moveTo]),
 ];
 
 /** `RoleAdmin::delete()` — legacy `role_delete()`; its accounts move to `moveTo` in the same batch. */
@@ -226,10 +253,9 @@ export const remove = async (sql: Sql, key: string, moveTo: string): Promise<voi
 	await sql.batch([
 		...deleteStatements(key, moveTo),
 		// `RoleAdmin::delete()` stores the fallback after the commit, when the register role was this one.
-		statement(
-			"UPDATE settings SET value = '\"viewer\"' WHERE name = 'auth_register_role' AND value = ?",
-			[typeof before === "string" ? before : ""],
-		),
+		statement("UPDATE settings SET value = '\"viewer\"' WHERE name = 'auth_register_role' AND value = ?", [
+			typeof before === "string" ? before : "",
+		]),
 	]);
 	const after = await listed(sql);
 	if (after.some((row) => row.key === key)) {
@@ -241,10 +267,10 @@ export const remove = async (sql: Sql, key: string, moveTo: string): Promise<voi
 export const managers = async (sql: Sql): Promise<number> => {
 	const rows = await sql.all(
 		statement(
-			"SELECT COUNT(*) AS n FROM users u WHERE u.status = 'active'"
-				+ " AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM roles r WHERE r.role_key = u.role AND instr(r.perms, "
-				+ USERS_PERM
-				+ ") > 0))",
+			"SELECT COUNT(*) AS n FROM users u WHERE u.status = 'active'" +
+				" AND (u.role = 'admin' OR EXISTS (SELECT 1 FROM roles r WHERE r.role_key = u.role AND instr(r.perms, " +
+				USERS_PERM +
+				") > 0))",
 		),
 	);
 	return Number(rows[0]?.n ?? 0);

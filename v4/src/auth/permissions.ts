@@ -52,7 +52,25 @@ export const name = (key: string): string => ALL.find(([k]) => k === key)?.[1] ?
 /** `role_key => [name, permissions]`: the built-in roles before migration 0022 and after a reset. */
 export const ROLE_DEFAULTS: ReadonlyArray<readonly [string, string, readonly string[]]> = [
 	["admin", "Admin", ALL_KEYS],
-	["editor", "Editor", ["view", "create", "edit", "delete", "move", "bulk", "lend", "import", "export", "stocktake", "labels", "backup", "restore"]],
+	[
+		"editor",
+		"Editor",
+		[
+			"view",
+			"create",
+			"edit",
+			"delete",
+			"move",
+			"bulk",
+			"lend",
+			"import",
+			"export",
+			"stocktake",
+			"labels",
+			"backup",
+			"restore",
+		],
+	],
 	["viewer", "Viewer", ["view", "export", "labels", "backup"]],
 	["guest", "Guest", ["view"]],
 ];

@@ -103,13 +103,18 @@ const addUser = async (sql: Sql, name: string, role: string, status = "active"):
 			params: [name, name.toLowerCase(), role, status, "2026-01-01 00:00:00"],
 		},
 	]);
-	const rows = await sql.all({ sql: "SELECT id FROM users WHERE username_key = ?", params: [name.toLowerCase()] });
+	const rows = await sql.all({
+		sql: "SELECT id FROM users WHERE username_key = ?",
+		params: [name.toLowerCase()],
+	});
 	return Number(rows[0]?.id ?? 0);
 };
 
 const roleRow = async (sql: Sql, key: string) => (await listed(sql)).find((row) => row.key === key);
 
-const rolesOf = (entries: ReadonlyArray<readonly [string, string]>): { order: string[]; names: Map<string, string> } => ({
+const rolesOf = (
+	entries: ReadonlyArray<readonly [string, string]>,
+): { order: string[]; names: Map<string, string> } => ({
 	order: entries.map(([key]) => key),
 	names: new Map(entries),
 });
@@ -222,7 +227,9 @@ describe("the last manager cannot lose the Users permission", () => {
 		expect(holding).toHaveLength(2); // the admin role (nobody holds it) and the surviving manager
 		expect(holding).toContain("admin");
 		const stripped = (await listed(sql)).filter((row) => !row.perms.includes("users"));
-		expect(stripped.map((row) => row.key).sort()).toEqual(["manager-a", "manager-b", "viewer"].filter((key) => !holding.includes(key)));
+		expect(stripped.map((row) => row.key).sort()).toEqual(
+			["guest", "manager-a", "manager-b", "viewer"].filter((key) => !holding.includes(key)),
+		);
 	});
 
 	it("refuses deleting a role whose accounts are the only managers", async () => {
@@ -281,7 +288,9 @@ describe("the roles editor's own rules", () => {
 	it("refuses a name with no letters or digits", async () => {
 		const sql = fresh();
 		await seed(sql);
-		await expect(createRole(sql, "—", ["view"], NOW)).rejects.toThrow("Use letters or digits in the role name.");
+		await expect(createRole(sql, "—", ["view"], NOW)).rejects.toThrow(
+			"Use letters or digits in the role name.",
+		);
 	});
 
 	it("lets a manager change a non-admin account, and refuses an admin one", async () => {

@@ -460,17 +460,14 @@ const permissionRefused = (ctx: Ctx, verdict: string): Response => {
 	const json = wantsJson(ctx.request);
 	if (verdict === SIGN_IN) {
 		if (json) {
-			return new Response(
-				JSON.stringify({ ok: false, error: "Not signed in", redirect: "/login" }),
-				{
-					status: 401,
-					headers: {
-						...PAGE_HEADERS,
-						"Content-Type": "application/json; charset=utf-8",
-						"Cache-Control": "no-store",
-					},
+			return new Response(JSON.stringify({ ok: false, error: "Not signed in", redirect: "/login" }), {
+				status: 401,
+				headers: {
+					...PAGE_HEADERS,
+					"Content-Type": "application/json; charset=utf-8",
+					"Cache-Control": "no-store",
 				},
-			);
+			});
 		}
 		// v3's exception: media is fetched by the page, so it answers 401 with no body and no redirect.
 		if (ctx.path.startsWith("/media/")) {

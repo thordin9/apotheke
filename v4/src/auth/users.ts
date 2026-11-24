@@ -132,9 +132,10 @@ export const find = async (sql: Sql, id: number): Promise<UserRow | null> =>
 
 export const findByName = async (sql: Sql, name: string): Promise<UserRow | null> => {
 	const rows = await sql.all(
-		statement("SELECT id, username, role, status, password_hash, session_epoch FROM users WHERE username_key = ?", [
-			accountKey(name),
-		]),
+		statement(
+			"SELECT id, username, role, status, password_hash, session_epoch FROM users WHERE username_key = ?",
+			[accountKey(name)],
+		),
 	);
 	return rowOf(rows[0]);
 };
@@ -150,9 +151,20 @@ const get = async (sql: Sql, id: number): Promise<UserRow> => {
 /** `UserAdmin::all()`, in the repository's order (`username_key`, then id). */
 export const all = async (
 	sql: Sql,
-): Promise<Array<{ id: number; username: string; role: string; status: string; createdAt: string; lastLoginAt: string | null }>> => {
+): Promise<
+	Array<{
+		id: number;
+		username: string;
+		role: string;
+		status: string;
+		createdAt: string;
+		lastLoginAt: string | null;
+	}>
+> => {
 	const rows = await sql.all(
-		statement("SELECT id, username, role, status, created_at, last_login_at FROM users ORDER BY username_key, id"),
+		statement(
+			"SELECT id, username, role, status, created_at, last_login_at FROM users ORDER BY username_key, id",
+		),
 	);
 	return rows.map((row) => ({
 		id: Number(row.id ?? 0),
@@ -160,13 +172,16 @@ export const all = async (
 		role: String(row.role ?? ""),
 		status: String(row.status ?? "active"),
 		createdAt: String(row.created_at ?? ""),
-		lastLoginAt: row.last_login_at === null || row.last_login_at === undefined ? null : String(row.last_login_at),
+		lastLoginAt:
+			row.last_login_at === null || row.last_login_at === undefined ? null : String(row.last_login_at),
 	}));
 };
 
 /** `UserAdmin::activeAdmins()`: accounts that are admin *and* approved. */
 export const activeAdmins = async (sql: Sql): Promise<number> => {
-	const rows = await sql.all(statement("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active'"));
+	const rows = await sql.all(
+		statement("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active'"),
+	);
 	return Number(rows[0]?.n ?? 0);
 };
 
@@ -179,7 +194,10 @@ export interface RoleList {
 /** `UserAdmin::accountRoles()`: every role but guest. `roles.listed()` is the caller's read. */
 export const accountRoles = (listed: ReadonlyArray<{ key: string; name: string }>): RoleList => {
 	const account = listed.filter((role) => role.key !== "guest");
-	return { order: account.map((role) => role.key), names: new Map(account.map((role) => [role.key, role.name])) };
+	return {
+		order: account.map((role) => role.key),
+		names: new Map(account.map((role) => [role.key, role.name])),
+	};
 };
 
 /** `UserAdmin::roleValid()`: any role but guest, or v3's 422 naming the roles it would accept. */
@@ -192,7 +210,8 @@ export const roleValid = (role: string, list: RoleList): string => {
 };
 
 /** The built-in order, for a caller whose roles read failed the way v3's falls back. */
-export const defaultRoles = (): RoleList => accountRoles(ROLE_DEFAULTS.map(([key, value]) => ({ key, name: value })));
+export const defaultRoles = (): RoleList =>
+	accountRoles(ROLE_DEFAULTS.map(([key, value]) => ({ key, name: value })));
 
 /** `AdminGuard::target()`: only an admin changes an admin account. */
 const guardTarget = (actor: Actor, target: UserRow): void => {
@@ -251,15 +270,21 @@ export const approve = async (sql: Sql, actor: Actor, id: number): Promise<void>
  */
 export const setRoleStatements = (id: number, role: string): readonly Statement[] => [
 	statement(
-		"UPDATE users SET role = ? WHERE id = ? AND ("
-			+ " ? = 'admin' OR role <> 'admin' OR status <> 'active'"
-			+ " OR EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' AND id <> ?))",
+		"UPDATE users SET role = ? WHERE id = ? AND (" +
+			" ? = 'admin' OR role <> 'admin' OR status <> 'active'" +
+			" OR EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' AND id <> ?))",
 		[role, id, role, id],
 	),
 ];
 
 /** `UserAdmin::setRole()` — legacy `user_set_role()`, refusing to leave the install without an admin. */
-export const setRole = async (sql: Sql, actor: Actor, id: number, role: string, roles: RoleList): Promise<void> => {
+export const setRole = async (
+	sql: Sql,
+	actor: Actor,
+	id: number,
+	role: string,
+	roles: RoleList,
+): Promise<void> => {
 	const user = await get(sql, id);
 	const next = roleValid(role, roles);
 	guardTarget(actor, user);
@@ -267,17 +292,28 @@ export const setRole = async (sql: Sql, actor: Actor, id: number, role: string, 
 	await sql.batch(setRoleStatements(id, next));
 	const after = await find(sql, id);
 	if (after === null || after.role !== next) {
-		throw new UserError(`\u201c${user.username}\u201d is the only admin \u2013 make someone else an admin first.`, 409);
+		throw new UserError(
+			`\u201c${user.username}\u201d is the only admin \u2013 make someone else an admin first.`,
+			409,
+		);
 	}
 };
 
 /** `UserAdmin::setPassword()`: every session of that account is signed out (a new epoch). */
-export const setPassword = async (sql: Sql, actor: Actor, id: number, password: string, confirm: string): Promise<string> => {
+export const setPassword = async (
+	sql: Sql,
+	actor: Actor,
+	id: number,
+	password: string,
+	confirm: string,
+): Promise<string> => {
 	const user = await get(sql, id);
 	guardTarget(actor, user);
 	const epoch = freshEpoch();
 	const hash = await hashPassword(validPassword(password, confirm));
-	await sql.batch([statement("UPDATE users SET password_hash = ?, session_epoch = ? WHERE id = ?", [hash, epoch, id])]);
+	await sql.batch([
+		statement("UPDATE users SET password_hash = ?, session_epoch = ? WHERE id = ?", [hash, epoch, id]),
+	]);
 	const after = await find(sql, id);
 	if (after === null || after.passwordHash !== hash || after.sessionEpoch !== epoch) {
 		throw new UserError("The password was not saved.", 503);
@@ -290,15 +326,21 @@ export const rename = async (sql: Sql, actor: Actor, id: number, raw: string): P
 	const user = await get(sql, id);
 	guardTarget(actor, user);
 	const username = await validName(sql, raw, id);
-	await sql.batch([statement("UPDATE users SET username = ?, username_key = ? WHERE id = ?", [username, accountKey(username), id])]);
+	await sql.batch([
+		statement("UPDATE users SET username = ?, username_key = ? WHERE id = ?", [
+			username,
+			accountKey(username),
+			id,
+		]),
+	]);
 };
 
 /** `UserAdmin::delete()`'s write: the last active admin stays, decided by the statement. */
 export const deleteStatements = (id: number): readonly Statement[] => [
 	statement(
-		"DELETE FROM users WHERE id = ? AND ("
-			+ " role <> 'admin' OR status <> 'active'"
-			+ " OR EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' AND id <> ?))",
+		"DELETE FROM users WHERE id = ? AND (" +
+			" role <> 'admin' OR status <> 'active'" +
+			" OR EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' AND id <> ?))",
 		[id, id],
 	),
 ];
