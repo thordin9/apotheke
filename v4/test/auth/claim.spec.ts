@@ -207,7 +207,7 @@ const settingsValue = async (sql: Sql): Promise<unknown> => {
 };
 
 const users = async (sql: Sql): Promise<readonly Record<string, unknown>[]> =>
-	sql.all({ sql: "SELECT username, role, status, password_hash FROM users ORDER BY id" });
+	sql.all({ sql: "SELECT id, username, role, status, password_hash FROM users ORDER BY id" });
 
 /** The fields a claim POST carries, so a test names only the token and the name. */
 const fields = (token: string, username: string): Record<string, string> => ({
@@ -275,8 +275,9 @@ describe("a hosted install with no admin (D22)", () => {
 		expect(rows.map((row) => [row.username, row.role, row.status])).toEqual([["owner", "admin", "active"]]);
 		expect(await verifyPassword(PASSWORD, String(rows[0]?.password_hash))).toBe(true);
 		expect(await settingsValue(sql)).toBeUndefined();
-		// Signed in by the claim itself: the session now carries the new account.
-		expect(answer.session.identity?.userId).toBe(1);
+		// Signed in by the claim itself: the session carries the account the claim made. Not a literal
+		// id — this database has already had a seeded admin, and AUTOINCREMENT does not restart.
+		expect(answer.session.identity?.userId).toBe(Number(rows[0]?.id));
 	});
 
 	it("refuses a second use of the same token with v3's answer", async () => {
