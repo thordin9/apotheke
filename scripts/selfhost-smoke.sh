@@ -93,6 +93,13 @@ else
 fi
 
 # ---- assertions ------------------------------------------------------------------------------
+#
+# Every probe below is bounded by curl's own --max-time/--connect-timeout, and that is load
+# bearing: an app that accepts the connection and never answers (an unbootable build that the
+# kernel still has listening) blocks curl forever, so the deadline checks between iterations
+# never run and the loop's own "did not answer within Ns" message never prints. Run 45367702792
+# cost 37 minutes of wall clock and was cancelled to learn nothing a 5 second timeout would have
+# said at once.
 
 wait_healthz() {
 	deadline=$((SECONDS + timeout_s))
@@ -103,7 +110,7 @@ wait_healthz() {
 		case "$state" in
 			*restarting* | *exited* | *dead*) die "the app container is not running ($state)" ;;
 		esac
-		if body=$(curl -fsS "$base_url/healthz" 2> /dev/null); then
+		if body=$(curl -fsS --max-time 5 --connect-timeout 3 "$base_url/healthz" 2> /dev/null); then
 			case "$body" in
 				*'"ok":true'*) ;;
 				*) die "/healthz answered without ok=true: $body" ;;
@@ -123,7 +130,7 @@ wait_readyz() {
 	deadline=$((SECONDS + timeout_s))
 	local code=""
 	while [ "$SECONDS" -lt "$deadline" ]; do
-		code=$(curl -sS -o "$work/ready.json" -w '%{http_code}' "$base_url/readyz" 2> /dev/null || true)
+		code=$(curl -sS --max-time 5 --connect-timeout 3 -o "$work/ready.json" -w '%{http_code}' "$base_url/readyz" 2> /dev/null || true)
 		if [ "$code" = "200" ]; then
 			body=$(cat "$work/ready.json")
 			case "$body" in
