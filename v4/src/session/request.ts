@@ -60,8 +60,13 @@ const EMPTY: DecodedSession = {
 };
 
 /**
- * PHP's session id: 43 characters from `[A-Za-z0-9,-]` — base64url's alphabet with `_` written as
- * `,`, which is the form `DatabaseSessionHandler` accepts and v3 stores.
+ * PHP's session id: 43 characters from `[A-Za-z0-9,-]`, which is what `DatabaseSessionHandler`'s
+ * `ID` accepts and therefore what v3 stores.
+ *
+ * `btoa` is *not* that alphabet: standard base64 emits `+` and `/`, and neither may appear in a
+ * session id — `SessionGate::isLive()` refuses the value, so a session written under one could never
+ * be loaded again. They are mapped to the two punctuation characters the alphabet does allow, `-`
+ * and `,`; leaving them in is the defect that made one sign-in in four unable to resume.
  */
 export const newSessionId = (): string => {
 	const bytes = new Uint8Array(32);
@@ -70,7 +75,10 @@ export const newSessionId = (): string => {
 	for (const byte of bytes) {
 		binary += String.fromCharCode(byte);
 	}
-	return btoa(binary).replace(/=+$/, "").replace(/_/g, ",").slice(0, 43);
+	return btoa(binary)
+		.replace(/\+/g, "-")
+		.replace(/\//g, ",")
+		.replace(/=+$/, "");
 };
 
 /** Whether a value is a session id v3 would accept. */

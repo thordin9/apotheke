@@ -30,10 +30,16 @@ const IDLE = 168 * 3_600;
 const PASSWORD = "correct horse battery staple";
 const CONSENTED = `${CONSENT_COOKIE}=v1`;
 
-/** A session id of the form v3 stores: 43 characters from `[A-Za-z0-9,-]`. */
+/**
+ * A session id of the form v3 stores: 43 characters from `[A-Za-z0-9,-]`. Standard base64's `+`
+ * and `/` are mapped to the alphabet's own punctuation, as `src/session/request.ts` does.
+ */
 const nextId = (): string => {
 	const bytes = crypto.getRandomValues(new Uint8Array(32));
-	return btoa(String.fromCharCode(...bytes)).replace(/=+$/, "").replace(/_/g, ",");
+	return btoa(String.fromCharCode(...bytes))
+		.replace(/\+/g, "-")
+		.replace(/\//g, ",")
+		.replace(/=+$/, "");
 };
 
 const sqlite = (name: string): Sql =>
