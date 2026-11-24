@@ -164,6 +164,9 @@ const query = async (sql) => {
 		method: "POST",
 		headers,
 		body: JSON.stringify([[sql]]),
+		// Bounded like the curl probes above: rqlite can accept the connection and never
+		// answer, and an unbounded fetch here hangs the run with no message.
+		signal: AbortSignal.timeout(5000),
 	});
 	if (!res.ok) throw new Error("query failed " + res.status + ": " + (await res.text()));
 	const body = await res.json();
