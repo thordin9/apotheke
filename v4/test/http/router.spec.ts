@@ -68,20 +68,27 @@ describe("every route in the table", () => {
 				expect(response.status).toBe(200);
 				continue;
 			}
-			expect([401, 403, 404, 405, 413, 421, 501], label).toContain(response.status);
+			// 303 joined the surface in S1.3: v3's redirect for a page that needs a session.
+			expect([303, 401, 403, 404, 405, 413, 421, 501], label).toContain(response.status);
 		}
 		// The page 2xx rows are exactly the login page, asked as GET and as HEAD.
 		expect(twoHundreds.filter((row) => !row.startsWith("OPTIONS "))).toEqual(["GET /login", "HEAD /login"]);
 		// Every row is asked with its own verb, so no 405 appears here; the separate 405 test covers it.
-		expect([...answered].sort((a, b) => a - b)).toEqual([200, 204, 401, 403, 404, 501]);
+		expect([...answered].sort((a, b) => a - b)).toEqual([200, 204, 303, 401, 403, 404, 501]);
 	});
 
 	it("carries problem+json on every refusal, text/html only from the page answers", () => {
 		for (const { route, path, response } of requests) {
 			const type = response.headers.get("content-type") ?? "";
 			const label = `${route.method} ${path} ${response.status}`;
-			if (response.status === 204) {
+			if (response.status === 204 || response.status === 303) {
+				// No body: the preflight, and S1.3's redirect to /login.
 				expect(type, label).toBe("");
+				continue;
+			}
+			if (type === "") {
+				// v3's media refusal: 401 with no body, because a page fetched it as an image.
+				expect(label).toContain("/media/");
 				continue;
 			}
 			if (type === "text/html; charset=UTF-8") {

@@ -70,6 +70,7 @@ const MANAGERS: readonly RoleSpec[] = [
 	["manager-a", "Manager A", ["view", "users"], 0],
 	["manager-b", "Manager B", ["view", "users"], 0],
 	["viewer", "Viewer", ["view"], 0],
+	["guest", "Guest", ["view"], 1],
 ];
 
 /**

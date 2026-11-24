@@ -17,7 +17,7 @@
 
 import type { Sql } from "../db/sql";
 import type { Identity } from "../session/store";
-import { ALL, BACKUP_OR_RESTORE, clean, name as permissionName, PUBLIC, ROLE_DEFAULTS, SELF, UNMAPPED } from "./permissions";
+import { ALL, BACKUP_OR_RESTORE, clean, PUBLIC, ROLE_DEFAULTS, SELF, UNMAPPED } from "./permissions";
 import { listed, roleName } from "./roles";
 import { find } from "./users";
 
@@ -108,6 +108,3 @@ export const refusal = (actor: Actor | null, need: string): string | null => {
 				: "";
 	return `Your role (${actor.roleName}) does not allow this${hint}. Ask an admin.`;
 };
-
-/** The permission's display name, for a caller that needs to say what was missing. */
-export const needed = permissionName;

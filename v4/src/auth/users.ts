@@ -11,7 +11,7 @@
 // moment, not by a count this file read a round trip earlier. After the batch, the row is read back
 // and *that* decides whether the write happened (D26: a statement result is not an answer).
 
-import { type Sql, statement, type Statement, utcNow } from "../db/sql";
+import { type Sql, type Statement, statement, utcNow } from "../db/sql";
 import { hashPassword } from "../platform/passwords";
 import { clean, ROLE_DEFAULTS } from "./permissions";
 
@@ -130,10 +130,14 @@ const rowOf = (row: Record<string, unknown> | undefined): UserRow | null =>
 export const find = async (sql: Sql, id: number): Promise<UserRow | null> =>
 	rowOf((await sql.all(statement(ROW, [id])))[0]);
 
-export const findByName = async (sql: Sql, name: string): Promise<UserRow | null> =>
-	rowOf(
-		(await sql.all(statement("SELECT id, username, role, status, password_hash, session_epoch FROM users WHERE username_key = ?", [accountKey(name)])))[0],
+export const findByName = async (sql: Sql, name: string): Promise<UserRow | null> => {
+	const rows = await sql.all(
+		statement("SELECT id, username, role, status, password_hash, session_epoch FROM users WHERE username_key = ?", [
+			accountKey(name),
+		]),
 	);
+	return rowOf(rows[0]);
+};
 
 const get = async (sql: Sql, id: number): Promise<UserRow> => {
 	const user = await find(sql, id);

@@ -472,6 +472,10 @@ const permissionRefused = (ctx: Ctx, verdict: string): Response => {
 				},
 			);
 		}
+		// v3's exception: media is fetched by the page, so it answers 401 with no body and no redirect.
+		if (ctx.path.startsWith("/media/")) {
+			return new Response(null, { status: 401, headers: { ...PAGE_HEADERS, "Content-Type": "" } });
+		}
 		// Since S1.1 there is a `/login` to send them to, so v3's answer is the real one again.
 		return new Response(null, {
 			status: 303,

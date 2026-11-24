@@ -12,8 +12,8 @@
 // is exact because `permsJson()` is the only writer of that column, so the canonical element is either
 // present or it is not. The refusal is decided afterwards by reading the row back (D26).
 
-import { type Sql, statement, type Statement, utcNow } from "../db/sql";
-import { clean, fromStored, NOT_FOR_GUESTS, permsJson, ROLE_DEFAULTS, USERS_PERM } from "./permissions";
+import { type Sql, type Statement, statement, utcNow } from "../db/sql";
+import { ALL_KEYS, clean, fromStored, NOT_FOR_GUESTS, permsJson, ROLE_DEFAULTS, USERS_PERM } from "./permissions";
 import { cleanLine, UserError } from "./users";
 
 /** `RoleAdmin::KEY_MAX` / `NAME_MAX`. */
@@ -48,7 +48,8 @@ export const listed = async (sql: Sql): Promise<RoleRow[]> => {
 		counts.set(String(row.role ?? ""), Number(row.n ?? 0));
 	}
 	const out: RoleRow[] = [];
-	for (const row of await sql.all(statement("SELECT role_key, name, perms, builtin FROM roles ORDER BY builtin DESC, id"))) {
+	const rows = await sql.all(statement("SELECT role_key, name, perms, builtin FROM roles ORDER BY builtin DESC, id"));
+	for (const row of rows) {
 		const key = String(row.role_key ?? "");
 		out.push({
 			key,
@@ -94,7 +95,7 @@ export const keyFrom = (name: string): string =>
 
 /** `RoleAdmin::validPerms()`: only known keys, in `ALL` order, or v3's 422. */
 export const validPerms = (perms: readonly string[]): string[] => {
-	const known = new Set(clean("", []));
+	const known = new Set(ALL_KEYS);
 	for (const perm of perms) {
 		if (!known.has(perm)) {
 			throw new UserError(`Unknown permission \u201c${perm === "" ? "?" : perm}\u201d.`, 422);
@@ -115,8 +116,12 @@ const NO_MANAGER = "NOT EXISTS (SELECT 1 FROM users u WHERE u.status = 'active'"
 /** The predicate `updateLocked()` uses: this change may not leave the install without a manager. */
 const UPDATE_SAFE = `(? = 1 OR instr(perms, ${USERS_PERM}) = 0 OR ${OTHER_MANAGER("?")} OR ${NO_MANAGER})`;
 
-/** The predicate `deleteLocked()` uses: its accounts move to `?`, which must be able to manage users. */
-const DELETE_SAFE = `(instr(perms, ${USERS_PERM}) = 0 OR ${OTHER_MANAGER("?")}`
+/**
+ * The predicate `deleteLocked()` uses: its accounts move to `?`, which must be able to manage users.
+ * The deleted role's own permissions are read through a subselect and not as `perms`, because this
+ * predicate is also carried by the `UPDATE users` that moves them — and `users` has no `perms` column.
+ */
+const DELETE_SAFE = `(instr((SELECT r5.perms FROM roles r5 WHERE r5.role_key = ?), ${USERS_PERM}) = 0 OR ${OTHER_MANAGER("?")}`
 	+ ` OR (EXISTS (SELECT 1 FROM users u2 WHERE u2.status = 'active' AND u2.role = ?)`
 	+ ` AND instr((SELECT r4.perms FROM roles r4 WHERE r4.role_key = ?), ${USERS_PERM}) > 0) OR ${NO_MANAGER})`;
 
@@ -197,9 +202,9 @@ export const update = async (sql: Sql, key: string, rawName: string | null, rawP
 };
 
 /** `RoleAdmin::deleteLocked()`'s write: the accounts move only when the role's deletion is allowed. */
-export const deleteStatements = (key: string, moveTo: string): readonly Statement[] => [
-	statement(`UPDATE users SET role = ? WHERE role = ? AND ${DELETE_SAFE}`, [moveTo, key, key, key, key]),
-	statement(`DELETE FROM roles WHERE role_key = ? AND ${DELETE_SAFE}`, [key, key, key, key]),
+export export const deleteStatements = (key: string, moveTo: string): readonly Statement[] => [
+	statement(`UPDATE users SET role = ? WHERE role = ? AND ${DELETE_SAFE}`, [moveTo, key, key, key, key, key]),
+	statement(`DELETE FROM roles WHERE role_key = ? AND ${DELETE_SAFE}`, [key, key, key, key, key]),
 ];
 
 /** `RoleAdmin::delete()` — legacy `role_delete()`; its accounts move to `moveTo` in the same batch. */
