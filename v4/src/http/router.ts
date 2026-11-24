@@ -15,7 +15,7 @@
 // chain — a route whose permission is `none` or `public`, on a safe method — gets 501 and nothing
 // else. That is what makes the fail-closed promise checkable: no route in the table answers 2xx.
 
-import { consentHandler, logoutHandler, signInHandler } from "../auth/session-routes";
+import { claimHandler, consentHandler, logoutHandler, signInHandler } from "../auth/session-routes";
 import type { PageSettings } from "../html/page";
 import { SessionRequest } from "../session/request";
 import { afterChain, beforeChain, refusalAfterChain } from "./chain";
@@ -71,6 +71,7 @@ const HANDLERS: ReadonlyMap<string, Handler> = new Map([
 	["\\Apotheke\\Core\\Controllers\\ConsentController::accept", consentHandler],
 	["\\Apotheke\\Auth\\Controllers\\SignInController::login", signInHandler],
 	["\\Apotheke\\Auth\\Controllers\\SignInController::logout", logoutHandler],
+	["\\Apotheke\\Auth\\Controllers\\ClaimController::claim", claimHandler],
 ]);
 
 const runAfter = (ctx: Ctx, response: Response, names: readonly string[]): Response => {

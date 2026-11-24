@@ -18,6 +18,8 @@ const unported = ROUTES.filter(
 		!route.catchAll &&
 		!isApi(route.path) &&
 		route.name !== "login" &&
+		// `/claim` answers since S1.2b: 404 without `APOTHEKE_HOSTED`, which is this Worker's setting.
+		route.name !== "claim" &&
 		// `/healthz` is answered before the router (D14, §11 rule 7), as it has been since S0.3.
 		route.name !== "healthz" &&
 		(route.permission === "none" || route.permission === "public"),

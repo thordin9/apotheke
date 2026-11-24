@@ -68,11 +68,11 @@ curl -s http://localhost:9091/readyz; echo
 `"title":"seed.refused"` it will not finish until you fix what the `detail` names (usually a too-short
 `APP_PASSWORD`).
 
-**That is the whole surface in phase 0.** Do not go looking for a page to open or a sign-in form: there
-is none yet. `http://localhost:9091/` answers `501` `route.not_implemented` problem+json — the router
-and the filter chain landed in S0.5, sign-in is phase 1 and the pages are phase 2 — and every other
-route answers either a refusal or the same 501. The seeded `admin` account exists in the database;
-nothing can authenticate against it yet (see item 6 below).
+**That is the whole surface so far.** `http://localhost:9091/` answers `501` `route.not_implemented`
+problem+json — the router and the filter chain landed in S0.5, and the remaining pages are phase 2 —
+and every other page route answers either a refusal or the same 501. `/login` is the exception: it
+renders the sign-in form, and `POST /login` signs the seeded `admin` in with the `APP_PASSWORD` set
+above. Item 6 below is the list of what answers and what does not.
 
 To set `APP_KEY` (encrypts stored credentials at rest), generate one and paste it in:
 
@@ -186,14 +186,19 @@ Stated plainly, because a self-host promise that hides its edges is worse than n
    inside one data directory (`raft.db`, `raft/`, `db.sqlite`) and has no flag to split them, so this
    stack mounts one volume at `/rqlite/file` with `DATA_DIR=/rqlite/file/data`. Plan §11's two-volume
    row was **corrected to match** in revision 13 (**D17**): the plan and these files now agree.
-6. **No sign-in, and a UI only as far as `/login`.** `/login` renders the page PHP renders (S1.1), and
-   the app's own error pages are back for a page-level 404/405. Nothing can be submitted: `POST /login`
-   answers `501` `route.not_implemented` because the session store, the CSRF token and the sign-in
-   throttle are S1.2, and every other page route answers `501` — or `401` `auth.required` where the
-   route needs a session. The seeded `admin` account is in the database and nothing can authenticate
-   against it yet. What does answer: `/healthz`, `/readyz`, `/assets/…` (the bundle), `/login`, the
-   page error pages, the `/api` 404 (`not_found`, problem+json) and 405s with `Allow`.
-   `/readyz`'s `"seed":"done"` therefore means the install is complete, not that it is usable.
+6. **A working sign-in, and a UI only as far as `/login` and `/claim`.** `/login` renders the page PHP
+   renders (S1.1) and `POST /login` signs in (S1.2); the app's own error pages are back for a
+   page-level 404/405. With a session cookie and the consent cookie, `POST /login` answers `303` back
+   to `/`, `GET /logout` answers `303` (to `/login`), and `POST /consent` records the notice's answer.
+   Without consent a write is refused `403` `consent_required` and no session cookie is set — that
+   gate is the contract (D20), not a bug to work around. Every other page route answers `501`, or
+   `401` `auth.required` where the route needs a session.
+   `/claim` is the hosted first-admin link: `404` unless `APOTHEKE_HOSTED` is on — this walkthrough
+   does not set it, so expect the 404 — and with it a valid token creates the admin once (S1.2b).
+   What does answer: `/healthz`, `/readyz`, `/assets/…` (the bundle), `/login` (GET/HEAD `200`, POST
+   `303`), `/logout`, `/consent`, `/claim` (hosted), the page error pages, the `/api` 404
+   (`not_found`, problem+json) and 405s with `Allow`. `/readyz`'s `"seed":"done"` therefore means the
+   install is complete; the seeded `admin` can sign in with the `APP_PASSWORD` you set above.
 
 ## Where the automation lives
 

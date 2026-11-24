@@ -1,4 +1,5 @@
-// `/login`, `/logout` and `/consent` (plan §5 S1.2): `SignInController` and `ConsentController`, ported.
+// `/login`, `/logout` and `/consent` (plan §5 S1.2) and `/claim` (S1.2b): `SignInController`,
+// `ConsentController` and `ClaimController`, ported.
 //
 // These are the slice's observable behaviour, and they are handlers rather than filters for v3's own
 // reason: the routes are `none` and skip `sessioncsrf`, and each POST calls `checkCsrf()` itself,
@@ -15,7 +16,7 @@
 //     `signIn()` both require it, and `consent` refuses the write before either runs (D20).
 
 import { statement } from "../db/sql";
-import { errorPage, loginPage } from "../html/views";
+import { claimPage, errorPage, loginPage } from "../html/views";
 import type { Ctx } from "../http/filters";
 import { html, json, problem } from "../http/problem";
 import { verifyPassword } from "../platform/passwords";
@@ -30,6 +31,7 @@ import {
 import { CSRF_MESSAGE, CSRF_STATUS, csrfPasses } from "../session/csrf";
 import { sessionEpoch } from "../session/epoch";
 import { accountKey, hit, succeeded } from "../session/throttle";
+import { claimAdmin, ClaimError } from "./first-admin-claim";
 
 /** `Accounts::USERNAME_MAX`, doubled: the field's `maxlength`, which is also `cleanLine()`'s limit. */
 const USERNAME_MAX = 40;
@@ -323,3 +325,61 @@ export const consentHandler = async (ctx: Ctx): Promise<Response> => {
 
 /** `CookieConsent::STATUS`/`CODE`: re-exported so a test can name the refusal without a second import. */
 export const consentRefusal = { status: CONSENT_STATUS, code: CONSENT_CODE, message: CONSENT_MESSAGE };
+
+/**
+ * `ClaimController::claim()` (plan §5 S1.2b): the hosted installation's first-admin page. Off without
+ * `APOTHEKE_HOSTED` — 404, the same answer v3 gives and the gate the DoD names — and the check comes
+ * before any token work, so a self-hosted install learns nothing from a POST either.
+ *
+ * The page and every refusal render `AuthViews::claim()`, as v3 does: a failed claim shows what was
+ * typed at the status v3 gives it. The one exception is the missing CSRF token, which v3 throws out
+ * of the controller and which arrives as the app's error page at 419.
+ */
+export const claimHandler = async (ctx: Ctx): Promise<Response> => {
+	if (!ctx.config.hosted) {
+		return errorAnswer(ctx, 404, "Page not found.");
+	}
+	if (ctx.method !== "POST") {
+		await ctx.session.ensureToken();
+		return page(claimPage(pageSettings(ctx), { error: null, username: "" }));
+	}
+	const post = await formFields(ctx);
+	if (!csrfPasses(ctx.session.csrf, post, ctx.request.headers.get("x-csrf-token"))) {
+		return errorAnswer(ctx, CSRF_STATUS, CSRF_MESSAGE);
+	}
+	const posted = post.get("username") ?? "";
+	const who = cleanLine(posted, USERNAME_MAX * 2);
+	// v3 limits a claim like a registration: `register`, 5 per hour per address, counted before the
+	// claim runs and taken back if it is refused.
+	const tried = await hit(ctx.session.sql, {
+		kind: "register",
+		client: clientAddress(ctx),
+		now: ctx.session.now,
+	});
+	if (!tried.ok) {
+		return html(claimPage(pageSettings(ctx), { error: tried.message, username: who }), 429);
+	}
+	try {
+		const user = await claimAdmin(ctx.session.sql, {
+			token: post.get("token") ?? "",
+			// A name with a null character reaches `nameValid()` untrimmed, as v3 passes it, so the refusal
+			// names the shape rather than quietly matching a cleaned-up form of it.
+			username: posted.includes("\0") ? posted : who,
+			password: post.get("new") ?? "",
+			confirm: post.get("confirm") ?? "",
+			now: ctx.session.now,
+		});
+		const epoch = await sessionEpoch({
+			id: user.id,
+			passwordHash: user.passwordHash,
+			sessionEpoch: user.sessionEpoch,
+		});
+		await ctx.session.signIn({ userId: user.id, authEpoch: epoch });
+		return redirectTo(ctx, "/?done=welcome");
+	} catch (error) {
+		if (error instanceof ClaimError) {
+			return html(claimPage(pageSettings(ctx), { error: error.message, username: who }), error.status);
+		}
+		throw error;
+	}
+};

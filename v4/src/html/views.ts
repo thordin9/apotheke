@@ -62,6 +62,44 @@ export const loginPage = (settings: PageSettings, view: LoginView): string => {
 	return head + body + pageEnd();
 };
 
+/** `Accounts::PASSWORD_MIN`; the two password fields' `minlength`. */
+const PASSWORD_MIN = 8;
+
+export interface ClaimView {
+	/** What the last attempt answered, or null. */
+	readonly error: string | null;
+	/** What the form keeps in the user-name field after a failed attempt. */
+	readonly username: string;
+}
+
+/**
+ * `AuthViews::claim()`: the hosted first-admin page (plan §5 S1.2b). Ported line for line, with the
+ * same `?>`-swallows-a-newline artifact the login view carries: the error block and the first field
+ * are on one output line, so an absent error leaves four spaces before the label.
+ */
+export const claimPage = (settings: PageSettings, view: ClaimView): string => {
+	const head = pageStart(settings, "Set up your Apotheke", "page-login page-claim");
+	const error =
+		view.error === null ? "" : `<div class="err" role="alert" id="claim-err">${e(view.error)}</div>`;
+
+	const body =
+		'<main class="wrap narrow login">\n' +
+		`  <div class="brand brand-lg">${brandLogo(56)}<span>${e(settings.appName)}</span></div>\n` +
+		'  <h1 class="tagline">Set up your Apotheke</h1>\n' +
+		'  <form method="post" action="/claim" class="itemform" id="claim-form">\n' +
+		`    <input type="hidden" name="csrf" value="${e(settings.csrf)}">\n` +
+		`    ${error}    <label class="field"><span>Claim code <em>from your link, after #</em></span><input type="text" name="token" id="claim-token" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="100" required></label>\n` +
+		`    <label class="field"><span>User name <em>letters, digits, . _ @ -</em></span><input type="text" name="username" id="claim-user" value="${e(view.username)}" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="${USERNAME_MAX}" required></label>\n` +
+		`    <label class="field"><span>Password <em>at least ${PASSWORD_MIN} characters</em></span><input type="password" name="new" id="claim-pw" autocomplete="new-password" minlength="${PASSWORD_MIN}" required></label>\n` +
+		`    <label class="field"><span>Repeat password</span><input type="password" name="confirm" id="claim-confirm" autocomplete="new-password" minlength="${PASSWORD_MIN}" required></label>\n` +
+		'    <p class="hint" id="claim-hint">This account becomes the admin. The link works once.</p>\n' +
+		'    <button class="btn btn-primary btn-wide" id="claim-go">Create admin account</button>\n' +
+		"  </form>\n" +
+		"</main>\n";
+
+	return head + body + pageEnd();
+};
+
 /** `Layout\ErrorPage::html()`: the message on the app's own page, which never starts a session. */
 export const errorPage = (settings: PageSettings, message: string): string => {
 	const head = pageStart(settings, "Error", "");

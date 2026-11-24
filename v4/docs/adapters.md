@@ -28,8 +28,10 @@ state that exists only inside one boot**, never between a request and its databa
 /healthz   always 200, never touches a database      ← the compose healthcheck probes THIS
 /readyz    200 {schema, seed:"done"} or 503 problem+json with the reason
 anything   503 until boot succeeded, then the router (S0.5): 401/403/404/405/419/429/501
-           problem+json — and, since S1.1, `/login` (GET/HEAD) as 200 text/html. Those two are the
-           only 2xx answers here; `router.md` lists them with the CORS preflight (204)
+           problem+json — and the page routes: `/login` (GET/HEAD) as 200 text/html since S1.1, its
+           POST as 303 to `/`, `/logout` as 303, `/consent` as 303, and `/claim` as 200 with a
+           hosted install (404 without). With the CORS preflight (204) those are the only 2xx
+           answers here; `router.md` lists them
 ```
 
 Two rules follow, and both are in the code rather than in a habit:

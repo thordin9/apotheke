@@ -85,10 +85,11 @@ Two consequences worth knowing:
 | Sign-in accepted, a sign-out, a consent answer (S1.2) | 303, `Location`, `no-store` | — |
 | Hosted operator console path (`/internal/…`) | 501 problem+json | `route.not_implemented` |
 
-The only 2xx answers are `/login` (GET and HEAD) and the CORS preflight (204, which carries no data and
-needs no session). `test/http/router.spec.ts` turns **every row** of the table into a request and
-asserts both: the answer is one of the above, and the 2xx rows are exactly those — a route that starts
-answering 200 without being in that list fails the test.
+The only 2xx answers are the two page routes — `/login` (GET and HEAD) and, on a hosted install,
+`/claim` — and the CORS preflight (204, which carries no data and needs no session). `test/http/router.spec.ts`
+turns **every row** of the table into a request and asserts both: the answer is one of the above, and
+the 2xx rows are exactly those — a route that starts answering 200 without being in that list fails
+the test. It runs with `APOTHEKE_HOSTED` unset, so there `/claim` is the 404 below, not a 2xx.
 
 `problem+json` is the PHP app's shape (`ApiResponse::problem()`): `type` is `about:blank`, `title` is
 the HTTP reason phrase, `status`, `detail` for a human, and `code` for a client to match on.
@@ -115,7 +116,7 @@ on `/api` (CSP `default-src 'none'`, `no-store`, HSTS only when `PUBLIC_URL` is 
 | `requestcleanup` | frees an unfinished PHP upload's files | there are no uploads in phase 0 |
 | `api` (CORS half) | `CORS_ALLOWED_ORIGINS` is not in v4's env contract | the list is empty, which is the PHP side's self-host default too |
 
-## Differences from v3 while phase 0 is all there is
+## Differences from v3 so far
 
 These are scaffolding, not the contract — P1/P2 restore v3's behaviour, and §4 freezes what must match
 then:
@@ -132,8 +133,10 @@ then:
 - **`/healthz` and `/readyz` are answered before the chain**, in `src/index.ts`. `/healthz` is the
   container probe (§11 rule 7) and must answer 200 whatever a filter thinks of the Host header; the
   legacy `/health` alias goes through the chain like any other route.
-- **Every unsafe `/api` write is refused with 403 in phase 0**, the sign-in POST included, because the
-  Origin/token rules need the session contract (P1). It is a refusal, not a bypass.
+- **Every unsafe `/api` write is refused with 403 so far**, because the Origin/token rules the API's
+  CSRF check needs are part of the session contract (P1). It is a refusal, not a bypass. The page
+  routes' own POSTs — `/login`, `/logout`, `/consent`, `/claim` — are not `/api` writes and answer as
+  their handlers do above; `/login` has signed in since S1.2.
 - **`ALLOWED_HOSTS` is not read.** It is not in v4's sixteen-name environment contract (§11), so
   `hostcheck` accepts IP literals, `localhost`, `*.localhost` and `PUBLIC_URL`'s host only. A self-hoster
   who adds the name to `PUBLIC_URL` is fine; one who relies on `ALLOWED_HOSTS` is not, yet.
