@@ -15,13 +15,20 @@
 // fails to load in v4. Anything it cannot parse is refused, not guessed: a half-understood session is
 // a wrong identity.
 
-/** The five keys a signed-in session holds, in `SessionGate::signIn()`'s insertion order. */
+/**
+ * The five keys a session may hold, in `SessionGate::signIn()`'s insertion order. `uid` is null for a
+ * session that has not signed in — a page that renders a form starts one for its token alone — and a
+ * key is written only when it has a value, which is what PHP's `$_SESSION` does: the sign-in writes
+ * all five, a first-visit session writes `csrf` and `last_activity`.
+ */
 export interface SessionValues {
-	readonly uid: number;
+	readonly uid: number | null;
 	readonly authEpoch: string;
 	readonly csrf: string;
 	readonly lastActivity: number;
 	readonly signedInAt: number;
+	/** Keys the decoder understood but the session layer does not use, kept so a rewrite does not drop them. */
+	readonly rest?: Readonly<Record<string, string | number>>;
 }
 
 const utf8Length = (text: string): number => new TextEncoder().encode(text).length;
@@ -30,15 +37,26 @@ const utf8Length = (text: string): number => new TextEncoder().encode(text).leng
 const encodeValue = (value: string | number): string =>
 	typeof value === "number" ? `i:${Math.trunc(value)};` : `s:${utf8Length(value)}:"${value}";`;
 
-/** The `data` string for the five keys, in v3's order. */
+/**
+ * The `data` string, in v3's order. A key with no value is left out rather than encoded as an empty
+ * value: PHP's session array holds only what was set, so a token-only session writes two keys and a
+ * signed-in one writes five.
+ */
 export const encodeSession = (values: SessionValues): string => {
-	const fields: (readonly [string, string | number])[] = [
+	const all: (readonly [string, string | number | null])[] = [
 		["uid", values.uid],
 		["auth_epoch", values.authEpoch],
 		["csrf", values.csrf],
 		["last_activity", values.lastActivity],
 		["signed_in_at", values.signedInAt],
 	];
+	const fields = all.filter((entry): entry is readonly [string, string | number] => {
+		const value = entry[1];
+		return value !== null && value !== "" && value !== 0;
+	});
+	for (const [name, value] of Object.entries(values.rest ?? {})) {
+		fields.push([name, value]);
+	}
 	return fields.map(([name, value]) => `${name}|${encodeValue(value)}`).join("");
 };
 

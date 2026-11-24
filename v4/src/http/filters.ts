@@ -22,6 +22,14 @@
 
 import type { PageSettings } from "../html/page";
 import { errorPage } from "../html/views";
+import {
+	CONSENT_CODE,
+	CONSENT_MESSAGE,
+	CONSENT_STATUS,
+	consentNeeded,
+} from "../session/consent";
+import type { SessionRequest } from "../session/request";
+import type { Identity } from "../session/store";
 import { apiHeaders, html, isApi, PAGE_HEADERS, problem } from "./problem";
 import type { RouteRow } from "./route-table";
 
@@ -54,11 +62,19 @@ export interface Ctx {
 			readonly registrationOpen: boolean;
 			readonly guestBrowsing: boolean;
 		};
+		/** `SettingsService::signInEnabled()`: `/login` redirects rather than renders when it is off. */
+		readonly signInEnabled: boolean;
+		readonly signInDeadlineMs?: number;
 	};
 	/** Set by `publicbase`: the origin the app thinks it is served from. */
 	baseUrl: string;
-	/** Nobody: the session layer is P1. `permission` is what turns this into a refusal. */
-	identity: null;
+	/**
+	 * The session this request carries, loaded before the chain (`index.ts`): the filters cannot do
+	 * I/O, so the round trips happen at the edge and every decision below is taken on the result.
+	 */
+	readonly session: SessionRequest;
+	/** Set by `session`: the account this request is signed in as, or null. */
+	identity: Identity | null;
 	/** Filter names in the order they ran — the order test reads this. */
 	readonly trace: string[];
 	/** Filters that declared themselves deferred on this request. */
@@ -353,14 +369,16 @@ const posttoolarge: Filter = {
 	},
 };
 
+/**
+ * `SessionCookie::before()`: the session this request carries, or none. The row is loaded before the
+ * chain — a filter cannot await, and the load is a database round trip — so the decision here is the
+ * one the filter owns: who this request is, and nothing invented when the answer is nobody.
+ */
 const session: Filter = {
 	before: (ctx) => {
-		// No session store yet (P1): the request carries no identity, and nothing here invents one.
-		ctx.identity = null;
-		ctx.deferred.add("session");
+		ctx.identity = ctx.session.identity;
 		return null;
 	},
-	deferred: "the session layer is P1; with no identity, `permission` refuses every route that needs one",
 };
 
 /** `SameOrigin::ownOrigins()`: this request's own origin, and PUBLIC_URL's when set. */
@@ -521,10 +539,35 @@ const requestcleanup: Filter = {
 	deferred: "it frees an unfinished PHP upload's files; there are no uploads in phase 0 (P2)",
 };
 
+/**
+ * `ConsentFilter` (plan §5 S1.2, D20). Without the consent cookie:
+ * - a state-changing request is refused `403 consent_required` — problem+json under /api, the app's
+ *   error page elsewhere (which is where the notice the user must answer is already printed);
+ * - no session is loaded or started: `SessionRequest.load()` returns before it reads anything, and
+ *   the only `Set-Cookie` values that survive are the consent cookie's own and a session's expiry
+ *   (`SessionRequest.cookieLines()` applies `keepOnlyConsentCookies()`);
+ * - an answer without `Cache-Control` gets `no-store`, because no session sent its own.
+ *
+ * POST /consent is exempt: it is how a browser without JavaScript answers the notice.
+ */
 const consent: Filter = {
-	after: (_ctx, response) => response,
-	deferred:
-		"the consent cookie arrives with the session layer (P1); the writes it would refuse are refused first (401/403)",
+	before: (ctx) => {
+		if (ctx.session.consent || !consentNeeded(ctx.method) || ctx.path === "/consent") {
+			return null;
+		}
+		if (isApi(ctx.path)) {
+			return problem(ctx.path, ctx.config.https, CONSENT_STATUS, CONSENT_CODE, CONSENT_MESSAGE);
+		}
+		return html(errorPage(ctx.config.page, CONSENT_MESSAGE), CONSENT_STATUS);
+	},
+	after: (ctx, response) => {
+		if (ctx.session.consent || response.headers.has("Cache-Control")) {
+			return response;
+		}
+		const headers = new Headers(response.headers);
+		headers.set("Cache-Control", "no-store");
+		return new Response(response.body, { status: response.status, headers });
+	},
 };
 
 /* ------------------------------------------------------------------------------------------------

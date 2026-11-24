@@ -3,8 +3,9 @@
 Phase 0's routing skeleton — the route table, the filter chain in the PHP app's own order, problem+json
 for every error, and the security headers — plus, since S1.1, the first page: `/login`, rendered byte
 for byte as the PHP app renders it, and v3's own error pages back in place of the problem+json
-scaffold on page paths. Sign-in itself is S1.2 and every other page is P2, so a route without a handler
-still answers 501 rather than a pretend 200.
+scaffold on page paths. The sign-in itself is S1.2: `/login`, `/logout` and the consent answer
+(`/consent`) answer for real, and every other page is P2, so a route without a handler still answers
+501 rather than a pretend 200.
 
 `src/http/` holds it:
 
@@ -81,6 +82,7 @@ Two consequences worth knowing:
 | Body past `MAX_UPLOAD_MB` | 413 problem+json | `upload.too_large` |
 | Controller not ported yet | 501 problem+json | `route.not_implemented` |
 | Page answer (S1.1) | 200 `text/html`, `no-store` | — |
+| Sign-in accepted, a sign-out, a consent answer (S1.2) | 303, `Location`, `no-store` | — |
 | Hosted operator console path (`/internal/…`) | 501 problem+json | `route.not_implemented` |
 
 The only 2xx answers are `/login` (GET and HEAD) and the CORS preflight (204, which carries no data and
@@ -119,14 +121,14 @@ These are scaffolding, not the contract — P1/P2 restore v3's behaviour, and §
 then:
 
 - **A page route that needs a session answers 401 problem+json**, where v3 redirects (303) to
-  `/login`. There is no `/login` page to redirect to until P2, and a redirect to a 501 helps nobody.
-  Under `/api` this is v3's own answer.
-- **`POST /login` answers 501**, where v3 checks the CSRF token and signs the user in. The submission
-  needs the session store, the token and the throttle, which are S1.2; every other verb on the route
-  renders the page, as v3 does. A fetch asking for JSON still gets JSON on a 405 (`WantsJson`).
-- **A page route that needs a session still answers 401 problem+json**, where v3 redirects (303) to
-  `/login`. Now that `/login` exists the redirect is possible — but issuing one needs the session
-  contract to know the return path is safe, so it lands with S1.2. Under `/api` this is v3's own answer.
+  `/login`. `/login` has existed since S1.1, so the redirect is *possible*; it is not sent because
+  issuing one needs the session contract to know the return path is safe, and that is the piece S1.2
+  lands (**D19**). This is one decision, stated once — until plan revision 21 this section carried two
+  bullets about it, one of them still saying there was no `/login` page, which stopped being true when
+  S1.1 landed. Under `/api` the 401 is v3's own answer.
+- **`POST /login` signs the user in**, as v3 does, since S1.2: the CSRF token, the per-address and
+  per-account throttle, the password check and `session_regenerate_id(true)` on success. `/logout` and
+  `/consent` answer with it. A fetch asking for JSON still gets JSON on a 405 (`WantsJson`).
 - **`/healthz` and `/readyz` are answered before the chain**, in `src/index.ts`. `/healthz` is the
   container probe (§11 rule 7) and must answer 200 whatever a filter thinks of the Host header; the
   legacy `/health` alias goes through the chain like any other route.

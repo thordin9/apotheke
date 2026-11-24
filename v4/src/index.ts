@@ -20,6 +20,8 @@
 import type { InstallationStub } from "./db/do-sql";
 import { requestSql } from "./db/request-sql";
 import type { Env } from "./env";
+import { secureCookie } from "./session/cookie";
+import { openSession } from "./session/request";
 import { serveAsset } from "./http/assets";
 import { HEALTHZ_PATH, READYZ_PATH } from "./http/probe-paths";
 import { handleRoute } from "./http/router";
@@ -100,13 +102,62 @@ export default {
 			return problem(503, "boot", error instanceof Error ? error.message : String(error));
 		}
 
-		return handleRoute(request, {
-			publicUrl: config.publicUrl,
-			https: config.publicUrl.toLowerCase().startsWith("https://"),
-			hosted: config.hosted,
-			maxUploadMb: config.uploads.maxMb,
-			page: data.page,
-			login: { registrationOpen: data.registrationOpen, guestBrowsing: data.guestBrowsing },
+		const sql = requestSql(env, stub);
+		const now = Math.floor(Date.now() / 1000);
+		// `RequestScheme::secureCookie()`: the inputs are the `trust_proxy` and `public_url` settings
+		// rows, read above, plus what the request itself says. This is the bit that picks between
+		// `apothekesid` and `__Host-apothekesid` — a blind `__Host-` is dropped by the browser without
+		// a word on a self-hosted `http://192.168.x.x`, which is not a secure context.
+		const secure = secureCookie({
+			url: new URL(request.url),
+			host: request.headers.get("host") ?? "",
+			forwardedProto: request.headers.get("x-forwarded-proto") ?? "",
+			trustedProxy: data.security.trustProxy,
+			publicUrl: data.security.publicUrl,
 		});
+		// The session is loaded before the chain: a filter cannot await, and the load is a round trip.
+		// `load()` is also where consent decides that nothing is loaded or started (D20).
+		const session = await openSession({
+			sql,
+			request,
+			now,
+			secure,
+			limits: {
+				lifetimeSeconds: data.security.sessionDays * 86_400,
+				idleSeconds: data.security.sessionIdleHours * 3_600,
+			},
+		});
+
+		let response: Response;
+		try {
+			response = await handleRoute(
+				request,
+				{
+					publicUrl: config.publicUrl,
+					https: config.publicUrl.toLowerCase().startsWith("https://"),
+					hosted: config.hosted,
+					maxUploadMb: config.uploads.maxMb,
+					page: data.page,
+					login: { registrationOpen: data.registrationOpen, guestBrowsing: data.guestBrowsing },
+					signInEnabled: data.signInEnabled,
+				},
+				session,
+			);
+			// The writes are flushed before the answer leaves: a sign-in whose row did not store must
+			// not answer 303, which is why a failure here becomes a 503 rather than a lost session.
+			await session.flush();
+		} catch (error) {
+			return problem(503, "session", error instanceof Error ? error.message : String(error));
+		}
+
+		const lines = session.cookieLines();
+		if (lines.length === 0) {
+			return response;
+		}
+		const headers = new Headers(response.headers);
+		for (const line of lines) {
+			headers.append("set-cookie", line);
+		}
+		return new Response(response.body, { status: response.status, headers });
 	},
 } satisfies ExportedHandler<Env>;

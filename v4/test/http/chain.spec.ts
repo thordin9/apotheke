@@ -22,6 +22,7 @@ const CONFIG: RouterConfig = {
 	maxUploadMb: 20,
 	page: TEST_PAGE,
 	login: TEST_LOGIN,
+	signInEnabled: true,
 };
 
 const request = (path: string, method = "GET"): Request => new Request(`http://localhost${path}`, { method });
@@ -47,25 +48,25 @@ const REQUIRED = [
 const AFTER = ["after:securityheaders", "after:requestcleanup", "after:api", "after:consent"];
 
 describe("the filter chain a request runs", () => {
-	it("refuses at `permission` on a page route that needs a session, before the globals", () => {
-		const routed = routeRequest(request("/item/1"), CONFIG);
+	it("refuses at `permission` on a page route that needs a session, before the globals", async () => {
+		const routed = await routeRequest(request("/item/1"), CONFIG);
 		// `permission` is required, so it runs before the globals: the CSRF filters never see this one.
 		expect(routed.trace).toEqual([...REQUIRED, "after:requestcleanup", "after:api", "after:consent"]);
 		expect(routed.response.status).toBe(401);
 	});
 
-	it("runs the globals when the permission check passes, and reaches the handler", () => {
-		const routed = routeRequest(request("/login"), CONFIG);
+	it("runs the globals when the permission check passes, and reaches the handler", async () => {
+		const routed = await routeRequest(request("/login"), CONFIG);
 		expect(routed.trace).toEqual([...REQUIRED, "formfields", ...AFTER]);
 		// `/login` renders since S1.1; `/register` is the same chain without a handler.
 		expect(routed.response.status).toBe(200);
-		const unported = routeRequest(request("/register"), CONFIG);
+		const unported = await routeRequest(request("/register"), CONFIG);
 		expect(unported.trace).toEqual([...REQUIRED, "formfields", ...AFTER]);
 		expect(unported.response.status).toBe(501);
 	});
 
-	it("runs the globals-minus-except list, then apicsrf last, on an /api route", () => {
-		const routed = routeRequest(request("/api/v1/session"), CONFIG);
+	it("runs the globals-minus-except list, then apicsrf last, on an /api route", async () => {
+		const routed = await routeRequest(request("/api/v1/session"), CONFIG);
 		expect(routed.trace).toEqual([
 			...REQUIRED,
 			// `sessioncsrf` is excepted for api and api/*, `formfields` too; `apicsrf` is the path rule.
@@ -74,13 +75,13 @@ describe("the filter chain a request runs", () => {
 		]);
 	});
 
-	it("keeps formfields but drops sessioncsrf on /login, which checks its own token", () => {
-		const routed = routeRequest(request("/login"), CONFIG);
+	it("keeps formfields but drops sessioncsrf on /login, which checks its own token", async () => {
+		const routed = await routeRequest(request("/login"), CONFIG);
 		expect(routed.trace).toEqual([...REQUIRED, "formfields", ...AFTER]);
 	});
 
-	it("skips the globals after filters on a refusal, but keeps the required ones", () => {
-		const routed = routeRequest(request("/item/1"), CONFIG);
+	it("skips the globals after filters on a refusal, but keeps the required ones", async () => {
+		const routed = await routeRequest(request("/item/1"), CONFIG);
 		expect(routed.trace.filter((name) => name.startsWith("after:"))).toEqual([
 			"after:requestcleanup",
 			"after:api",
@@ -88,16 +89,16 @@ describe("the filter chain a request runs", () => {
 		]);
 	});
 
-	it("turns HEAD into GET in headasget, before routing", () => {
-		const head = routeRequest(request("/api/v1/session", "HEAD"), CONFIG);
-		const get = routeRequest(request("/api/v1/session", "GET"), CONFIG);
+	it("turns HEAD into GET in headasget, before routing", async () => {
+		const head = await routeRequest(request("/api/v1/session", "HEAD"), CONFIG);
+		const get = await routeRequest(request("/api/v1/session", "GET"), CONFIG);
 		expect(head.trace).toEqual(get.trace);
 		expect(head.response.status).toBe(get.response.status);
 	});
 });
 
 describe("the table and the runtime chain", () => {
-	it("agree on every one of the rows", () => {
+	it("agree on every one of the rows", async () => {
 		for (const route of ROUTES) {
 			const expected = CHAINS[route.filters];
 			if (expected === undefined) {
@@ -108,26 +109,26 @@ describe("the table and the runtime chain", () => {
 		}
 	});
 
-	it("has no path whose chain is empty", () => {
+	it("has no path whose chain is empty", async () => {
 		for (const route of ROUTES) {
 			expect(beforeChain(route.path).length, route.path).toBeGreaterThanOrEqual(14);
 		}
 	});
 
-	it("starts every chain with the required filters in the order the plan pins", () => {
+	it("starts every chain with the required filters in the order the plan pins", async () => {
 		for (const route of ROUTES) {
 			expect(beforeChain(route.path).slice(0, REQUIRED.length), route.path).toEqual(REQUIRED);
 		}
 	});
 
-	it("applies apicsrf to /api and nothing else", () => {
+	it("applies apicsrf to /api and nothing else", async () => {
 		expect(beforeChain("/api/v1/session")).toContain("apicsrf");
 		expect(beforeChain("/api")).toContain("apicsrf");
 		expect(beforeChain("/apix")).not.toContain("apicsrf");
 		expect(beforeChain("/")).not.toContain("apicsrf");
 	});
 
-	it("trims the path the way CI4 does before matching the except lists", () => {
+	it("trims the path the way CI4 does before matching the except lists", async () => {
 		expect(beforeChain("/api/")).not.toContain("sessioncsrf");
 		expect(matchPath("/api/")).toBe("api");
 	});

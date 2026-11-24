@@ -23,10 +23,27 @@ export interface PageData {
 	readonly signInEnabled: boolean;
 	readonly registrationOpen: boolean;
 	readonly guestBrowsing: boolean;
+	/**
+	 * What the session layer derives from the request (S1.2, D20): `trust_proxy` and `public_url` are
+	 * **settings rows, not environment names** — v3 reads both through `Services::settings()` and, when
+	 * that read throws, falls back to `trust_proxy = false` and the config's `public_url`, so a database
+	 * blip degrades to the plain cookie name rather than to `__Host-` on a host that cannot set it.
+	 * The read here either succeeds or fails the request (503), so the fallback is `loadConfig()`'s
+	 * `public_url` only when the row itself is absent — which is the same value.
+	 */
+	readonly security: {
+		readonly trustProxy: boolean;
+		readonly publicUrl: string;
+		readonly sessionDays: number;
+		readonly sessionIdleHours: number;
+	};
 }
 
 const text = (value: SettingValue): string => (typeof value === "string" ? value : "");
 const flag = (value: SettingValue): boolean => value === true;
+/** `SettingsSchema`'s numeric rows arrive as numbers; anything else falls back to its own default. */
+const count = (value: SettingValue, fallback: number): number =>
+	typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
 /** One query for every settings row, then PHP's decisions over the decoded values. */
 export const readPageData = async (sql: Sql, config: AppConfig, requestUri: string): Promise<PageData> => {
@@ -75,6 +92,14 @@ export const readPageData = async (sql: Sql, config: AppConfig, requestUri: stri
 		signInEnabled,
 		registrationOpen,
 		guestBrowsing: signInEnabled && !flag(values.get("auth_guest_disabled") ?? null),
+		security: {
+			trustProxy: flag(values.get("trust_proxy") ?? null),
+			// `SettingsSchema`'s `public_url` decodes to a string; an unset row is the config's value,
+			// which is the same fallback v3 takes when the settings read throws.
+			publicUrl: text(values.get("public_url") ?? null) || config.publicUrl,
+			sessionDays: count(values.get("session_days") ?? null, 30),
+			sessionIdleHours: count(values.get("session_idle_hours") ?? null, 168),
+		},
 	};
 };
 

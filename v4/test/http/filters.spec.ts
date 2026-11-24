@@ -21,6 +21,7 @@ const CONFIG: RouterConfig = {
 	maxUploadMb: 20,
 	page: TEST_PAGE,
 	login: TEST_LOGIN,
+	signInEnabled: true,
 };
 const HTTPS: RouterConfig = { ...CONFIG, publicUrl: "https://apotheke.example", https: true };
 
@@ -58,13 +59,11 @@ describe("the registry", () => {
 		expect(Object.keys(DEFERRED).sort()).toEqual([
 			"api",
 			"apicsrf",
-			"consent",
 			"formfields",
 			"harness",
 			"opsaccounts",
 			"opsbackup",
 			"requestcleanup",
-			"session",
 			"sessioncsrf",
 		]);
 	});
@@ -73,7 +72,6 @@ describe("the registry", () => {
 		// The three that gate access refuse rather than pass; the rest cannot decide anything in phase 0.
 		expect(DEFERRED.sessioncsrf).toContain("refused");
 		expect(DEFERRED.apicsrf).toContain("refused");
-		expect(DEFERRED.session).toContain("permission");
 	});
 });
 

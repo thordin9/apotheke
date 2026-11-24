@@ -31,6 +31,7 @@ const REASONS: Readonly<Record<number, string>> = {
 	419: "Authentication Timeout",
 	421: "Misdirected Request",
 	422: "Unprocessable Content",
+	429: "Too Many Requests",
 	501: "Not Implemented",
 	503: "Service Unavailable",
 };
@@ -38,6 +39,8 @@ const REASONS: Readonly<Record<number, string>> = {
 /** The stable machine codes this router can answer with. One list, so a typo cannot slip in. */
 export type ProblemCode =
 	| "auth.required"
+	| "consent_required"
+	| "auth.throttled"
 	| "permission.denied"
 	| "csrf.unavailable"
 	| "origin.refused"

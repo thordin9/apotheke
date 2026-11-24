@@ -65,6 +65,33 @@ export const bucket = async (
 	return (await sha256Hex(material)).slice(0, 32);
 };
 
+/**
+ * `RateLimiter::succeeded()`: a sign-in that worked takes back the counter it just added — the
+ * account's own bucket goes entirely, and the address bucket loses the one row this attempt made.
+ * Without it a burst of typos followed by the right password would leave the account one attempt
+ * from a lockout it never earned.
+ *
+ * v3 deletes the address row by the id its insert returned; `do-sql` reports no `last_row_id` under
+ * the local-SQLite driver, so this takes the newest row for that address at this second — the same
+ * attempt, and the same effect when two requests raced.
+ */
+export const succeeded = async (
+	sql: Sql,
+	input: { readonly client: string; readonly account?: string; readonly now: number },
+): Promise<void> => {
+	const accountKeyValue = await bucket("login", input.client, input.account ?? null);
+	const addressKey = await bucket("login_address", input.client, null);
+	await sql.batch([
+		statement("DELETE FROM auth_attempts WHERE kind = ? AND client = ?", ["login", accountKeyValue]),
+		statement(
+			`DELETE FROM auth_attempts WHERE id = (
+				SELECT id FROM auth_attempts WHERE kind = ? AND client = ? AND at = ? ORDER BY id DESC LIMIT 1
+			)`,
+			["login_address", addressKey, input.now],
+		),
+	]);
+};
+
 /** A refusal: what the caller turns into a 429 with `Retry-After`. */
 export interface Throttled {
 	readonly ok: false;

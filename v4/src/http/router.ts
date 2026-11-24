@@ -15,11 +15,12 @@
 // chain — a route whose permission is `none` or `public`, on a safe method — gets 501 and nothing
 // else. That is what makes the fail-closed promise checkable: no route in the table answers 2xx.
 
+import { consentHandler, logoutHandler, signInHandler } from "../auth/session-routes";
 import type { PageSettings } from "../html/page";
-import { loginPage } from "../html/views";
+import { SessionRequest } from "../session/request";
 import { afterChain, beforeChain, refusalAfterChain } from "./chain";
 import { type Ctx, DEFERRED, FILTERS } from "./filters";
-import { html, problem } from "./problem";
+import { problem } from "./problem";
 import { allowedMethods, catchAllRoute, effectiveMethod, matchRoute } from "./route-table";
 
 /** What the router needs from the app's configuration (§11) and its settings row (§5 S1.1). */
@@ -37,42 +38,21 @@ export interface RouterConfig {
 		readonly registrationOpen: boolean;
 		readonly guestBrowsing: boolean;
 	};
+	/** `SettingsService::signInEnabled()`: `/login` redirects rather than renders when it is off. */
+	readonly signInEnabled: boolean;
+	/**
+	 * `SignInPace::deadlineMs`: how long a failed sign-in is padded to. v3's 1000 ms; a test sets 0,
+	 * and the default is v3's, so production keeps the timing it had.
+	 */
+	readonly signInDeadlineMs?: number;
 }
 
-type Handler = (ctx: Ctx) => Response;
+/** A handler may be async: the ones that touch the database are (S1.2). */
+type Handler = (ctx: Ctx) => Response | Promise<Response>;
 
 /** `ApiController::notFound()`: the frozen /api 404 (§4 rule 3). */
 const apiNotFound: Handler = (ctx) =>
 	problem(ctx.path, ctx.config.https, 404, "not_found", "No such API endpoint.");
-
-/**
- * `SignInController::login()` for GET/HEAD: the page, rendered from the settings row.
- *
- * Every other verb on this route is the sign-in *submission*, which needs the session and CSRF
- * machinery of S1.2 — so it answers 501 rather than a page that would ignore the form it was sent.
- * That is the one method-level difference from v3, where any verb shows the page; it is bounded by
- * the route table (which declares all verbs) and named in `v4/docs/router.md`.
- */
-const signInLogin: Handler = (ctx) => {
-	if (ctx.method !== "GET") {
-		return problem(
-			ctx.path,
-			ctx.config.https,
-			501,
-			"route.not_implemented",
-			"POST /login is the sign-in submission: S1.2 ports the session and CSRF it needs.",
-		);
-	}
-	return html(
-		loginPage(ctx.config.page, {
-			error: null,
-			username: "",
-			note: null,
-			registrationOpen: ctx.config.login.registrationOpen,
-			guestBrowsing: ctx.config.login.guestBrowsing,
-		}),
-	);
-};
 
 /** The one honest answer for a route whose controller has not been ported: 501, never a pretend 200. */
 const notPorted: Handler = (ctx) => {
@@ -88,7 +68,9 @@ const notPorted: Handler = (ctx) => {
 
 const HANDLERS: ReadonlyMap<string, Handler> = new Map([
 	["\\Apotheke\\Core\\Controllers\\ApiController::notFound", apiNotFound],
-	["\\Apotheke\\Auth\\Controllers\\SignInController::login", signInLogin],
+	["\\Apotheke\\Core\\Controllers\\ConsentController::accept", consentHandler],
+	["\\Apotheke\\Auth\\Controllers\\SignInController::login", signInHandler],
+	["\\Apotheke\\Auth\\Controllers\\SignInController::logout", logoutHandler],
 ]);
 
 const runAfter = (ctx: Ctx, response: Response, names: readonly string[]): Response => {
@@ -117,17 +99,24 @@ export interface RoutedResponse {
  * Answers a request that is past the installation's readiness gate. `/healthz` and `/readyz` are
  * answered before this, in `index.ts`, and keep the semantics they have had since S0.3 (D14).
  */
-export const handleRoute = (request: Request, config: RouterConfig): Response =>
-	routeRequest(request, config).response;
+export const handleRoute = async (
+	request: Request,
+	config: RouterConfig,
+	session: SessionRequest,
+): Promise<Response> => (await routeRequest(request, config, session)).response;
 
 /** `handleRoute`, plus what the order test needs to see: the chain that actually ran. */
-export const routeRequest = (request: Request, config: RouterConfig): RoutedResponse => {
+export const routeRequest = async (
+	request: Request,
+	config: RouterConfig,
+	session?: SessionRequest,
+): Promise<RoutedResponse> => {
 	const url = new URL(request.url);
 	const path = url.pathname === "" ? "/" : url.pathname;
 	const method = effectiveMethod(request.method);
 	const route = matchRoute(method, path);
 	const catchAll = route === null ? catchAllRoute(method, path) : null;
-	const ctx: Ctx = createContext(request, config);
+	const ctx: Ctx = createContext(request, config, session);
 
 	for (const name of beforeChain(path)) {
 		const filter = FILTERS[name];
@@ -149,12 +138,17 @@ export const routeRequest = (request: Request, config: RouterConfig): RoutedResp
 	}
 
 	const handler = HANDLERS.get(route?.handler ?? catchAll?.handler ?? "") ?? notPorted;
-	const response = runAfter(ctx, handler(ctx), afterChain(path));
+	const response = runAfter(ctx, await handler(ctx), afterChain(path));
 	return { response, trace: ctx.trace, deferred: [...ctx.deferred].sort() };
 };
 
 /** The context a filter sees, for a test that exercises one filter on its own. */
-export const createContext = (request: Request, config: RouterConfig): Ctx => {
+export const createContext = (
+	request: Request,
+	config: RouterConfig,
+	session?: SessionRequest,
+): Ctx => {
+	const carried = session ?? SessionRequest.detached(request, config.https);
 	const url = new URL(request.url);
 	const path = url.pathname === "" ? "/" : url.pathname;
 	const method = effectiveMethod(request.method);
@@ -170,7 +164,8 @@ export const createContext = (request: Request, config: RouterConfig): Ctx => {
 		allow: route === null ? allowedMethods(path) : [],
 		config,
 		baseUrl: "",
-		identity: null,
+		session: carried,
+		identity: carried.identity,
 		trace: [],
 		deferred: new Set<string>(),
 	};

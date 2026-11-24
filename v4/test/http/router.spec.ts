@@ -9,7 +9,7 @@
 // It also pins the two answers §4 freezes: the /api 404 is problem+json with the API header set, and
 // a 405 carries `Allow`.
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { isApi } from "../../src/http/problem";
 import { type RouterConfig, routeRequest } from "../../src/http/router";
 import { ROUTES } from "../../src/http/routes.generated";
@@ -23,18 +23,29 @@ const CONFIG: RouterConfig = {
 	maxUploadMb: 20,
 	page: TEST_PAGE,
 	login: TEST_LOGIN,
+	signInEnabled: true,
 };
 
 /** Verbs a `Request` cannot be constructed with (workerd forbids them, as browsers do). */
 const UNCONSTRUCTABLE = new Set(["CONNECT", "TRACE"]);
 
-const requests = ROUTES.filter((route) => !UNCONSTRUCTABLE.has(route.method)).map((route) => {
-	const path = `/${sample(route.path)}`;
-	return {
-		route,
-		path,
-		response: routeRequest(new Request(`http://localhost${path}`, { method: route.method }), CONFIG).response,
-	};
+/**
+ * Every row, asked once. `routeRequest` is async since S1.2 (the sign-in handlers touch the
+ * database), so the sweep is built in `beforeAll` rather than at module load.
+ */
+let requests: { route: (typeof ROUTES)[number]; path: string; response: Response }[] = [];
+
+beforeAll(async () => {
+	requests = await Promise.all(
+		ROUTES.filter((route) => !UNCONSTRUCTABLE.has(route.method)).map(async (route) => {
+			const path = `/${sample(route.path)}`;
+			const routed = await routeRequest(
+				new Request(`http://localhost${path}`, { method: route.method }),
+				CONFIG,
+			);
+			return { route, path, response: routed.response };
+		}),
+	);
 });
 
 describe("every route in the table", () => {
@@ -93,11 +104,11 @@ describe("every route in the table", () => {
 });
 
 describe("the answers phase 0 is allowed to give", () => {
-	const json = (path: string, init: RequestInit = {}) =>
-		routeRequest(new Request(`http://localhost${path}`, init), CONFIG).response;
+	const json = async (path: string, init: RequestInit = {}) =>
+		(await routeRequest(new Request(`http://localhost${path}`, init), CONFIG)).response;
 
 	it("refuses a route that needs a session with 401 problem+json, never a redirect to a page that does not exist", async () => {
-		const response = json("/item/1");
+		const response = await json("/item/1");
 		expect(response.status).toBe(401);
 		expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
 		expect(await response.json()).toMatchObject({
@@ -109,7 +120,7 @@ describe("the answers phase 0 is allowed to give", () => {
 	});
 
 	it("answers the /api fallback with the frozen 404 and the API header set (no X-Frame-Options)", async () => {
-		const response = json("/api/v1/nope");
+		const response = await json("/api/v1/nope");
 		expect(response.status).toBe(404);
 		expect(await response.json()).toMatchObject({ code: "not_found", detail: "No such API endpoint." });
 		expect(response.headers.get("x-frame-options")).toBeNull();
@@ -118,14 +129,14 @@ describe("the answers phase 0 is allowed to give", () => {
 	});
 
 	it("answers a wrong method on /api with 405 problem+json and Allow", async () => {
-		const response = json("/api/v1/session", { method: "PUT" });
+		const response = await json("/api/v1/session", { method: "PUT" });
 		expect(response.status).toBe(405);
 		expect(response.headers.get("allow")).toBe("GET, HEAD, POST, DELETE");
 		expect(await response.json()).toMatchObject({ code: "method_not_allowed" });
 	});
 
 	it("answers a wrong method on a page with v3's 405 error page and Allow", async () => {
-		const response = json("/item/1", { method: "DELETE" });
+		const response = await json("/item/1", { method: "DELETE" });
 		expect(response.status).toBe(405);
 		expect(response.headers.get("allow")).toBe("GET, HEAD");
 		expect(response.headers.get("content-type")).toBe("text/html; charset=UTF-8");
@@ -133,21 +144,21 @@ describe("the answers phase 0 is allowed to give", () => {
 	});
 
 	it("answers a fetch that wants JSON with JSON, not the 405 page (WantsJson)", async () => {
-		const response = json("/item/1", { method: "DELETE", headers: { "x-requested-with": "fetch" } });
+		const response = await json("/item/1", { method: "DELETE", headers: { "x-requested-with": "fetch" } });
 		expect(response.status).toBe(405);
 		expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
 		expect(await response.json()).toMatchObject({ ok: false, error: "Method not allowed" });
 	});
 
 	it("refuses an unsafe /api write that cannot be checked, with 403", async () => {
-		const response = json("/api/v1/session", { method: "POST" });
+		const response = await json("/api/v1/session", { method: "POST" });
 		expect(response.status).toBe(403);
 		expect(await response.json()).toMatchObject({ code: "csrf.unavailable" });
 	});
 
 	it("answers 501 for a route whose controller is P1/P2, and names the handler", async () => {
 		// `/register` is still unported; `/login` renders since S1.1 and is not 501 any more.
-		const response = json("/register");
+		const response = await json("/register");
 		expect(response.status).toBe(501);
 		const body = (await response.json()) as { detail: string; code: string };
 		expect(body.code).toBe("route.not_implemented");
@@ -155,13 +166,13 @@ describe("the answers phase 0 is allowed to give", () => {
 	});
 
 	it("answers POST /login with 501: the sign-in submission is S1.2", async () => {
-		const response = json("/login", { method: "POST" });
+		const response = await json("/login", { method: "POST" });
 		expect(response.status).toBe(501);
 		expect(await response.json()).toMatchObject({ code: "route.not_implemented" });
 	});
 
 	it("answers an unknown page with v3's 404 error page, not problem+json", async () => {
-		const response = json("/nope");
+		const response = await json("/nope");
 		expect(response.status).toBe(404);
 		expect(response.headers.get("content-type")).toBe("text/html; charset=UTF-8");
 		expect(response.headers.get("cache-control")).toBe("no-store, max-age=0, no-cache");
