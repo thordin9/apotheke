@@ -227,6 +227,8 @@ describe("the consent gate (D20)", () => {
 describe("POST /login", () => {
 	let sql: Sql;
 	let session: { id: string; token: string };
+	/** The account's own id: `AUTOINCREMENT` does not restart between these tests, so it is read. */
+	let userId: number;
 
 	beforeEach(async () => {
 		sql = sqlite(`signin-${nextId()}`);
@@ -238,6 +240,8 @@ describe("POST /login", () => {
 				params: ["Ada", "ada", hash, "admin", "2026-01-01 00:00:00", "active", ""],
 			},
 		]);
+		const inserted = await sql.all({ sql: "SELECT id FROM users WHERE username_key = 'ada'" });
+		userId = Number(inserted[0]?.id ?? 0);
 		session = await anonymousSession(sql);
 	});
 
@@ -255,7 +259,7 @@ describe("POST /login", () => {
 			params: [await sessionKey(answer.session.id ?? "")],
 		});
 		const data = String(row[0]?.data);
-		expect(data).toContain("uid|i:1;");
+		expect(data).toContain(`uid|i:${userId};`);
 		expect(data).toContain("auth_epoch|s:16:");
 		expect(data).toContain(`last_activity|i:${NOW};`);
 		expect(data).toContain(`signed_in_at|i:${NOW};`);
@@ -342,7 +346,9 @@ describe("POST /login", () => {
 		const id = signed.session.id ?? "";
 		expect(id).not.toBe("");
 		// The account's epoch moves: a password change, or "sign out everywhere".
-		await sql.batch([{ sql: "UPDATE users SET session_epoch = 'ffffffffffffffff' WHERE id = 1" }]);
+		await sql.batch([
+			{ sql: "UPDATE users SET session_epoch = 'ffffffffffffffff' WHERE id = ?", params: [userId] },
+		]);
 		// A request that carries it: `/login` again, which loads the session before the chain.
 		const after = await send(sql, "/login", { cookie: `${CONSENTED}; apothekesid=${id}` });
 		expect(after.session.identity).toBeNull();

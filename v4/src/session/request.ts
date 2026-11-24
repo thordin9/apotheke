@@ -75,10 +75,7 @@ export const newSessionId = (): string => {
 	for (const byte of bytes) {
 		binary += String.fromCharCode(byte);
 	}
-	return btoa(binary)
-		.replace(/\+/g, "-")
-		.replace(/\//g, ",")
-		.replace(/=+$/, "");
+	return btoa(binary).replace(/\+/g, "-").replace(/\//g, ",").replace(/=+$/, "");
 };
 
 /** Whether a value is a session id v3 would accept. */
