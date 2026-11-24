@@ -20,6 +20,7 @@
 //
 // The refusals answer problem+json with the PHP app's header set for their path — see `problem.ts`.
 
+import { type Actor, refusal as permissionRefusal, SIGN_IN } from "../auth/permission";
 import type { PageSettings } from "../html/page";
 import { errorPage } from "../html/views";
 import { CONSENT_CODE, CONSENT_MESSAGE, CONSENT_STATUS, consentNeeded } from "../session/consent";
@@ -70,6 +71,12 @@ export interface Ctx {
 	readonly session: SessionRequest;
 	/** Set by `session`: the account this request is signed in as, or null. */
 	identity: Identity | null;
+	/**
+	 * The account a *permission* check sees (`src/auth/permission.ts`): the session's role and what
+	 * the roles table allows it, or v3's anonymous admin while sign-in is off, or nobody. Resolved
+	 * once before the chain, because a filter cannot await and this is a database read.
+	 */
+	actor: Actor | null;
 	/** Filter names in the order they ran — the order test reads this. */
 	readonly trace: string[];
 	/** Filters that declared themselves deferred on this request. */
@@ -440,6 +447,50 @@ const sameorigin: Filter = {
 /** `Permissions::NONE` and the API's `public`: both answer before a permission check. */
 const NO_PERMISSION: readonly string[] = ["none", "public"];
 
+/**
+ * `PermissionCheck::refusal()`'s answers, as `PermissionFilter` writes them: problem+json under
+ * `/api`, legacy JSON for a fetch, and for a page either 303 to `/login` (nobody) or v3's 403 page.
+ */
+const permissionRefused = (ctx: Ctx, verdict: string): Response => {
+	if (isApi(ctx.path)) {
+		return verdict === SIGN_IN
+			? problem(ctx.path, ctx.config.https, 401, "auth.required", "Sign in first.")
+			: problem(ctx.path, ctx.config.https, 403, "permission.denied", verdict);
+	}
+	const json = wantsJson(ctx.request);
+	if (verdict === SIGN_IN) {
+		if (json) {
+			return new Response(
+				JSON.stringify({ ok: false, error: "Not signed in", redirect: "/login" }),
+				{
+					status: 401,
+					headers: {
+						...PAGE_HEADERS,
+						"Content-Type": "application/json; charset=utf-8",
+						"Cache-Control": "no-store",
+					},
+				},
+			);
+		}
+		// Since S1.1 there is a `/login` to send them to, so v3's answer is the real one again.
+		return new Response(null, {
+			status: 303,
+			headers: { ...PAGE_HEADERS, Location: "/login", "Cache-Control": "no-store, max-age=0, no-cache" },
+		});
+	}
+	if (json) {
+		return new Response(JSON.stringify({ ok: false, error: verdict }), {
+			status: 403,
+			headers: {
+				...PAGE_HEADERS,
+				"Content-Type": "application/json; charset=utf-8",
+				"Cache-Control": "no-store",
+			},
+		});
+	}
+	return pageError(ctx, 403, verdict, {}, ERROR_PAGE_CACHE);
+};
+
 const permission: Filter = {
 	before: (ctx) => {
 		if (ctx.route === null) {
@@ -459,9 +510,10 @@ const permission: Filter = {
 		if (NO_PERMISSION.includes(need)) {
 			return null;
 		}
-		// The role check needs a session (P1). Refusing is the honest answer until then; v3 would
-		// redirect a page request to /login, which is P2's shell — see docs/router.md.
-		return problem(ctx.path, ctx.config.https, 401, "auth.required", "Sign in first.");
+		// S1.3: the role's own permissions decide (`PermissionCheck`), not the phase-0 401. The actor
+		// was resolved before the chain; a read that failed left it null, which refuses here.
+		const verdict = permissionRefusal(ctx.actor, need);
+		return verdict === null ? null : permissionRefused(ctx, verdict);
 	},
 };
 

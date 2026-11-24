@@ -52,7 +52,9 @@ describe("the filter chain a request runs", () => {
 		const routed = await routeRequest(request("/item/1"), CONFIG);
 		// `permission` is required, so it runs before the globals: the CSRF filters never see this one.
 		expect(routed.trace).toEqual([...REQUIRED, "after:requestcleanup", "after:api", "after:consent"]);
-		expect(routed.response.status).toBe(401);
+		// v3's answer for a page: 303 to `/login`, which has existed since S1.1 (S1.3's check is real now).
+		expect(routed.response.status).toBe(303);
+		expect(routed.response.headers.get("location")).toBe("/login");
 	});
 
 	it("runs the globals when the permission check passes, and reaches the handler", async () => {

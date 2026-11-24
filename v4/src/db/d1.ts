@@ -30,7 +30,7 @@ export class D1Sql implements Sql {
 		const results = await this.db.batch<Row>(prepared);
 
 		return results.map((r) => ({
-			changes: r.meta.changes ?? 0,
+			changes: r.meta.changes ?? null,
 			lastRowId: r.meta.last_row_id === undefined || r.meta.last_row_id === 0 ? null : r.meta.last_row_id,
 		}));
 	}

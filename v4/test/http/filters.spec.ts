@@ -189,19 +189,20 @@ describe("permission", () => {
 		expect(run("permission", "/api/v1/session")).toBeNull();
 	});
 
-	it("refuses a route that needs a session with 401 problem+json and a stable code", async () => {
+	it("sends a page request that needs a session to /login", () => {
 		const response = run("permission", "/item/1");
+		expect(response?.status).toBe(303);
+		expect(response?.headers.get("location")).toBe("/login");
+	});
+
+	it("answers a fetch that needs a session with legacy's 401 JSON", async () => {
+		const request = new Request("http://localhost/item/1", { headers: { "x-requested-with": "fetch" } });
+		const response = FILTERS.permission?.before?.(createContext(request, CONFIG)) ?? null;
 		expect(response?.status).toBe(401);
 		if (response === null) {
 			throw new Error("expected a refusal");
 		}
-		expect(await response.json()).toEqual({
-			type: "about:blank",
-			title: "Unauthorized",
-			status: 401,
-			detail: "Sign in first.",
-			code: "auth.required",
-		});
+		expect(await response.json()).toEqual({ ok: false, error: "Not signed in", redirect: "/login" });
 	});
 
 	it("refuses a route with no permission recorded to everyone (fail closed)", async () => {

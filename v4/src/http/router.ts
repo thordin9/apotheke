@@ -15,6 +15,7 @@
 // chain — a route whose permission is `none` or `public`, on a safe method — gets 501 and nothing
 // else. That is what makes the fail-closed promise checkable: no route in the table answers 2xx.
 
+import { resolveActor } from "../auth/permission";
 import { claimHandler, consentHandler, logoutHandler, signInHandler } from "../auth/session-routes";
 import type { PageSettings } from "../html/page";
 import { SessionRequest } from "../session/request";
@@ -65,6 +66,9 @@ const notPorted: Handler = (ctx) => {
 		`${handler} is not ported yet: S0.5 is the routing skeleton, the controllers are P1/P2.`,
 	);
 };
+
+/** `Permissions::NONE` and the API's `public`: a route that answers before a permission check. */
+const NO_PERMISSION_NEEDS: readonly string[] = ["none", "public"];
 
 const HANDLERS: ReadonlyMap<string, Handler> = new Map([
 	["\\Apotheke\\Core\\Controllers\\ApiController::notFound", apiNotFound],
@@ -118,6 +122,20 @@ export const routeRequest = async (
 	const route = matchRoute(method, path);
 	const catchAll = route === null ? catchAllRoute(method, path) : null;
 	const ctx: Ctx = createContext(request, config, session);
+	// The permission filter cannot await, so the actor it judges is resolved here, once — the same
+	// place `index.ts` loads the session. A read that fails leaves `actor` null and the filter
+	// refuses, which is the fail-closed answer for a check that could not be made.
+	const need = route?.permission ?? null;
+	if (need !== null && !NO_PERMISSION_NEEDS.includes(need)) {
+		try {
+			ctx.actor = await resolveActor(ctx.session.sql, ctx.session.identity, {
+				signInEnabled: config.signInEnabled,
+				guestBrowsing: config.login.guestBrowsing,
+			});
+		} catch {
+			ctx.actor = null;
+		}
+	}
 
 	for (const name of beforeChain(path)) {
 		const filter = FILTERS[name];
@@ -163,6 +181,7 @@ export const createContext = (request: Request, config: RouterConfig, session?: 
 		baseUrl: "",
 		session: carried,
 		identity: carried.identity,
+		actor: null,
 		trace: [],
 		deferred: new Set<string>(),
 	};

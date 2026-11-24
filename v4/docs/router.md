@@ -58,9 +58,10 @@ Plan §5's shorthand — "`hostcheck`, `publicbase`, `session`, `sameorigin`, `p
 
 Two consequences worth knowing:
 
-- **`permission` is required, so it runs before the CSRF filters.** A write to a route that needs a
-  session answers 401 before any token is looked at. Only a route that passes the permission check
-  (`none`, or the API's `public`) can reach `sessioncsrf`/`apicsrf`.
+- **`permission` is required, so it runs before the CSRF filters.** A write to a route whose role may
+  not do it is refused before any token is looked at — v3's answer, not a 401: 303 to `/login` when
+  nobody is signed in, 403 when the role lacks the permission. Only a route that passes the permission
+  check (`none`, or the API's `public`) can reach `sessioncsrf`/`apicsrf`.
 - **A refusal skips the globals after filters but not the required ones.** CI4 returns a before
   filter's response before the controller, and `CodeIgniter::run()` still runs the required after
   filters on it — which is why a refusal under `/api` carries the API headers (`api` is one of them)
@@ -70,7 +71,9 @@ Two consequences worth knowing:
 
 | Situation | Answer | Code |
 |---|---|---|
-| Route needs a session (every permission but `none`/`public`) | 401 problem+json | `auth.required` |
+| Route needs a session (page) | 303 to `/login`; a fetch asking for JSON gets 401 JSON | — |
+| Route needs a session (under `/api`) | 401 problem+json | `auth.required` |
+| Role lacks the route's permission | 403, v3's error page (fetch: 403 JSON); `/api`: 403 problem+json | `permission.denied` |
 | Route with no permission recorded | 403 problem+json | `permission.denied` |
 | Unsafe write, no session to hold a token | 403 problem+json | `csrf.unavailable` |
 | Unsafe write from another site | 403 problem+json | `origin.refused` |
@@ -121,12 +124,13 @@ on `/api` (CSP `default-src 'none'`, `no-store`, HSTS only when `PUBLIC_URL` is 
 These are scaffolding, not the contract — P1/P2 restore v3's behaviour, and §4 freezes what must match
 then:
 
-- **A page route that needs a session answers 401 problem+json**, where v3 redirects (303) to
-  `/login`. `/login` has existed since S1.1, so the redirect is *possible*; it is not sent because
-  issuing one needs the session contract to know the return path is safe, and that is the piece S1.2
-  lands (**D19**). This is one decision, stated once — until plan revision 21 this section carried two
-  bullets about it, one of them still saying there was no `/login` page, which stopped being true when
-  S1.1 landed. Under `/api` the 401 is v3's own answer.
+- **A page route that needs a session answers v3's 303 to `/login` again**, and a signed-in role that
+  lacks the permission answers v3's 403 with its message. Since S1.3 the check is `PermissionCheck`
+  itself: the actor's role and the roles table's permissions, resolved once per request before the
+  chain (`Ctx.actor`), because a filter cannot await. The phase-0 401 problem+json that stood here was
+  scaffolding for a `/login` that did not exist yet; it does, so the redirect is real. A fetch asking
+  for JSON still gets 401 JSON (`WantsJson`), and under `/api` the 401/403 problem+json is v3's own
+  answer.
 - **`POST /login` signs the user in**, as v3 does, since S1.2: the CSRF token, the per-address and
   per-account throttle, the password check and `session_regenerate_id(true)` on success. `/logout` and
   `/consent` answer with it. A fetch asking for JSON still gets JSON on a 405 (`WantsJson`).

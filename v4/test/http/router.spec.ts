@@ -107,16 +107,17 @@ describe("the answers phase 0 is allowed to give", () => {
 	const json = async (path: string, init: RequestInit = {}) =>
 		(await routeRequest(new Request(`http://localhost${path}`, init), CONFIG)).response;
 
-	it("refuses a route that needs a session with 401 problem+json, never a redirect to a page that does not exist", async () => {
+	it("sends a page request that needs a session to /login, which exists since S1.1", async () => {
 		const response = await json("/item/1");
-		expect(response.status).toBe(401);
+		expect(response.status).toBe(303);
+		expect(response.headers.get("location")).toBe("/login");
 		expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
-		expect(await response.json()).toMatchObject({
-			type: "about:blank",
-			title: "Unauthorized",
-			status: 401,
-			code: "auth.required",
-		});
+	});
+
+	it("answers a fetch that needs a session with 401 JSON, as legacy does", async () => {
+		const response = await json("/item/1", { headers: { "x-requested-with": "fetch" } });
+		expect(response.status).toBe(401);
+		expect(await response.json()).toEqual({ ok: false, error: "Not signed in", redirect: "/login" });
 	});
 
 	it("answers the /api fallback with the frozen 404 and the API header set (no X-Frame-Options)", async () => {
