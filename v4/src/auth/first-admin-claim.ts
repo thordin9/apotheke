@@ -43,7 +43,8 @@ const NO_ACTIVE_ADMIN = "NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin' AN
 /** The reads the checks share: one name's key, an active admin's existence, and the new account. */
 const NAME_TAKEN = "SELECT 1 AS one FROM users WHERE username_key = ? LIMIT 1";
 const ADMIN_ROW = `SELECT 1 AS one FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1`;
-const READ_USER = "SELECT id, username, role, status, password_hash, session_epoch FROM users WHERE id = ?";
+const READ_USER =
+	"SELECT id, username, role, status, password_hash, session_epoch FROM users WHERE username_key = ?";
 
 /** `Accounts::USERNAME_MAX` / `Accounts::PASSWORD_MIN`. */
 const USERNAME_MAX = 40;
@@ -167,7 +168,7 @@ export const createClaim = async (sql: Sql, now: number): Promise<{ token: strin
 	const expires = now + CLAIM_HOURS * 3600;
 	const value = JSON.stringify({ sha256: await sha256Hex(token), expires });
 	const stamp = utcNow(new Date(now * 1000));
-	const results = await sql.batch([
+	await sql.batch([
 		statement("DELETE FROM settings WHERE name = ?", [SETTING]),
 		statement(
 			`INSERT INTO settings (name, value, updated_at)
@@ -175,7 +176,10 @@ export const createClaim = async (sql: Sql, now: number): Promise<{ token: strin
 			[SETTING, value, stamp],
 		),
 	]);
-	if ((results[1]?.changes ?? 0) !== 1) {
+	// Read it back rather than counting rows: a statement result is a D1/rqlite detail, and the
+	// single-process backend reports none (see `do-sql.ts`) — the row is the answer on every backend.
+	const after = await storedClaim(sql);
+	if (after === null || after.raw !== value) {
 		throw new ClaimError(ADMIN_EXISTS, 409);
 	}
 	return { token, expiresAt: `${new Date(expires * 1000).toISOString().slice(0, 19).replace("T", " ")} UTC` };
@@ -218,7 +222,7 @@ export const claimAdmin = async (sql: Sql, input: ClaimInput): Promise<ClaimedAd
 	const name = await validName(sql, input.username);
 	const hash = await hashPassword(validPassword(input.password, input.confirm));
 	const stamp = utcNow(new Date(input.now * 1000));
-	const results = await sql.batch([
+	await sql.batch([
 		statement(
 			`INSERT INTO users (username, username_key, password_hash, role, status, created_at)
 			 SELECT ?, ?, ?, 'admin', 'active', ?
@@ -227,23 +231,17 @@ export const claimAdmin = async (sql: Sql, input: ClaimInput): Promise<ClaimedAd
 		),
 		statement("DELETE FROM settings WHERE name = ? AND value = ?", [SETTING, stored.raw]),
 	]);
-	const inserted = results[0];
-	if (inserted === undefined || inserted.changes !== 1) {
-		// The row is gone (a second use) or an admin exists (the insert's own guard). Both are v3's 410;
-		// the admin case is the one that says "no longer valid", the other "already been used".
+	// The account is the answer, not a statement result: the single-process backend reports none
+	// (`do-sql.ts`), so the row is what says whether the insert's guard let it through.
+	const rows = await sql.all(statement(READ_USER, [accountKey(name)]));
+	const row = rows[0];
+	if (row === undefined || String(row.password_hash ?? "") !== hash) {
+		// The guard refused it: the claim row was gone (a second use) or an admin exists. Both are
+		// v3's 410 — the admin case is "no longer valid", the other "already been used".
 		if (await adminExists(sql)) {
 			throw new ClaimError(NO_LONGER_VALID, 410);
 		}
 		throw new ClaimError(ALREADY_USED, 410);
-	}
-	const id = inserted.lastRowId;
-	if (id === null) {
-		throw new Error("the claim's insert reported no row id");
-	}
-	const rows = await sql.all(statement(READ_USER, [id]));
-	const row = rows[0];
-	if (row === undefined) {
-		throw new Error("the new account could not be read back.");
 	}
 	return {
 		id: Number(row.id ?? 0),
