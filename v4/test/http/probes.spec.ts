@@ -14,8 +14,8 @@
 
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { PROBE_PATHS, READYZ_PATH } from "../../src/http/probe-paths";
 import { ROUTES } from "../../src/http/routes.generated";
-import { PROBE_PATHS, READYZ_PATH } from "../../src/index";
 // The entrypoint's own text: the sweep below proves no *route* bypasses the chain, and this proves
 // no third path was hard-coded beside the two (a path that is not in the table would escape the
 // sweep silently, which is the hole the ruling asks to close).

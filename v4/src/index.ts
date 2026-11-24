@@ -21,6 +21,7 @@ import type { InstallationStub } from "./db/do-sql";
 import { requestSql } from "./db/request-sql";
 import type { Env } from "./env";
 import { serveAsset } from "./http/assets";
+import { HEALTHZ_PATH, READYZ_PATH } from "./http/probe-paths";
 import { handleRoute } from "./http/router";
 import { loadConfig } from "./platform/config";
 import { problem, type ReadyResult, readinessResponse } from "./readiness";
@@ -30,15 +31,6 @@ export { Installation } from "./installation";
 
 /** Self-host and local dev are one installation per process; hosted resolves this in S0.7. */
 const INSTALLATION = "default";
-
-/**
- * The only two paths answered before the router and the filter chain (plan §5 S0.5, §11 rule 7).
- * Adding a third is a decision, not an edit: `test/http/probes.spec.ts` pins this list and sends
- * every route in the table with a rejected Host to prove that nothing else skips `hostcheck`.
- */
-export const HEALTHZ_PATH = "/healthz";
-export const READYZ_PATH = "/readyz";
-export const PROBE_PATHS = [HEALTHZ_PATH, READYZ_PATH] as const;
 
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), {
