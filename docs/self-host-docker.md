@@ -186,11 +186,13 @@ Stated plainly, because a self-host promise that hides its edges is worse than n
    inside one data directory (`raft.db`, `raft/`, `db.sqlite`) and has no flag to split them, so this
    stack mounts one volume at `/rqlite/file` with `DATA_DIR=/rqlite/file/data`. Plan §11's two-volume
    row was **corrected to match** in revision 13 (**D17**): the plan and these files now agree.
-6. **No UI and no sign-in.** `/` and every page route answer `501` `route.not_implemented`: the router
-   and the filter chain are S0.5, sign-in is P1 and the pages are P2. The seeded `admin` account is in
-   the database and nothing can authenticate against it yet — there is no session store, no CSRF token
-   and no page to submit to, so every route that needs a session answers `401` `auth.required`. What
-   does answer: `/healthz`, `/readyz`, the `/api` 404 (`not_found`, problem+json) and 405s with `Allow`.
+6. **No sign-in, and a UI only as far as `/login`.** `/login` renders the page PHP renders (S1.1), and
+   the app's own error pages are back for a page-level 404/405. Nothing can be submitted: `POST /login`
+   answers `501` `route.not_implemented` because the session store, the CSRF token and the sign-in
+   throttle are S1.2, and every other page route answers `501` — or `401` `auth.required` where the
+   route needs a session. The seeded `admin` account is in the database and nothing can authenticate
+   against it yet. What does answer: `/healthz`, `/readyz`, `/assets/…` (the bundle), `/login`, the
+   page error pages, the `/api` 404 (`not_found`, problem+json) and 405s with `Allow`.
    `/readyz`'s `"seed":"done"` therefore means the install is complete, not that it is usable.
 
 ## Where the automation lives
