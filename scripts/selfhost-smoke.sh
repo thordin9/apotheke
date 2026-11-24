@@ -45,17 +45,17 @@ say "compose file: $compose_file  (driver: $default_driver)"
 
 compose() { docker compose -f "$compose_file" "$@"; }
 
-on_error() {
-	status=$?
-	printf '\n--- docker compose ps ---\n' >&2
-	compose ps >&2 || true
-	printf '\n--- docker compose logs (tail) ---\n' >&2
-	compose logs --no-color --tail 200 >&2 || true
-	exit "$status"
-}
-trap on_error ERR
-
+# One trap, not two: `die` exits, and only an EXIT trap sees an exit. (The first version had a
+# separate ERR trap, which never fired on `die` — the run that failed at /healthz dumped no logs at
+# all and tore the containers down, which is the least useful thing a failing smoke test can do.)
 cleanup() {
+	status=$?
+	if [ "$status" -ne 0 ]; then
+		printf '\n--- docker compose ps -a ---\n' >&2
+		compose ps -a >&2 || true
+		printf '\n--- docker compose logs (tail 300) ---\n' >&2
+		compose logs --no-color --tail 300 >&2 || true
+	fi
 	if [ "${SMOKE_KEEP:-0}" = "1" ]; then
 		say "SMOKE_KEEP=1: leaving the stack up"
 		return 0
@@ -97,6 +97,12 @@ fi
 wait_healthz() {
 	deadline=$((SECONDS + timeout_s))
 	while [ "$SECONDS" -lt "$deadline" ]; do
+		# Fail fast when the container is not even running: waiting the full timeout to say "no
+		# answer" when the answer is "it exited at once" wastes the one thing CI gives slowly.
+		state=$(compose ps -a --format '{{.Service}}={{.State}}' 2> /dev/null | tr '\n' ' ' || true)
+		case "$state" in
+			*restarting* | *exited* | *dead*) die "the app container is not running ($state)" ;;
+		esac
 		if body=$(curl -fsS "$base_url/healthz" 2> /dev/null); then
 			case "$body" in
 				*'"ok":true'*) ;;

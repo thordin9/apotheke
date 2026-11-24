@@ -14,6 +14,11 @@ FROM node:22-slim
 
 WORKDIR /app
 
+# Non-interactive from the start: wrangler asks about usage metrics on a first run, and a container
+# has no one to answer. `CI=1` also keeps every CLI on its non-TTY path.
+ENV CI=1 \
+    WRANGLER_SEND_METRICS=false
+
 # Dependencies first, so a source edit does not re-run `npm ci`. The lockfile is the one CI uses.
 COPY package.json package-lock.json ./
 RUN npm ci
