@@ -141,16 +141,28 @@ then:
   legacy `/health` alias goes through the chain like any other route.
 - **Every unsafe `/api` write is refused with 403 so far**, because the Origin/token rules the API's
   CSRF check needs are part of the session contract (P1). It is a refusal, not a bypass. The page
-  routes' own POSTs — `/login`, `/logout`, `/consent`, `/claim`, `/settings/users…` — are not `/api`
-  writes and answer as their handlers do above; `/login` has signed in since S1.2.
+  routes' own POSTs — `/login`, `/logout`, `/consent`, `/claim`, `/settings/users…`,
+  `/settings/roles…` — are not `/api` writes and answer as their handlers do above; `/login` has
+  signed in since S1.2.
 - **The Users & sign-in page answers, and so does its users half (S1.3).** `GET /settings/security`
   renders `SecurityView::page()` for a role with `users`, and `POST /settings/users…` creates, changes,
   approves, renames and deletes accounts. A refusal re-renders *that page* with v3's message and v3's
   status (409 last admin, 422 a taken name, 403 the admin-only guards, 404 an unknown action) rather
   than an error page of ours — the page is the answer, as it is in v3. Two parts of the document are
   not there yet: the header (`Page::simpleHeader()` and the menu behind it) is P2, so the section
-  renders without the bar above it; and the roles editor's own POSTs and the section's settings form
-  still answer 501, which is what the generated table says they do.
+  renders without the bar above it; and the section's settings form (`POST /settings/security`,
+  `/settings/security/reset`, `/settings/password`) still answers 501, which is what the generated
+  table says it does.
+- **The roles editor answers too (S1.3, increment 2b).** `POST /settings/roles`,
+  `/settings/roles/{key}` and `/settings/roles/{key}/delete` create a role from its `perms[]` list,
+  save a role's name and permissions, and delete a custom role into the one its accounts move to.
+  Every rule is `RoleAdmin`'s: admin's permissions cannot change, a built-in role cannot be deleted,
+  the guest role never gets `users`/`settings`/`backup`/`restore`, and no change may leave the install
+  without an active account that can manage users — that last check runs *inside* the write's own
+  batch, so two concurrent edits cannot both see a second manager. A refusal re-renders the page under
+  Roles at v3's status (409 last manager, 409 admin, 409 built-in, 422 a bad name or move target, 404
+  an unknown role); a fetch (`X-Requested-With: fetch`) gets `{ok, key}` or `{ok: false, error}`
+  instead, which is the one place v3 answers this controller as JSON.
 - **`ALLOWED_HOSTS` is not read.** It is not in v4's sixteen-name environment contract (§11), so
   `hostcheck` accepts IP literals, `localhost`, `*.localhost` and `PUBLIC_URL`'s host only. A self-hoster
   who adds the name to `PUBLIC_URL` is fine; one who relies on `ALLOWED_HOSTS` is not, yet.
@@ -170,8 +182,9 @@ then:
 | `chain.spec.ts` | the chain a request runs is the one `Config/Filters.php` declares, asserted by *running* it (the trace), for the representative paths and for all 281 rows |
 | `filters.spec.ts` | each filter on its own, including the fail-closed branches, and that the deferred list is exactly the written-down one |
 | `router.spec.ts` | with nobody signed in, no row answers 2xx except `/login` and the preflight; every refusal is problem+json (or the two plain-text guards); the page 404/405 are v3's error page; the `/api` 404 and the `Allow` header are v3's |
-| `http/security.spec.ts` | the Users & sign-in page renders for `users` and is refused to a viewer; a users POST without the token is v3's 419; a create writes the row and redirects with v3's toast; a refusal re-renders the page at v3's status; the roles POSTs still answer 501 |
+| `http/security.spec.ts` | the Users & sign-in page renders for `users` and is refused to a viewer; a users POST without the token is v3's 419; a create writes the row and redirects with v3's toast; a refusal re-renders the page at v3's status; a roles POST without the token is v3's 419 rather than reaching its handler; creating, saving and deleting a role writes the row and redirects to v3's anchor; a fetch gets `{ok, key}` and `{ok: false, error}` |
 | `html/security.spec.ts` | `SecurityView::page()` is byte-identical to the PHP app's output on a pinned state, in both its normal and its re-rendered form |
+| `auth/permissions.spec.ts` | the permission list and the built-in roles' permissions are v3's own, compared against `php-permissions.json` generated from `Permissions.php` — a typo in either would grant or withhold a permission silently |
 | `html/golden.spec.ts` | `/login`, the 404 and the 405 are byte-identical to the PHP app's own output, headers included |
 | `html/assets.spec.ts` | every bundled asset is served with the SHA-256 the bundle recorded from `public/assets/`, the documented content types and cache headers, and a miss is uncacheable |
 | `html/unported.spec.ts` | every page route that does not need a session still answers 501 `route.not_implemented` — as a list from the table, so one that silently starts answering 200 fails |

@@ -68,11 +68,12 @@ curl -s http://localhost:9091/readyz; echo
 `"title":"seed.refused"` it will not finish until you fix what the `detail` names (usually a too-short
 `APP_PASSWORD`).
 
-**That is the whole surface so far.** `http://localhost:9091/` answers `501` `route.not_implemented`
+**This is the surface so far.** `http://localhost:9091/` answers `501` `route.not_implemented`
 problem+json — the router and the filter chain landed in S0.5, and the remaining pages are phase 2 —
-and every other page route answers either a refusal or the same 501. `/login` is the exception: it
-renders the sign-in form, and `POST /login` signs the seeded `admin` in with the `APP_PASSWORD` set
-above. Item 6 below is the list of what answers and what does not.
+and most other page routes answer either a refusal or the same 501. What answers today is `/login`
+(it renders the sign-in form, and `POST /login` signs the seeded `admin` in with the `APP_PASSWORD`
+set above), `/settings/security` and that page's users and roles POSTs. Item 6 below is the list of
+what answers and what does not.
 
 To set `APP_KEY` (encrypts stored credentials at rest), generate one and paste it in:
 
@@ -200,11 +201,15 @@ Stated plainly, because a self-host promise that hides its edges is worse than n
    works — `POST /settings/users` (and `/settings/users/{id}/{role,password,rename,approve,delete}`)
    adds and changes accounts and answers `303` to `/settings/security?done=…#users`, or re-renders the
    page with v3's own message and status (`409` for the last admin, `422` for a taken name, `403` for
-   the admin-only guards). The settings form on that page and the roles editor's own POSTs
-   (`POST /settings/security`, `POST /settings/roles…`) still answer `501`.
+   the admin-only guards). Its roles half works too: `POST /settings/roles` (and
+   `/settings/roles/{key}`, `/settings/roles/{key}/delete`) creates a role, saves its name and
+   permissions, and deletes a custom role into the one its accounts move to — `RoleAdmin`'s rules, the
+   last-manager check included, so removing the last way to manage users is refused `409`. The
+   settings form (`POST /settings/security`, `…/reset`, `POST /settings/password`) still answers
+   `501`.
    What does answer: `/healthz`, `/readyz`, `/assets/…` (the bundle), `/login` (GET/HEAD `200`, POST
    `303`), `/logout`, `/consent`, `/claim` (hosted), `/settings/security` (`200` for a role with
-   `users`, `303` to `/login` otherwise), the page error pages, the `/api` 404
+   `users`, `303` to `/login` otherwise) with its users and roles POSTs, the page error pages, the `/api` 404
    (`not_found`, problem+json) and 405s with `Allow`. `/readyz`'s `"seed":"done"` therefore means the
    install is complete; the seeded `admin` can sign in with the `APP_PASSWORD` you set above.
 

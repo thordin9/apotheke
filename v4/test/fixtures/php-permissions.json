@@ -1,0 +1,148 @@
+{
+    "sources": {
+        "modules/Auth/Permissions.php": "7e84a491e17d33b02f85c965c204cb957cb446f525c6b02cf86fdb038b18e38b",
+        "modules/Auth/RoleAdmin.php": "9ad59b470c1ef7c6d1d45d47fcbfd80d0f686cf91fa4b5cac04e0912084b312f"
+    },
+    "all": [
+        [
+            "view",
+            "View",
+            "look at items, locations, history and photos"
+        ],
+        [
+            "create",
+            "Add items",
+            "new items and copies"
+        ],
+        [
+            "edit",
+            "Edit",
+            "change items, photos, notes, quantities, locations and categories"
+        ],
+        [
+            "delete",
+            "Delete",
+            "delete items (undo still works)"
+        ],
+        [
+            "move",
+            "Move",
+            "change an item’s location"
+        ],
+        [
+            "bulk",
+            "Bulk actions",
+            "select several items and act on all of them"
+        ],
+        [
+            "lend",
+            "Lend",
+            "lend and return items"
+        ],
+        [
+            "import",
+            "Import",
+            "CSV import"
+        ],
+        [
+            "export",
+            "Export",
+            "CSV export"
+        ],
+        [
+            "stocktake",
+            "Stocktake",
+            "run location stocktakes"
+        ],
+        [
+            "labels",
+            "Labels",
+            "print QR labels"
+        ],
+        [
+            "settings",
+            "Settings",
+            "the Control Panel (everything but users)"
+        ],
+        [
+            "users",
+            "Users",
+            "accounts, roles and sign-in options"
+        ],
+        [
+            "backup",
+            "Backup",
+            "download a backup of the whole catalog, and the kept ones"
+        ],
+        [
+            "restore",
+            "Restore",
+            "replace the whole catalog with a backup, for everyone"
+        ]
+    ],
+    "roleDefaults": [
+        [
+            "admin",
+            "Admin",
+            [
+                "view",
+                "create",
+                "edit",
+                "delete",
+                "move",
+                "bulk",
+                "lend",
+                "import",
+                "export",
+                "stocktake",
+                "labels",
+                "settings",
+                "users",
+                "backup",
+                "restore"
+            ]
+        ],
+        [
+            "editor",
+            "Editor",
+            [
+                "view",
+                "create",
+                "edit",
+                "delete",
+                "move",
+                "bulk",
+                "lend",
+                "import",
+                "export",
+                "stocktake",
+                "labels",
+                "backup",
+                "restore"
+            ]
+        ],
+        [
+            "viewer",
+            "Viewer",
+            [
+                "view",
+                "export",
+                "labels",
+                "backup"
+            ]
+        ],
+        [
+            "guest",
+            "Guest",
+            [
+                "view"
+            ]
+        ]
+    ],
+    "notForGuests": [
+        "users",
+        "settings",
+        "backup",
+        "restore"
+    ]
+}

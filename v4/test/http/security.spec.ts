@@ -223,6 +223,33 @@ const submit = (
 	});
 };
 
+/**
+ * A POST with repeated fields, which is how the roles editor's `perms[]` checkboxes arrive; `headers`
+ * carries the `X-Requested-With: fetch` that makes `role()` answer JSON.
+ */
+const submitMany = (
+	sql: Sql,
+	cookie: string,
+	path: string,
+	fields: ReadonlyArray<readonly [string, string]>,
+	headers: Readonly<Record<string, string>> = {},
+): Promise<Answer> => {
+	const body = new URLSearchParams();
+	for (const [name, value] of fields) {
+		body.append(name, value);
+	}
+	return send(sql, path, {
+		method: "POST",
+		cookie,
+		headers: {
+			"content-type": "application/x-www-form-urlencoded",
+			"sec-fetch-site": "same-origin",
+			...headers,
+		},
+		body: body.toString(),
+	});
+};
+
 describe("the Users & sign-in page", () => {
 	let sql: Sql;
 	let adminId: number;
@@ -373,10 +400,197 @@ describe("the users POST surface", () => {
 		expect(answer.status).toBe(404);
 		expect(answer.body).toContain("Page not found.");
 	});
+});
 
-	it("still answers 501 for the roles POSTs, as the route table says", async () => {
-		const answer = await submit(sql, admin.cookie, "/settings/roles", { csrf: admin.token, name: "Manager" });
-		expect(answer.status).toBe(501);
-		expect(answer.body).toContain("SecurityController::role");
+describe("the roles POST surface", () => {
+	let sql: Sql;
+	let adminId: number;
+	let admin: { cookie: string; token: string };
+
+	beforeEach(async () => {
+		sql = fresh();
+		await seed(sql);
+		adminId = await addUser(sql, "admin", "admin");
+		admin = await signedIn(sql, adminId);
+	});
+
+	const roleRow = async (
+		key: string,
+	): Promise<{ name: string; perms: string[]; builtin: number } | undefined> => {
+		const rows = await sql.all({
+			sql: "SELECT name, perms, builtin FROM roles WHERE role_key = ?",
+			params: [key],
+		});
+		const row = rows[0];
+		return row === undefined
+			? undefined
+			: {
+					name: String(row.name),
+					perms: JSON.parse(String(row.perms)) as string[],
+					builtin: Number(row.builtin),
+				};
+	};
+
+	it("refuses a roles write without the session's token, at v3's 419", async () => {
+		const answer = await submit(sql, admin.cookie, "/settings/roles", { name: "Manager" });
+		expect(answer.status).toBe(419);
+		expect(answer.body).toContain("Your session expired. Reload the page and try again.");
+		const rows = await sql.all({ sql: "SELECT COUNT(*) AS n FROM roles" });
+		expect(Number(rows[0]?.n)).toBe(4);
+		expect(await roleRow("manager")).toBeUndefined();
+	});
+
+	it("creates a role from its `perms[]` list and redirects to its card", async () => {
+		const answer = await submitMany(sql, admin.cookie, "/settings/roles", [
+			["csrf", admin.token],
+			["name", "Manager"],
+			["perms[]", "view"],
+			["perms[]", "users"],
+		]);
+		expect(answer.status).toBe(303);
+		expect(answer.headers.get("location")).toBe("/settings/security?done=role-added#rc-manager");
+		expect(await roleRow("manager")).toEqual({ name: "Manager", perms: ["view", "users"], builtin: 0 });
+	});
+
+	it("re-renders the page under Roles when the name is taken, at v3's 409", async () => {
+		const answer = await submitMany(sql, admin.cookie, "/settings/roles", [
+			["csrf", admin.token],
+			["name", "Editor"],
+		]);
+		expect(answer.status).toBe(409);
+		expect(answer.body).toContain('id="roles-err"');
+		expect(answer.body).toContain("A role \u201cEditor\u201d exists already.");
+		const rows = await sql.all({ sql: "SELECT COUNT(*) AS n FROM roles" });
+		expect(Number(rows[0]?.n)).toBe(4);
+	});
+
+	it("saves a role's permissions, redirecting to its card", async () => {
+		const answer = await submitMany(sql, admin.cookie, "/settings/roles/editor", [
+			["csrf", admin.token],
+			["perms[]", "view"],
+			["perms[]", "export"],
+		]);
+		expect(answer.status).toBe(303);
+		expect(answer.headers.get("location")).toBe("/settings/security?done=role-saved#rc-editor");
+		expect(await roleRow("editor")).toEqual({ name: "Editor", perms: ["view", "export"], builtin: 1 });
+	});
+
+	it("refuses changing the admin role at v3's 409", async () => {
+		const answer = await submitMany(sql, admin.cookie, "/settings/roles/admin", [
+			["csrf", admin.token],
+			["perms[]", "view"],
+		]);
+		expect(answer.status).toBe(409);
+		expect(answer.body).toContain("The admin role always has every permission.");
+	});
+
+	it("answers an unknown role with v3's 404 on the page", async () => {
+		const answer = await submitMany(sql, admin.cookie, "/settings/roles/nope", [
+			["csrf", admin.token],
+			["perms[]", "view"],
+		]);
+		expect(answer.status).toBe(404);
+		expect(answer.body).toContain("Role not found.");
+	});
+
+	it("never gives the guest role the permissions v3 withholds from it", async () => {
+		const answer = await submitMany(sql, admin.cookie, "/settings/roles/guest", [
+			["csrf", admin.token],
+			["perms[]", "view"],
+			["perms[]", "users"],
+			["perms[]", "backup"],
+		]);
+		expect(answer.status).toBe(303);
+		expect(await roleRow("guest")).toEqual({ name: "Guest", perms: ["view"], builtin: 1 });
+	});
+
+	it("deletes a role into the one its accounts move to, and moves them", async () => {
+		await submitMany(sql, admin.cookie, "/settings/roles", [
+			["csrf", admin.token],
+			["name", "Packer"],
+			["perms[]", "view"],
+		]);
+		const packerId = await addUser(sql, "polly", "packer");
+		const answer = await submitMany(sql, admin.cookie, "/settings/roles/packer/delete", [
+			["csrf", admin.token],
+			["move_to", "viewer"],
+		]);
+		expect(answer.status).toBe(303);
+		expect(answer.headers.get("location")).toBe("/settings/security?done=role-deleted#roles");
+		expect(await roleRow("packer")).toBeUndefined();
+		const rows = await sql.all({ sql: "SELECT role FROM users WHERE id = ?", params: [packerId] });
+		expect(rows[0]?.role).toBe("viewer");
+	});
+
+	it("refuses deleting a built-in role, and a guest move target, at v3's statuses", async () => {
+		const builtin = await submitMany(sql, admin.cookie, "/settings/roles/editor/delete", [
+			["csrf", admin.token],
+			["move_to", "viewer"],
+		]);
+		expect(builtin.status).toBe(409);
+		expect(builtin.body).toContain("Built-in roles cannot be deleted.");
+		await submitMany(sql, admin.cookie, "/settings/roles", [
+			["csrf", admin.token],
+			["name", "Packer"],
+		]);
+		const guestTarget = await submitMany(sql, admin.cookie, "/settings/roles/packer/delete", [
+			["csrf", admin.token],
+			["move_to", "guest"],
+		]);
+		expect(guestTarget.status).toBe(422);
+		expect(guestTarget.body).toContain("Choose another role for its accounts.");
+		expect(await roleRow("packer")).toBeDefined();
+	});
+
+	it("refuses deleting the role that is the install's only manager, at v3's 409", async () => {
+		await submitMany(sql, admin.cookie, "/settings/roles", [
+			["csrf", admin.token],
+			["name", "Ops"],
+			["perms[]", "view"],
+			["perms[]", "users"],
+		]);
+		const opsId = await addUser(sql, "olive", "ops");
+		// Nobody but ops can manage users: the seeded admin account is removed so the count can reach 0.
+		await sql.batch([{ sql: "DELETE FROM users WHERE id = ?", params: [adminId] }]);
+		const ops = await signedIn(sql, opsId);
+		const answer = await submitMany(sql, ops.cookie, "/settings/roles/ops/delete", [
+			["csrf", ops.token],
+			["move_to", "viewer"],
+		]);
+		expect(answer.status).toBe(409);
+		expect(answer.body).toContain("Nobody could manage users any more \u2013 make someone an admin first.");
+		expect(await roleRow("ops")).toBeDefined();
+		const rows = await sql.all({ sql: "SELECT role FROM users WHERE id = ?", params: [opsId] });
+		expect(rows[0]?.role).toBe("ops");
+	});
+
+	it("answers a fetch as JSON: {ok, key} on success, {ok: false, error} on a refusal", async () => {
+		const FETCH = { "x-requested-with": "fetch" };
+		const created = await submitMany(
+			sql,
+			admin.cookie,
+			"/settings/roles",
+			[
+				["csrf", admin.token],
+				["name", "Manager"],
+				["perms[]", "view"],
+			],
+			FETCH,
+		);
+		expect(created.status).toBe(200);
+		expect(created.headers.get("content-type")).toBe("application/json; charset=utf-8");
+		expect(created.body).toBe('{"ok":true,"key":"manager"}');
+		const refused = await submitMany(
+			sql,
+			admin.cookie,
+			"/settings/roles",
+			[
+				["csrf", admin.token],
+				["name", "Editor"],
+			],
+			FETCH,
+		);
+		expect(refused.status).toBe(409);
+		expect(refused.body).toBe('{"ok":false,"error":"A role \u201cEditor\u201d exists already."}');
 	});
 });

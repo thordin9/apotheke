@@ -2,14 +2,17 @@
 // and its users half.
 //
 // Ported from `modules/Auth/Controllers/SecurityController.php`: `index()` (the page and its
-// `?done=` toasts) and `user()` (`POST /settings/users`, `/settings/users/{id}` and
-// `/settings/users/{id}/{action}`). v3 answers every refusal by re-rendering the page with the message
+// `?done=` toasts), `user()` (`POST /settings/users`, `/settings/users/{id}` and
+// `/settings/users/{id}/{action}`) and `role()` (`POST /settings/roles`, `/settings/roles/{key}` and
+// `/settings/roles/{key}/delete`). v3 answers every refusal by re-rendering the page with the message
 // and v3's status — 409 for the last admin, 403 for the admin-only guards, 404 for an unknown action —
 // so that is what this file does: no handler here invents an error page for a refusal a person caused.
+// `role()` is the one place v3 also answers JSON, for a fetch: `{ok, key}` on success and
+// `{ok: false, error}` on a refusal, which is why that handler has its own branch and `user()` does not.
 //
 // Not in this file, and deliberately: `save()`/`reset()` (the section's settings form) and
-// `role()` (the roles editor). Their routes still answer 501, exactly as the generated table says;
-// the roles half is increment 2b, and the settings form's own validation is not this slice.
+// `password()`. Their routes still answer 501, exactly as the generated table says; the settings
+// form's own validation is not this slice.
 //
 // The CSRF token is already checked by `sessioncsrf` before the handler runs — v3's order, the global
 // filter before the controller — so nothing here re-checks it.
@@ -23,11 +26,11 @@ import {
 	securityPage,
 } from "../html/security-view";
 import type { Ctx } from "../http/filters";
-import { html } from "../http/problem";
+import { html, json } from "../http/problem";
 import { routeParams } from "../http/route-table";
 import { ALL } from "./permissions";
-import { listed } from "./roles";
-import { pageSettings, redirectTo } from "./session-routes";
+import { create as createRole, remove as deleteRole, listed, update as updateRole } from "./roles";
+import { pageSettings, redirectTo, wantsJson } from "./session-routes";
 import {
 	accountRoles,
 	activeAdmins,
@@ -140,10 +143,15 @@ export const securityPageHandler = async (ctx: Ctx): Promise<Response> => {
 /** v3's `status(UserError)`: the code it carries, or 422 when it carries none. */
 const statusOf = (error: UserError): number => (Number.isFinite(error.status) ? error.status : 422);
 
-/** A refusal re-renders the page with the message under Users, exactly as v3's catch does. */
-const refused = async (ctx: Ctx, error: UserError): Promise<Response> => {
+/** A refusal re-renders the page with the message under its section, exactly as v3's catch does. */
+const refused = async (
+	ctx: Ctx,
+	error: UserError,
+	section: "users" | "roles" = "users",
+): Promise<Response> => {
 	const state = await securityState(ctx);
-	return html(securityPage(pageSettings(ctx), state, { users: error.message }, null), statusOf(error));
+	const errors = section === "roles" ? { roles: error.message } : { users: error.message };
+	return html(securityPage(pageSettings(ctx), state, errors, null), statusOf(error));
 };
 
 /**
@@ -216,6 +224,64 @@ export const userHandler = async (ctx: Ctx): Promise<Response> => {
 	} catch (error) {
 		if (error instanceof UserError) {
 			return refused(ctx, error);
+		}
+		throw error;
+	}
+};
+
+/**
+ * `POST /settings/roles`, `/settings/roles/{key}` and `/settings/roles/{key}/delete`.
+ *
+ * v3's order, and its branches: no key creates, `/delete` deletes into `move_to` (default `viewer`),
+ * anything else saves the permissions — and a missing `name` is `null` there, which keeps a custom
+ * role's name and always keeps a built-in one's. The `perms[]` list is every value the form sent; a
+ * bare `perms` field is v3's own fallback for a form that is not an array.
+ *
+ * `role()` is the one handler that answers a fetch as JSON (`{ok, key}` / `{ok: false, error}`), and
+ * the redirect's anchor is v3's: the role's card when there is one, the roles list when it has gone.
+ */
+export const roleHandler = async (ctx: Ctx): Promise<Response> => {
+	const route = ctx.route;
+	const params = route === null ? [] : routeParams(route, ctx.path);
+	const key = params[0] ?? "";
+	// The delete route's own pattern ends in `/delete`: that word is a literal in the route, not a
+	// capture, so the matched pattern — not a second parameter — is what says which branch this is.
+	const deleting = route?.path.endsWith("/delete") === true;
+	if (ctx.actor === null) {
+		return refused(ctx, new UserError("Not signed in", 401), "roles");
+	}
+	const post = ctx.post;
+	const perms = [...post.all("perms[]")];
+	const single = post.get("perms");
+	if (perms.length === 0 && single !== undefined) {
+		perms.push(single);
+	}
+	const name = post.has("name") ? (post.get("name") ?? "") : null;
+	try {
+		let done: string;
+		let anchor: string;
+		if (key === "") {
+			anchor = await createRole(ctx.session.sql, name ?? "", perms, ctx.session.now);
+			done = "role-added";
+		} else if (deleting) {
+			await deleteRole(ctx.session.sql, key, post.get("move_to") ?? "viewer");
+			done = "role-deleted";
+			anchor = "";
+		} else {
+			await updateRole(ctx.session.sql, key, name, perms);
+			done = "role-saved";
+			anchor = key;
+		}
+		if (wantsJson(ctx)) {
+			return json({ ok: true, key: anchor }, 200, ctx.config.https);
+		}
+		return redirectTo(ctx, `/settings/security?done=${done}#${anchor !== "" ? `rc-${anchor}` : "roles"}`);
+	} catch (error) {
+		if (error instanceof UserError) {
+			if (wantsJson(ctx)) {
+				return json({ ok: false, error: error.message }, statusOf(error), ctx.config.https);
+			}
+			return refused(ctx, error, "roles");
 		}
 		throw error;
 	}

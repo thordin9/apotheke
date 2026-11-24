@@ -16,13 +16,13 @@
 // else. That is what makes the fail-closed promise checkable: no route in the table answers 2xx.
 
 import { resolveActor } from "../auth/permission";
-import { securityPageHandler, userHandler } from "../auth/security-routes";
+import { roleHandler, securityPageHandler, userHandler } from "../auth/security-routes";
 import { claimHandler, consentHandler, logoutHandler, signInHandler } from "../auth/session-routes";
 import type { PageSettings } from "../html/page";
 import { SessionRequest } from "../session/request";
 import { afterChain, beforeChain, refusalAfterChain } from "./chain";
 import { type Ctx, DEFERRED, FILTERS } from "./filters";
-import { formFields } from "./form";
+import { emptyFormPost, formFields } from "./form";
 import { problem } from "./problem";
 import { allowedMethods, catchAllRoute, effectiveMethod, matchRoute } from "./route-table";
 
@@ -82,6 +82,9 @@ const HANDLERS: ReadonlyMap<string, Handler> = new Map([
 	["\\Apotheke\\Auth\\Controllers\\SecurityController::user", userHandler],
 	["\\Apotheke\\Auth\\Controllers\\SecurityController::user/$1", userHandler],
 	["\\Apotheke\\Auth\\Controllers\\SecurityController::user/$1/$2", userHandler],
+	["\\Apotheke\\Auth\\Controllers\\SecurityController::role", roleHandler],
+	["\\Apotheke\\Auth\\Controllers\\SecurityController::role/$1", roleHandler],
+	["\\Apotheke\\Auth\\Controllers\\SecurityController::role/$1/delete", roleHandler],
 ]);
 
 const runAfter = (ctx: Ctx, response: Response, names: readonly string[]): Response => {
@@ -196,7 +199,7 @@ export const createContext = (request: Request, config: RouterConfig, session?: 
 		session: carried,
 		identity: carried.identity,
 		actor: null,
-		post: new Map<string, string>(),
+		post: emptyFormPost(),
 		trace: [],
 		deferred: new Set<string>(),
 	};

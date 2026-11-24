@@ -13,7 +13,7 @@
 //                 chain, and a request without the token answers v3's 419.
 //   apicsrf      the same for /api's Origin + token check.
 //   consent      the cookie contract arrives with sessions (P1); the writes it would refuse are
-//                 refused by `permission` (401) and `sessioncsrf`/`apicsrf` (403) first.
+//                 refused by `permission` (401) and `sessioncsrf` (419) or `apicsrf` (403) first.
 //   formfields   a validation rule, not an access decision; the writes it would 422 are refused first.
 //   harness      an environment mark in the PHP process; there is nothing to read in a Worker.
 //   requestcleanup, opsbackup, opsaccounts  nothing of theirs exists in phase 0 (no uploads, no hosted
@@ -28,6 +28,7 @@ import { CONSENT_CODE, CONSENT_MESSAGE, CONSENT_STATUS, consentNeeded } from "..
 import { CSRF_MESSAGE, CSRF_STATUS, csrfPasses } from "../session/csrf";
 import type { SessionRequest } from "../session/request";
 import type { Identity } from "../session/store";
+import type { FormPost } from "./form";
 import { apiHeaders, html, isApi, PAGE_HEADERS, problem } from "./problem";
 import type { RouteRow } from "./route-table";
 
@@ -83,7 +84,7 @@ export interface Ctx {
 	 * The form fields this request carries, read once before the chain (`src/http/form.ts`), because
 	 * `sessioncsrf` is a filter and a filter cannot await. Empty for a safe method.
 	 */
-	post: ReadonlyMap<string, string>;
+	post: FormPost;
 	/** Filter names in the order they ran — the order test reads this. */
 	readonly trace: string[];
 	/** Filters that declared themselves deferred on this request. */

@@ -57,7 +57,7 @@ export const cleanLine = (raw: string, max: number): string => {
 };
 
 /** `WantsJson::check()`: a fetch, or a client that asked for JSON. */
-const wantsJson = (ctx: Ctx): boolean =>
+export const wantsJson = (ctx: Ctx): boolean =>
 	(ctx.request.headers.get("x-requested-with") ?? "") === "fetch" ||
 	(ctx.request.headers.get("accept") ?? "").includes("application/json");
 

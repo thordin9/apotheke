@@ -33,7 +33,8 @@ anything   503 until boot succeeded, then the router (S0.5): 401/403/404/405/419
            `/login` (GET/HEAD) as 200 text/html since S1.1, its
            POST as 303 to `/`, `/logout` as 303, `/consent` as 303, `/claim` as 200 with a
            hosted install (404 without), and `/settings/security` as 200 for a role with `users`
-           since S1.3 — whose users POSTs answer 303, or re-render that page with v3's 409/422.
+           since S1.3 — whose users and roles POSTs answer 303, or re-render that page with v3's
+           409/422 (a fetch gets `{ok, key}` from the roles POSTs).
            With the CORS preflight (204) those are the 2xx answers here; `router.md` lists them
 ```
 
