@@ -18,7 +18,7 @@
 //     v4: the longer first-admin window, the less safe direction, recorded in the plan rather than
 //     discovered at a deploy.
 
-import { statement, type Sql, utcNow } from "../db/sql";
+import { type Sql, statement, utcNow } from "../db/sql";
 import { hashPassword } from "../platform/passwords";
 import { tokensEqual } from "../session/csrf";
 import { sha256Hex } from "../session/digest";
@@ -159,10 +159,7 @@ const dropAfterAdmin = async (sql: Sql): Promise<never> => {
  * Refused with 409 while an active admin exists — the read refuses early, and the guarded insert
  * refuses again if an admin appeared in between, so the second check is the one that decides.
  */
-export const createClaim = async (
-	sql: Sql,
-	now: number,
-): Promise<{ token: string; expiresAt: string }> => {
+export const createClaim = async (sql: Sql, now: number): Promise<{ token: string; expiresAt: string }> => {
 	if (await adminExists(sql)) {
 		throw new ClaimError(ADMIN_EXISTS, 409);
 	}

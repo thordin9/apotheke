@@ -79,6 +79,20 @@ const createTables = async (sql: Sql): Promise<void> => {
 	]);
 };
 
+/**
+ * The `Installation` Durable Object boots migrated and seeded — `APP_PASSWORD` is set in the test vars,
+ * so `prepare()` creates the `admin` account — and this slice's subject is the *unclaimed* install. So
+ * every test starts from the same place: no accounts, no sessions, no attempts, no claim row.
+ */
+const reset = async (sql: Sql): Promise<void> => {
+	await sql.batch([
+		{ sql: "DELETE FROM users" },
+		{ sql: "DELETE FROM sessions" },
+		{ sql: "DELETE FROM auth_attempts" },
+		{ sql: "DELETE FROM settings WHERE name = ?", params: [SETTING] },
+	]);
+};
+
 const config = (hosted: boolean): RouterConfig => ({
 	publicUrl: "",
 	https: false,
@@ -162,9 +176,12 @@ const claim = async (
 ): Promise<Answer> => send(sql, hosted, "/claim", post(session, fields));
 
 /** The session a page render would have left: a token, no account. */
-const anonymousSession = async (sql: Sql): Promise<{ cookie: string; token: string }> => {
+const anonymousSession = async (
+	sql: Sql,
+	csrf: string = newToken(),
+): Promise<{ cookie: string; token: string }> => {
 	const id = nextId();
-	const token = newToken();
+	const token = csrf;
 	await writeSession(sql, {
 		id,
 		values: { uid: null, authEpoch: "", csrf: token, lastActivity: NOW, signedInAt: 0 },
@@ -205,6 +222,7 @@ describe("the claim gate (D22)", () => {
 	beforeEach(async () => {
 		sql = sqlite(`claim-${nextId()}`);
 		await createTables(sql);
+		await reset(sql);
 	});
 
 	it("is 404 off a hosted install, and a POST adds nobody", async () => {
@@ -225,6 +243,7 @@ describe("a hosted install with no admin (D22)", () => {
 	beforeEach(async () => {
 		sql = sqlite(`claim-${nextId()}`);
 		await createTables(sql);
+		await reset(sql);
 	});
 
 	it("renders v3's page, with the token field and no store", async () => {
@@ -296,14 +315,17 @@ describe("a hosted install that already has an admin (D22)", () => {
 	beforeEach(async () => {
 		sql = sqlite(`claim-${nextId()}`);
 		await createTables(sql);
+		await reset(sql);
 		await addAdmin(sql, "boss");
 	});
 
 	it("answers a right token and a wrong one alike, removes the claim and adds nobody", async () => {
 		const answers: { status: number; body: string }[] = [];
+		// One token for both submissions: the page prints it, so two sessions would differ by it alone.
+		const csrf = newToken();
 		for (const which of ["right", "wrong"]) {
 			await storeClaim(sql, "the-token", NOW + 86_400);
-			const session = await anonymousSession(sql);
+			const session = await anonymousSession(sql, csrf);
 			const token = which === "right" ? "the-token" : "enohT";
 			const answer = await claim(sql, true, session, fields(token, "owner"));
 			answers.push({ status: answer.status, body: answer.body });

@@ -31,7 +31,8 @@ namespace Apotheke\Layout {
 
         public function brandLogo(int $size): string
         {
-            return "<IMG-{$size}>";
+            // A marker: the real logo is `page.ts`'s, pinned by the login golden test.
+            return '<IMG>';
         }
 
         public function csrf(): string
@@ -74,7 +75,7 @@ namespace {
     $fixture = [
         'generatedBy' => 'v4/scripts/gen-claim-fixture.sh',
         'php' => PHP_VERSION,
-        'note' => 'Raw output of AuthViews::claim() with a Page stub: the form v3 prints, both states. Nothing normalised; the shell is not captured.',
+        'note' => 'Raw output of AuthViews::claim() with a Page stub: the form v3 prints, both states. Nothing normalised; the shell is not captured, and the brand logo is the marker <IMG>.',
         'sources' => [],
         'pages' => [
             'claim' => [

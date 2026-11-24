@@ -31,7 +31,7 @@ import {
 import { CSRF_MESSAGE, CSRF_STATUS, csrfPasses } from "../session/csrf";
 import { sessionEpoch } from "../session/epoch";
 import { accountKey, hit, succeeded } from "../session/throttle";
-import { claimAdmin, ClaimError } from "./first-admin-claim";
+import { ClaimError, claimAdmin } from "./first-admin-claim";
 
 /** `Accounts::USERNAME_MAX`, doubled: the field's `maxlength`, which is also `cleanLine()`'s limit. */
 const USERNAME_MAX = 40;

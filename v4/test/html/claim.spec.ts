@@ -22,12 +22,15 @@ const span = (html: string): string => {
 	return html.slice(start, end + "</main>".length);
 };
 
+/** The stub's brand logo is a marker; the real one is `page.ts`'s, pinned by the login golden test. */
+const logo = (html: string): string => html.replace(/<img class="brand-logo"[^>]*>/g, "<IMG>");
+
 /** The token the generator's stub `csrf()` returns, so no normalisation is needed on either side. */
 const settings = { ...TEST_PAGE, csrf: fixture.pages.claim.csrf };
 
 describe("/claim is the page v3 renders", () => {
 	it("prints the form PHP prints, byte for byte", () => {
-		expect(span(claimPage(settings, { error: null, username: "" }))).toBe(fixture.pages.claim.body);
+		expect(logo(span(claimPage(settings, { error: null, username: "" })))).toBe(fixture.pages.claim.body);
 	});
 
 	it("prints the error state, with the name escaped as Page::e() escapes it", () => {
@@ -35,7 +38,7 @@ describe("/claim is the page v3 renders", () => {
 			error: "This claim link is not valid. Ask for a new one.",
 			username: "own<er> \"q\" 'z'",
 		});
-		expect(span(html)).toBe(fixture.pages.claim.errorBody);
+		expect(logo(span(html))).toBe(fixture.pages.claim.errorBody);
 	});
 
 	it("wraps it in the page shell, with the title and classes the PHP view asks for", () => {
