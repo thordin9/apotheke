@@ -150,8 +150,18 @@ describe("the answers phase 0 is allowed to give", () => {
 		expect(await response.json()).toMatchObject({ ok: false, error: "Method not allowed" });
 	});
 
-	it("refuses an unsafe /api write that cannot be checked, with 403", async () => {
+	it("refuses an unsafe /api write without cookie consent, before the CSRF check can even matter", async () => {
+		// `consent` is required-before and outranks `apicsrf`: no consent, no session, no token (D20).
 		const response = await json("/api/v1/session", { method: "POST" });
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({ code: "consent_required" });
+	});
+
+	it("then refuses the same /api write as an unchecked CSRF, once consent is present", async () => {
+		const response = await json("/api/v1/session", {
+			method: "POST",
+			headers: { cookie: "apotheke_consent=v1" },
+		});
 		expect(response.status).toBe(403);
 		expect(await response.json()).toMatchObject({ code: "csrf.unavailable" });
 	});
@@ -165,10 +175,22 @@ describe("the answers phase 0 is allowed to give", () => {
 		expect(body.detail).toContain("SignInController::register");
 	});
 
-	it("answers POST /login with 501: the sign-in submission is S1.2", async () => {
-		const response = await json("/login", { method: "POST" });
-		expect(response.status).toBe(501);
-		expect(await response.json()).toMatchObject({ code: "route.not_implemented" });
+	it("refuses POST /login without consent, and 419s it without a token once consent is present", async () => {
+		// Since S1.2 the submission is answered for real; these are its two refusals, in order.
+		const refused = await json("/login", { method: "POST" });
+		expect(refused.status).toBe(403);
+		expect(await refused.text()).toContain("Cookies are needed to sign in or save changes.");
+
+		const untokened = await json("/login", {
+			method: "POST",
+			headers: {
+				cookie: "apotheke_consent=v1",
+				"content-type": "application/x-www-form-urlencoded",
+			},
+			body: "username=ada&password=x",
+		});
+		expect(untokened.status).toBe(419);
+		expect(await untokened.text()).toContain("Your session expired. Reload the page and try again.");
 	});
 
 	it("answers an unknown page with v3's 404 error page, not problem+json", async () => {

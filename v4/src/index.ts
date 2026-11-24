@@ -20,13 +20,13 @@
 import type { InstallationStub } from "./db/do-sql";
 import { requestSql } from "./db/request-sql";
 import type { Env } from "./env";
-import { secureCookie } from "./session/cookie";
-import { openSession } from "./session/request";
 import { serveAsset } from "./http/assets";
 import { HEALTHZ_PATH, READYZ_PATH } from "./http/probe-paths";
 import { handleRoute } from "./http/router";
 import { loadConfig } from "./platform/config";
 import { problem, type ReadyResult, readinessResponse } from "./readiness";
+import { secureCookie } from "./session/cookie";
+import { openSession } from "./session/request";
 import { readPageData } from "./settings";
 
 export { Installation } from "./installation";

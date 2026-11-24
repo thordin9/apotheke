@@ -22,12 +22,7 @@
 
 import type { PageSettings } from "../html/page";
 import { errorPage } from "../html/views";
-import {
-	CONSENT_CODE,
-	CONSENT_MESSAGE,
-	CONSENT_STATUS,
-	consentNeeded,
-} from "../session/consent";
+import { CONSENT_CODE, CONSENT_MESSAGE, CONSENT_STATUS, consentNeeded } from "../session/consent";
 import type { SessionRequest } from "../session/request";
 import type { Identity } from "../session/store";
 import { apiHeaders, html, isApi, PAGE_HEADERS, problem } from "./problem";

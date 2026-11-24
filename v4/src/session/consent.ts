@@ -120,7 +120,5 @@ export const keepOnlyConsentCookies = (lines: readonly string[]): readonly strin
 	if (lines.length === 0) {
 		return lines;
 	}
-	return lines.filter(
-		(line) => line.startsWith(`${CONSENT_COOKIE}=`) || isSessionExpiryLine(line),
-	);
+	return lines.filter((line) => line.startsWith(`${CONSENT_COOKIE}=`) || isSessionExpiryLine(line));
 };

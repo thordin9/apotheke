@@ -143,11 +143,7 @@ export const routeRequest = async (
 };
 
 /** The context a filter sees, for a test that exercises one filter on its own. */
-export const createContext = (
-	request: Request,
-	config: RouterConfig,
-	session?: SessionRequest,
-): Ctx => {
+export const createContext = (request: Request, config: RouterConfig, session?: SessionRequest): Ctx => {
 	const carried = session ?? SessionRequest.detached(request, config.https);
 	const url = new URL(request.url);
 	const path = url.pathname === "" ? "/" : url.pathname;

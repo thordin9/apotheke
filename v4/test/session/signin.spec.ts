@@ -15,8 +15,8 @@ import type { Sql } from "../../src/db/sql";
 import { routeRequest, type RouterConfig } from "../../src/http/router";
 import { hashPassword } from "../../src/platform/passwords";
 import { CONSENT_COOKIE } from "../../src/session/consent";
-import { sessionKey } from "../../src/session/store";
 import { openSession } from "../../src/session/request";
+import { sessionKey } from "../../src/session/store";
 import { TEST_LOGIN, TEST_PAGE } from "../helpers/page";
 
 const NOW = 1_764_000_000;
@@ -78,7 +78,12 @@ const send = async (
 	sql: Sql,
 	path: string,
 	init: RequestInit & { readonly cookie?: string } = {},
-): Promise<{ status: number; headers: Headers; body: string; session: Awaited<ReturnType<typeof openSession>> }> => {
+): Promise<{
+	status: number;
+	headers: Headers;
+	body: string;
+	session: Awaited<ReturnType<typeof openSession>>;
+}> => {
 	const headers = new Headers(init.headers ?? {});
 	if (init.cookie !== undefined) {
 		headers.set("cookie", init.cookie);
@@ -127,7 +132,10 @@ const form = (fields: Readonly<Record<string, string>>): URLSearchParams => {
 };
 
 /** A sign-in submission, as a browser sends it: urlencoded, from this site. */
-const post = (cookie: string, fields: Readonly<Record<string, string>>): RequestInit & { cookie: string } => ({
+const post = (
+	cookie: string,
+	fields: Readonly<Record<string, string>>,
+): RequestInit & { cookie: string } => ({
 	method: "POST",
 	cookie,
 	headers: {
@@ -210,7 +218,7 @@ describe("POST /login", () => {
 			"/login",
 			post(cookie, { username: "Ada", password: PASSWORD, csrf: token }),
 		);
-		expect(answer.status).toBe(303);
+		expect(answer.status, answer.body.slice(0, 200)).toBe(303);
 		expect(answer.headers.get("location")).toBe("/");
 		// `session_regenerate_id(true)`: the id the page was served with is not the signed-in one.
 		expect(answer.session.id).not.toBe(cookie.split("apothekesid=")[1]);
@@ -257,19 +265,31 @@ describe("POST /login", () => {
 			"/login",
 			post(elsewhere.cookie, { username: "Ada", password: "nope", csrf: elsewhere.token }),
 		);
-		expect(again.status).toBe(429);
+		expect(
+			again.status,
+			JSON.stringify(
+				await sql.all({ sql: "SELECT kind, COUNT(*) AS n FROM auth_attempts GROUP BY kind" }),
+			),
+		).toBe(429);
 	});
 
 	it("stops authenticating a pre-rotation session once the epoch moves, and destroys its row", async () => {
 		const { token, cookie } = await tokenAndCookie();
-		const signed = await send(sql, "/login", post(cookie, { username: "Ada", password: PASSWORD, csrf: token }));
-		expect(signed.status).toBe(303);
+		const signed = await send(
+			sql,
+			"/login",
+			post(cookie, { username: "Ada", password: PASSWORD, csrf: token }),
+		);
+		expect(signed.status, signed.body.slice(0, 200)).toBe(303);
 		const id = signed.session.id ?? "";
 		// The account's epoch moves: a password change, or "sign out everywhere".
 		await sql.batch([{ sql: "UPDATE users SET session_epoch = 'ffffffffffffffff' WHERE id = 1" }]);
 		const after = await send(sql, "/login", { cookie: `${CONSENTED}; apothekesid=${id}` });
 		expect(after.session.identity).toBeNull();
-		const rows = await sql.all({ sql: "SELECT COUNT(*) AS n FROM sessions WHERE id = ?", params: [await sessionKey(id)] });
+		const rows = await sql.all({
+			sql: "SELECT COUNT(*) AS n FROM sessions WHERE id = ?",
+			params: [await sessionKey(id)],
+		});
 		expect(Number(rows[0]?.n)).toBe(0);
 	});
 });

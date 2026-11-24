@@ -123,10 +123,9 @@ const findUser = async (
 	sessionEpoch: string;
 } | null> => {
 	const rows = await ctx.session.sql.all(
-		statement(
-			"SELECT id, username, password_hash, status, session_epoch FROM users WHERE username_key = ?",
-			[key],
-		),
+		statement("SELECT id, username, password_hash, status, session_epoch FROM users WHERE username_key = ?", [
+			key,
+		]),
 	);
 	const row = rows[0];
 	if (row === undefined) {
