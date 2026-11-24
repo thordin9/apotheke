@@ -145,6 +145,11 @@ describe("the migration chain", () => {
 		expect(index).toHaveLength(1);
 
 		// The envelope of rule 10: the key is a text id, the conflict is the same one a replay hits.
+		// D10 maps this conflict to a replay, so provoking it here is the point of the test. workerd
+		// still logs the SQLite error as "uncaught exception" on all three drivers even though the
+		// rejection below is caught — it is the runtime reporting a throw it did not originate, not
+		// a failure of this test, and no line in v4/src emits it (D26 records the same habit: read the
+		// state back rather than trust the report).
 		await sql.batch([
 			statement("INSERT INTO _write_log (id, created_at) VALUES (?, ?)", ["k1", "2026-11-23 12:00:00"]),
 		]);

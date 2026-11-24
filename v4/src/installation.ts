@@ -36,7 +36,8 @@ const storageSql = (ctx: DurableObjectState): Sql => ({
 				ctx.storage.sql.exec(s.sql, ...(s.params ?? []));
 			}
 		});
-		return statements.map(() => ({ changes: 0, lastRowId: null }));
+		// No per-statement count exists here either: the transaction commits or throws (D26).
+		return statements.map(() => ({ changes: null, lastRowId: null }));
 	},
 });
 

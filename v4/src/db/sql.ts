@@ -15,8 +15,13 @@ export interface Statement {
 
 /** One statement's effect inside a batch, in the order the statement was sent. */
 export interface StatementResult {
-	/** Rows matched and changed (`meta.changes` on D1, `rows_affected` on rqlite). */
-	readonly changes: number;
+	/**
+	 * Rows matched and changed (`meta.changes` on D1, `rows_affected` on rqlite), or `null` when the
+	 * backend does not report it — the Durable Object's `transactionSync` either commits the whole
+	 * unit or throws, so it has no per-statement count (D26). Never decide an outcome from this
+	 * field: read the state back and assert on that.
+	 */
+	readonly changes: number | null;
 	/** `meta.last_row_id` on D1, `last_insert_id` on rqlite: the id this statement inserted, if any. */
 	readonly lastRowId: number | null;
 }

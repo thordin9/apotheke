@@ -23,10 +23,11 @@ export class DurableObjectSql implements Sql {
 			return [];
 		}
 		// The DO's `transactionSync` is the unit of work, so there is nothing to report per statement:
-		// the batch either committed or threw, and a statement result is a D1/rqlite detail.
+		// the batch either committed or threw. `changes: null` is that fact in the type (D26) — it said
+		// `0` before, and code that read it as "no rows changed" refused every write on this backend.
 		await this.installation.batch(statements);
 
-		return statements.map(() => ({ changes: 0, lastRowId: null }));
+		return statements.map(() => ({ changes: null, lastRowId: null }));
 	}
 }
 
