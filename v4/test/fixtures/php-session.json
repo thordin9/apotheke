@@ -1,0 +1,163 @@
+{
+    "generatedBy": "v4/scripts/gen-session-fixture.sh",
+    "php": "8.4.23",
+    "note": "Raw answers of v3's session classes. Nothing normalised: the cookie names, the Secure bit per request shape, the epoch, and a real session_encode() of the five keys signIn() writes.",
+    "sources": {
+        "modules/Core/Http/SessionGate.php": "e522e25dbb2562177f422cfa64fc20b7c41cd6811d4912937d0ef99b0c4b731f",
+        "modules/Core/Http/RequestScheme.php": "5a73974dc076c5476262608007cad60f3f189de0a2bb339e82e256be5067308f",
+        "modules/Core/Filters/SessionCookie.php": "c4ffa2eef0db7e80ebcbf63946a525a5e8566365fec9e9f46ef558b7536bbf1a",
+        "modules/Auth/SessionEpoch.php": "071bfba033e7f94f052860c3998dfa4caf9165c14f6f9dbcda8bfb8f6e0c114c",
+        "modules/Auth/RateLimiter.php": "cb7ddbbb3e379f8e2e8f6fb8ffd2282029010cdddab5bb4124ae48232bba54c7",
+        "modules/Auth/UserRepository.php": "263b907685b9585a7274963677554e82f8ab80f9b1031f0e2d515eaef063e370",
+        "modules/Auth/Accounts.php": "dd7826a55e5f4094ac435996ff8479ba80689c5df9d51cd64a5f52983ff36fb1"
+    },
+    "cookie": {
+        "plain": "apothekesid",
+        "secure": "__Host-apothekesid",
+        "names": [
+            {
+                "secure": false,
+                "name": "apothekesid"
+            },
+            {
+                "secure": true,
+                "name": "__Host-apothekesid"
+            }
+        ]
+    },
+    "secureCookie": [
+        {
+            "name": "plain http by address, no public url",
+            "input": {
+                "url": "http://192.168.1.5:8080/",
+                "host": "192.168.1.5:8080",
+                "forwardedProto": "",
+                "trustedProxy": false,
+                "publicUrl": ""
+            },
+            "secure": false
+        },
+        {
+            "name": "direct https",
+            "input": {
+                "url": "https://apotheke.example/",
+                "host": "apotheke.example",
+                "forwardedProto": "",
+                "trustedProxy": false,
+                "publicUrl": ""
+            },
+            "secure": true
+        },
+        {
+            "name": "http behind a trusted proxy that says https",
+            "input": {
+                "url": "http://internal:9091/",
+                "host": "apotheke.example",
+                "forwardedProto": "https",
+                "trustedProxy": true,
+                "publicUrl": ""
+            },
+            "secure": true
+        },
+        {
+            "name": "the same proxy header, not trusted",
+            "input": {
+                "url": "http://internal:9091/",
+                "host": "apotheke.example",
+                "forwardedProto": "https",
+                "trustedProxy": false,
+                "publicUrl": ""
+            },
+            "secure": false
+        },
+        {
+            "name": "plain http on public url host",
+            "input": {
+                "url": "http://internal:9091/",
+                "host": "apotheke.example",
+                "forwardedProto": "",
+                "trustedProxy": false,
+                "publicUrl": "https://apotheke.example"
+            },
+            "secure": true
+        },
+        {
+            "name": "plain http on another host than public url",
+            "input": {
+                "url": "http://internal:9091/",
+                "host": "other.example",
+                "forwardedProto": "",
+                "trustedProxy": false,
+                "publicUrl": "https://apotheke.example"
+            },
+            "secure": false
+        },
+        {
+            "name": "plain http by address while public url is https",
+            "input": {
+                "url": "http://192.168.1.5/",
+                "host": "192.168.1.5",
+                "forwardedProto": "",
+                "trustedProxy": false,
+                "publicUrl": "https://apotheke.example"
+            },
+            "secure": false
+        },
+        {
+            "name": "plain http on port 443",
+            "input": {
+                "url": "http://apotheke.example:443/",
+                "host": "apotheke.example:443",
+                "forwardedProto": "",
+                "trustedProxy": false,
+                "publicUrl": ""
+            },
+            "secure": true
+        }
+    ],
+    "epoch": [
+        {
+            "id": 1,
+            "password_hash": "$2y$12$abcdefghijklmnopqrstuuJ0hR3S7b9m0m2mC7t6y5o4k3j2h1g0f9",
+            "session_epoch": "",
+            "epoch": "0cb3e881106a8118"
+        },
+        {
+            "id": 7,
+            "password_hash": "$2y$12$abcdefghijklmnopqrstuuJ0hR3S7b9m0m2mC7t6y5o4k3j2h1g0f9",
+            "session_epoch": "a1b2c3d4e5f60718",
+            "epoch": "a1b2c3d4e5f60718"
+        },
+        {
+            "id": 42,
+            "password_hash": "$2y$12$abcdefghijklmnopqrstuuJ0hR3S7b9m0m2mC7t6y5o4k3j2h1g0f9",
+            "session_epoch": "",
+            "epoch": "fc5df7eafad25105"
+        }
+    ],
+    "accountKey": [
+        {
+            "name": " Alice ",
+            "key": "alice"
+        },
+        {
+            "name": "ADMIN",
+            "key": "admin"
+        },
+        {
+            "name": "Mixed Case",
+            "key": "mixed case"
+        }
+    ],
+    "sessionData": {
+        "values": {
+            "uid": 7,
+            "authEpoch": "a1b2c3d4e5f60718",
+            "csrf": "5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f",
+            "lastActivity": 1764000000,
+            "signedInAt": 1763999000
+        },
+        "sessionId": "2d63b44adfaa151fb04dbbabd164bbba",
+        "data": "uid|i:7;auth_epoch|s:16:\"a1b2c3d4e5f60718\";csrf|s:64:\"5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f\";last_activity|i:1764000000;signed_in_at|i:1763999000;"
+    }
+}

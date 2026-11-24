@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Apotheke v4: the app on workerd. Not deployed from this branch (plan §5 S0.2).",
+  "description": "Apotheke v4: the app on workerd. Not deployed from this branch (plan \u00a75 S0.2).",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -14,7 +14,7 @@
     "routes": "node scripts/gen-routes.mjs",
     "assets": "node scripts/gen-assets.mjs",
     "assets:check": "node scripts/gen-assets.mjs --check",
-    "fixtures:check": "bash scripts/gen-html-fixtures.sh --check",
+    "fixtures:check": "bash scripts/gen-html-fixtures.sh --check && bash scripts/gen-session-fixture.sh --check",
     "typecheck": "tsc --noEmit",
     "lint": "biome check . && depcruise src",
     "format": "biome check --write ."
