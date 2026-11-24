@@ -146,7 +146,7 @@ The third backend of §10, and `docker-compose.sqlite.yml`'s mode: no database p
 resolve. The installation's Durable Object owns `ctx.storage.sql` (D12), and `src/db/do-sql.ts` is a
 thin RPC client of it, so `transactionSync` is the unit of work and one `batch()` is one transaction.
 
-Four facts are this backend's own. `test/sqlite.spec.ts` asserts each, because every behavioural spec
+Five facts are this backend's own. `test/sqlite.spec.ts` asserts each, because every behavioural spec
 in the suite runs on this driver by default (`wrangler.jsonc`), so the contract was covered by
 inheritance and stated nowhere:
 
@@ -156,6 +156,7 @@ inheritance and stated nowhere:
 | A failing statement rolls the whole unit back, DDL included | The same contract as D1's `batch()` and rqlite's `?transaction`; 0019's `optional` FTS5 statements rely on it. |
 | At most 100 bound variables — D1's cap (§10 rule 3), not SQLite's 999 | 100 placeholders bind; 101 answers `too many SQL variables`. Rule 3 holds here too, so no handler needs a per-backend limit. |
 | A BLOB arrives as an `ArrayBuffer` | The rqlite driver returns a `Uint8Array` (`rqlite-live.spec.ts` asserts it) and the emulated D1 binding a plain byte array: the same column has three JS shapes. No handler reads one today (media is in R2), so the shape is asserted rather than normalised. |
+| The engine cannot be named or tuned from SQL: `PRAGMA journal_mode` answers `SQLITE_AUTH` and `sqlite_version()` answers “not authorized to use function”, here and on emulated D1 | No statement in `src/` may branch on the engine's identity or its journal mode — there is nothing to read. The refusal, not a value, is the contract. |
 
 ### What the `v4.yml` `sqlite` job proves, and what it does not
 
@@ -170,7 +171,8 @@ reached through Durable Object storage; it is not a self-hoster's `node:sqlite` 
 The file *is* an ordinary WAL-mode SQLite database — which is how the job, and an operator, read it —
 but the app never opens it, has exactly one writer (the DO), and cannot tune or even name the engine:
 `PRAGMA journal_mode` answers `SQLITE_AUTH` and `SELECT sqlite_version()` answers "not authorized to
-use function" on this driver and on the emulated D1 binding (measured, not inferred). Schema
+use function" on this driver and on the emulated D1 binding — asserted, not inferred, in
+`test/sqlite.spec.ts`. Schema
 compatibility is therefore proven across two engines — PHP's SQLite in the fixture, workerd's here —
 and nothing here says two processes may open that file at once. The compose smoke is where the stack
 itself is proven: boot, migrate, `/readyz`, and a second boot that changes no row.

@@ -376,7 +376,7 @@ jobs:
               and ([.testResults[] | select(.name | test("rqlite-live")) | .assertionResults[]] | length) == 6
               and ([.testResults[] | select(.name | test("rqlite-live")) | .assertionResults[]]
                     | map(.status) | unique) == ["skipped"]
-              and ([.testResults[] | select(.name | test("sqlite")) | .assertionResults[]] | length) == 5
+              and ([.testResults[] | select(.name | test("sqlite")) | .assertionResults[]] | length) == 6
               and .numFailedTests == 0
           ' test.json
           jq -r '"files=\(.testResults | length) tests=\(.numTotalTests) failed=\(.numFailedTests) pending=\(.numPendingTests)"' test.json
