@@ -178,7 +178,7 @@ console.log(JSON.stringify({ users, settings, app_settings: appSettings }));
 			find /data/state -name "*.sqlite" ! -name "metadata.sqlite" 2>/dev/null | head -n 1
 		' | tr -d '\r')
 		[ -n "$db_file" ] || die "no SQLite database under /data/state — did the sqlite stack boot?"
-		say "database inside the volume: $db_file"
+		printf 'database inside the volume: %s\n' "$db_file" >&2
 		compose exec -T -e "SMOKE_DB=$db_file" apotheke node --experimental-sqlite --input-type=module -e '
 import { DatabaseSync } from "node:sqlite";
 const db = new DatabaseSync(process.env.SMOKE_DB, { readOnly: true });
@@ -207,6 +207,25 @@ say "--- first boot"
 wait_healthz
 wait_readyz
 snapshot > "$work/first-boot.json"
+
+# The container healthchecks are part of the contract (§11 rule 7): a self-hoster reads
+# `docker compose ps`, and `depends_on: service_healthy` is only as good as the check behind it.
+wait_healthy() {
+	service="$1"
+	deadline=$((SECONDS + 120))
+	while [ "$SECONDS" -lt "$deadline" ]; do
+		health=$(compose ps --format '{{.Service}}={{.Health}}' 2> /dev/null | grep "^$service=" || true)
+		case "$health" in
+			*"=healthy"*) say "healthcheck: $health"; return 0 ;;
+		esac
+		sleep 2
+	done
+	die "$service never reported healthy (last: $health)"
+}
+wait_healthy apotheke
+if [ "$default_driver" = "rqlite" ]; then
+	wait_healthy rqlite
+fi
 
 say "--- second boot over the same volumes"
 compose restart apotheke > /dev/null
