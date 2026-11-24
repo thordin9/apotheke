@@ -311,3 +311,43 @@ jobs:
       - name: Dump logs
         if: always()
         run: tail -n 100 dev.log || true
+
+  # S0.9's packaging leg (plan §11 rule 8): both compose files, on a clean state, in the stack a
+  # self-hoster actually runs. What makes this job honest is that neither the author's machine nor
+  # the PM's has a Docker daemon — the compose files have only ever been checked by reading them, so
+  # this is where they are first executed.
+  #
+  # What it does NOT prove: any published image. `apotheke` builds `v4/docker/Dockerfile.stub`, which
+  # runs the real Worker under `wrangler dev` (real code, real migrations, real seed — dev tooling and
+  # root, not a hardened container). The release image is P6, and docs/self-host-docker.md says so.
+  # No account, token or published image is involved in any step.
+  compose:
+    name: compose (both files, stub image, /readyz, no re-seed)
+    needs: workspace
+    if: needs.workspace.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      # Asserted, not assumed: the smoke script fails when the CLI is missing, and this step says so
+      # before spending ten minutes on image builds.
+      - name: Docker present
+        run: |
+          set -euo pipefail
+          docker version
+          docker compose version
+
+      # The two files are separate runs on purpose: each starts from `down -v`, so each proves its
+      # own fresh install, and a failure names which stack broke.
+      - name: Self-host smoke — rqlite (clean state, /readyz, second boot)
+        run: scripts/selfhost-smoke.sh v4/docker-compose.yml
+
+      - name: Self-host smoke — single process (clean state, /readyz, second boot)
+        run: scripts/selfhost-smoke.sh v4/docker-compose.sqlite.yml
+
+      - name: Dump docker state
+        if: always()
+        run: |
+          docker ps -a || true
+          docker volume ls || true
