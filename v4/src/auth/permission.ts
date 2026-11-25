@@ -8,9 +8,12 @@
 // role's permissions are a database read (`Ctx.actor`). Three cases, all v3's:
 //
 //   * sign-in off — the anonymous admin: role `admin`, which allows everything, as v3's
-//     `CurrentUser` resolves. It is *anon*, so an unmapped route still refuses;
+//     `CurrentUser` resolves. v3 marks it **guest** (so `signedIn()` is false and `self` is refused)
+//     and *not* `anon`; both flags are reproduced here rather than tidied up, because S1.4's
+//     `GET /api/v1/session` prints `signed_in: false` and `GET /api/v1/me` answers 403 for it;
 //   * a session — the account's own role, with the roles table's permissions;
-//   * nobody — guest browsing when it is on (role `guest`, v3's visitor), otherwise no actor at all.
+//   * nobody — guest browsing when it is on (role `guest`, v3's visitor, which v3 marks **anon** so
+//     the permission check answers "sign in", 401 on the API), otherwise no actor at all.
 //
 // Fail closed: if the roles read throws, the caller keeps `actor = null` and every route that needs a
 // permission refuses, which is the honest answer when the check could not be made.
@@ -25,10 +28,11 @@ import { find } from "./users";
 export interface Actor {
 	readonly id: number | null;
 	readonly role: string;
-	/** v3's `anon`: the anonymous admin, which only exists while sign-in is off. */
+	/** v3's `anon`: the guest-browsing visitor. A refusal for it is "sign in", not "your role". */
 	readonly anon: boolean;
-	/** v3's `guest`: the guest-browsing visitor, signed in as nobody. */
+	/** v3's `guest`: nobody real — the anonymous admin (sign-in off) or the guest-browsing visitor. */
 	readonly guest: boolean;
+	readonly username: string;
 	readonly roleName: string;
 	readonly perms: readonly string[];
 }
@@ -51,12 +55,15 @@ export const resolveActor = async (
 	config: ActorConfig,
 ): Promise<Actor | null> => {
 	if (!config.signInEnabled) {
-		// `CurrentUser` with accounts off: the anonymous admin, full rights, never a real account.
+		// `CurrentUser` with accounts off: the anonymous admin, full rights, never a real account. v3
+		// returns `guest: true, anon: false` for it (`CurrentUser::resolve()`), so it is not "signed
+		// in" and `self` is refused to it.
 		return {
 			id: null,
 			role: "admin",
-			anon: true,
-			guest: false,
+			anon: false,
+			guest: true,
+			username: "",
 			roleName: "Admin",
 			perms: [...ALL.map(([key]) => key)],
 		};
@@ -70,13 +77,22 @@ export const resolveActor = async (
 		if (!config.guestBrowsing) {
 			return null;
 		}
-		return { id: null, role: "guest", anon: false, guest: true, ...forRole("guest") };
+		return { id: null, role: "guest", anon: true, guest: true, username: "", ...forRole("guest") };
 	}
 	const user = await find(sql, identity.userId);
 	if (user === null) {
 		return null; // a session whose account is gone authenticates as nobody
 	}
-	return { id: user.id, role: user.role, anon: false, guest: user.role === "guest", ...forRole(user.role) };
+	// A real account is never `guest` or `anon`, whatever its role is: v3's two flags describe how the
+	// visitor was resolved, not which role the account has.
+	return {
+		id: user.id,
+		role: user.role,
+		anon: false,
+		guest: false,
+		username: user.username,
+		...forRole(user.role),
+	};
 };
 
 /** `PermissionCheck::allows()`. */

@@ -5,22 +5,22 @@
 // reason: the routes are `none` and skip `sessioncsrf`, and each POST calls `checkCsrf()` itself,
 // after its own redirects — so a request that is already signed in gets the redirect, not a 419.
 //
-// Two things this file does differently from v3, both named:
+// The sign-in attempt itself lives in `sign-in.ts`: S1.4 added a second caller (`POST
+// /api/v1/session`) and v3 keeps one implementation for both, so this file now maps its outcome to
+// the page's answers and the API maps it to problem+json. Two things this file does differently from
+// v3, both named:
 //
-//   * the failed sign-in is padded to a fixed deadline (`SignInPace`) only when a deadline is
-//     configured. The pace exists because bcrypt's time depends on the stored hash; a Worker cannot
-//     `usleep`, and `await`-ing a timer for a second per wrong password is a denial-of-service on
-//     ourselves. The deadline is in `RouterConfig` so a test can set it to 0 and production can keep
-//     v3's 1000 ms.
+//   * the failed sign-in is padded to a fixed deadline (`SignInPace`, in `session/sign-in-pace.ts`)
+//     by `attemptSignIn()`. The pace exists because bcrypt's time depends on the stored hash; a
+//     Worker cannot `usleep`, so the wait is an `await`ed timer. The deadline is in `RouterConfig`
+//     so a test can set it to 0 and production keeps v3's 1000 ms.
 //   * nothing here writes a session without cookie consent: `SessionRequest.ensureToken()` and
 //     `signIn()` both require it, and `consent` refuses the write before either runs (D20).
 
-import { statement } from "../db/sql";
 import { claimPage, errorPage, loginPage } from "../html/views";
 import type { Ctx } from "../http/filters";
 import { formFields } from "../http/form";
 import { html, json, problem } from "../http/problem";
-import { verifyPassword } from "../platform/passwords";
 import {
 	CONSENT_CODE,
 	CONSENT_MESSAGE,
@@ -31,30 +31,17 @@ import {
 } from "../session/consent";
 import { CSRF_MESSAGE, CSRF_STATUS, csrfPasses } from "../session/csrf";
 import { sessionEpoch } from "../session/epoch";
-import { accountKey, hit, succeeded } from "../session/throttle";
+import { hit } from "../session/throttle";
 import { ClaimError, claimAdmin } from "./first-admin-claim";
-
-/** `Accounts::USERNAME_MAX`, doubled: the field's `maxlength`, which is also `cleanLine()`'s limit. */
-const USERNAME_MAX = 40;
-
-/** `Accounts::DUMMY_HASH`: an unknown name costs one verify, so the answer does not time the name. */
-const DUMMY_HASH = "$2y$12$rGbXD6ftSShKrjjQ/V0Mp.DKflUCQZ2CgnF1mN0dY.pmyaxcHRNr2";
-
-/** `Accounts::verify()`'s one message for a wrong name and a wrong password. */
-const WRONG = "Wrong user name or password.";
-
-/** `Text::cleanLine()`: control characters out, trimmed, and at most `max` characters. */
-export const cleanLine = (raw: string, max: number): string => {
-	let out = "";
-	for (const ch of raw) {
-		const code = ch.codePointAt(0) ?? 0;
-		if (code < 0x20 || code === 0x7f) {
-			continue;
-		}
-		out += ch;
-	}
-	return out.trim().slice(0, max);
-};
+import {
+	attemptSignIn,
+	cleanLine,
+	clientAddress,
+	PENDING,
+	startSignIn,
+	USERNAME_MAX,
+	WRONG,
+} from "./sign-in";
 
 /** `WantsJson::check()`: a fetch, or a client that asked for JSON. */
 export const wantsJson = (ctx: Ctx): boolean =>
@@ -83,56 +70,6 @@ export const pageSettings = (ctx: Ctx) => ({
 	requestUri: `${new URL(ctx.request.url).pathname}${new URL(ctx.request.url).search}`,
 });
 
-/** `ClientAddress`: Cloudflare's header, then the first forwarded value, then nothing. */
-const clientAddress = (ctx: Ctx): string => {
-	const cf = (ctx.request.headers.get("cf-connecting-ip") ?? "").trim();
-	if (cf !== "") {
-		return cf;
-	}
-	const forwarded = ctx.request.headers.get("x-forwarded-for") ?? "";
-	const first = (forwarded.split(",")[0] ?? "").trim();
-	return first;
-};
-
-/** The account row a user name names, or null. `users.username_key` is the repository's key. */
-const findUser = async (
-	ctx: Ctx,
-	key: string,
-): Promise<{
-	id: number;
-	username: string;
-	passwordHash: string;
-	status: string;
-	sessionEpoch: string;
-} | null> => {
-	const rows = await ctx.session.sql.all(
-		statement("SELECT id, username, password_hash, status, session_epoch FROM users WHERE username_key = ?", [
-			key,
-		]),
-	);
-	const row = rows[0];
-	if (row === undefined) {
-		return null;
-	}
-	return {
-		id: Number(row.id ?? 0),
-		username: String(row.username ?? ""),
-		passwordHash: String(row.password_hash ?? ""),
-		status: String(row.status ?? "active"),
-		sessionEpoch: String(row.session_epoch ?? ""),
-	};
-};
-
-/** `Accounts::touchLastLogin()`: one column, the app's stored timestamp form. */
-const touchLastLogin = async (ctx: Ctx, userId: number): Promise<void> => {
-	await ctx.session.sql.batch([
-		statement("UPDATE users SET last_login_at = ? WHERE id = ?", [
-			new Date(ctx.session.now * 1000).toISOString().slice(0, 19).replace("T", " "),
-			userId,
-		]),
-	]);
-};
-
 /** The 429 `RateLimiter::hit()` ends in, with the `Retry-After` v4 adds (§5, D21). */
 const throttled = (ctx: Ctx, retryAfterSeconds: number, message: string): Response => {
 	if (ctx.config.https || wantsJson(ctx)) {
@@ -154,6 +91,10 @@ const errorAnswer = (ctx: Ctx, status: number, message: string): Response =>
 
 /** `SignInController::login()`: GET (and every other verb) renders; POST signs in. */
 export const signInHandler = async (ctx: Ctx): Promise<Response> => {
+	// `SignInController::login()` starts the attempt before anything it answers: a failed sign-in must
+	// answer at the deadline even when the failure is a missing CSRF token... except that v3's page
+	// answers 419 from `checkCsrf()` before `attemptSignIn()`, so only the attempt itself is paced.
+	const startedAt = startSignIn();
 	if (ctx.identity !== null && ctx.method !== "POST") {
 		return redirectTo(ctx, "/"); // `signedIn()`: the page is not for someone who is already in
 	}
@@ -183,50 +124,22 @@ export const signInHandler = async (ctx: Ctx): Promise<Response> => {
 
 	const raw = post.get("username") ?? "";
 	const who = cleanLine(raw, USERNAME_MAX * 2);
-	const password = post.get("password") ?? "";
-
-	const address = clientAddress(ctx);
-	const everyName = await hit(ctx.session.sql, {
-		kind: "login_address",
-		client: address,
-		now: ctx.session.now,
+	const outcome = await attemptSignIn(ctx, {
+		started: startedAt,
+		raw,
+		who,
+		password: post.get("password") ?? "",
 	});
-	if (!everyName.ok) {
-		return throttled(ctx, everyName.retryAfterSeconds, everyName.message);
+	switch (outcome.kind) {
+		case "throttled":
+			return throttled(ctx, outcome.retryAfterSeconds, outcome.message);
+		case "invalid":
+			return errorAnswerWithUser(ctx, 401, WRONG, who);
+		case "pending":
+			return errorAnswerWithUser(ctx, 403, PENDING, who);
+		case "ok":
+			return redirectTo(ctx, "/");
 	}
-	const thisName = await hit(ctx.session.sql, {
-		kind: "login",
-		client: address,
-		account: who,
-		now: ctx.session.now,
-	});
-	if (!thisName.ok) {
-		return throttled(ctx, thisName.retryAfterSeconds, thisName.message);
-	}
-
-	// A name with a null character anywhere, checked before trimming, never matches an account.
-	const lookup = raw.includes("\0") ? raw : who;
-	const user = lookup.includes("\0") ? null : await findUser(ctx, accountKey(lookup));
-	const matches = await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
-	if (user === null || !matches) {
-		return errorAnswerWithUser(ctx, 401, WRONG, who);
-	}
-	if (user.status !== "active") {
-		return errorAnswerWithUser(ctx, 403, "Your account is waiting for an admin’s approval.", who);
-	}
-	await touchLastLogin(ctx, user.id);
-	const epoch = await sessionEpoch({
-		id: user.id,
-		passwordHash: user.passwordHash,
-		sessionEpoch: user.sessionEpoch,
-	});
-	await ctx.session.signIn({ userId: user.id, authEpoch: epoch });
-	await succeeded(ctx.session.sql, {
-		client: address,
-		account: who,
-		now: ctx.session.now,
-	});
-	return redirectTo(ctx, "/");
 };
 
 /** A failed attempt renders the page again with what was typed, which is what v3's `loginPage()` does. */

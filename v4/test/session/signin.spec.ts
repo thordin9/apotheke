@@ -89,6 +89,10 @@ const CONFIG: RouterConfig = {
 	page: { ...TEST_PAGE, csrf: "", consent: false },
 	login: TEST_LOGIN,
 	signInEnabled: true,
+	// S1.4 ported `SignInPace`: a failed sign-in now waits for the deadline (v3's 1000 ms). This
+	// suite makes ten of them in a row, so it configures the deadline away; the default and the
+	// clamp are asserted against the PHP fixture in `test/http/api-session.spec.ts`.
+	signInDeadlineMs: 0,
 };
 
 interface Answer {
