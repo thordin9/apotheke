@@ -33,7 +33,8 @@
     "dependency-cruiser": "18.9.0",
     "typescript": "7.0.2",
     "vitest": "4.1.12",
-    "wrangler": "4.164.0"
+    "wrangler": "4.164.0",
+    "yaml": "2.9.1"
   },
   "overrides": {
     "workerd": "1.20261117.1"

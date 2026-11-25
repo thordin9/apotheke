@@ -17,6 +17,12 @@
 // unfiltered). ci.yml is in the set on purpose: a pull request into this branch runs it, so a PHP job
 // there is a PHP step in this branch's gate even though pushes to the branch never start it.
 //
+// Every workflow file is loaded as YAML too, gating or not, before any of the above is read: a file
+// Actions cannot parse never runs, and it fails with zero jobs rather than with a failing step (D91).
+// `45699752450` at `d7fe8363` was created and failed in the same second because a step name carried
+// ": " inside a plain scalar, and a plain scalar may not, because the ": " starts a mapping. The six
+// local gates read workflow text and never loaded a file as a file, so nothing local could see it.
+//
 //     node scripts/check-workflows-php-free.mjs             # the real tree
 //     node scripts/check-workflows-php-free.mjs --self-test  # prove it fails on a planted PHP step
 //
@@ -26,6 +32,7 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 import * as path from "node:path";
+import { parse } from "yaml";
 
 const BRANCH = "experimental-v4";
 
@@ -102,6 +109,20 @@ export function gateOf(text, branch = BRANCH) {
 	return { triggers: [...new Set(triggers)], pathFiltered };
 }
 
+/**
+ * Whether a workflow loads as YAML at all: `null`, or the line and first message of the failure.
+ * Actions rejects the whole file when this is not null - no job runs - so a check that only reads
+ * text says nothing about whether the file it read is one Actions can load (D91).
+ */
+export function loadError(text) {
+	try {
+		parse(text);
+		return null;
+	} catch (e) {
+		return { line: e.linePos?.[0]?.line ?? 0, message: String(e.message).split("\n")[0] };
+	}
+}
+
 const RULES = [
 	[/setup-php/, "installs PHP (actions/setup-php)"],
 	[/\bcomposer\s+(?:install|update|require|audit|dump-autoload|config|validate)\b/, "runs composer"],
@@ -153,7 +174,33 @@ function selfTest() {
 		["a path-filtered pull_request is not a gate",
 			audit("h.yml", wf("on:", "  pull_request:", "    paths:", "      - 'edge/**'") + "\n" + setup), 0, ""],
 	];
+	// D91: a workflow Actions cannot load runs no job at all, so the loader is checked against the
+	// shape that cost `45699752450` a run - a step name with ": " inside a plain scalar - and against
+	// the control that must load, a colon with no space after it.
+	const plainScalar = [
+		"name: x",
+		"on: push",
+		"jobs:",
+		"  t:",
+		"    steps:",
+		"      - name: Harvest: the map",
+		"        run: echo hi",
+	].join("\n");
 	let failed = 0;
+	const loadCases = [
+		["a plain scalar carrying ': ' does not load", plainScalar, /Nested mappings are not allowed in compact mappings/, 6],
+		["a colon with no space after it is a scalar", plainScalar.replace("Harvest: the map", "Harvest:the map"), null, 0],
+		["a real workflow loads", `${wf("on:", "  push:", `    branches: [${BRANCH}]`)}` + "\n" + setup, null, 0],
+	];
+	for (const [what, text, wantMessage, wantLine] of loadCases) {
+		const got = loadError(text);
+		const ok =
+			wantMessage === null ? got === null : got !== null && wantMessage.test(got.message) && got.line === wantLine;
+		if (!ok) {
+			failed++;
+			console.error(`self-test FAIL: ${what}: got ${JSON.stringify(got)}`);
+		}
+	}
 	for (const [what, got, wantCount, wantReason] of cases) {
 		const ok = got.hits.length === wantCount && (wantCount === 0 || got.hits[0][1] === wantReason);
 		if (!ok) {
@@ -166,7 +213,7 @@ function selfTest() {
 		failed++;
 		console.error(`self-test FAIL: branch filter not read: ${JSON.stringify(g)}`);
 	}
-	console.log(`self-test: ${cases.length + 1} cases, ${failed} failed`);
+	console.log(`self-test: ${cases.length + loadCases.length + 1} cases, ${failed} failed`);
 	return failed === 0;
 }
 
@@ -184,9 +231,19 @@ function main(argv) {
 	const gating = [];
 	const notGating = [];
 	let findings = 0;
+	let unloadable = 0;
 	for (const f of files) {
 		const rel = path.join(path.relative(root, dir), f).replace(/^\.\//, "");
-		const got = audit(rel, readFileSync(path.join(dir, f), "utf8"));
+		const source = readFileSync(path.join(dir, f), "utf8");
+		// D91: a file Actions cannot load runs no job, so it gates nothing - and its parse failure is a
+		// finding of its own, not a reason to skip it quietly.
+		const bad = loadError(source);
+		if (bad !== null) {
+			unloadable++;
+			console.error(`${rel}:${bad.line}: does not load as YAML, so Actions runs no job from this file (D91): ${bad.message}`);
+			continue;
+		}
+		const got = audit(rel, source);
 		if (got.triggers.length === 0) {
 			notGating.push(got.pathFiltered.length > 0 ? `${f} (path-filtered pull_request)` : f);
 			continue;
@@ -197,15 +254,22 @@ function main(argv) {
 			console.error(`${rel}:${line}: ${reason}: ${text}`);
 		}
 	}
+	if (files.length === 0) {
+		console.error(`workflows:check: no workflow file under ${dir}, so this check proves nothing`);
+		process.exit(1);
+	}
 	if (!gating.includes("v4.yml")) {
 		console.error(`workflows:check: v4.yml does not run for ${BRANCH}, so this check proves nothing about the gate`);
 		process.exit(1);
 	}
+	if (unloadable > 0) {
+		console.error(`workflows:check: ${unloadable} workflow file(s) do not load as YAML, so Actions runs no job from them (D91)`);
+	}
 	if (findings > 0) {
 		console.error(`workflows:check: ${findings} PHP step(s) in workflows that can gate ${BRANCH} (D36: the gate is PHP-free)`);
-		process.exit(1);
 	}
-	console.log(`workflows:check: ${gating.length} workflow(s) can gate ${BRANCH} (${gating.join(", ")}); no PHP step in any.`);
+	if (unloadable + findings > 0) process.exit(1);
+	console.log(`workflows:check: ${files.length} workflow file(s) load as YAML; ${gating.length} can gate ${BRANCH} (${gating.join(", ")}); no PHP step in any.`);
 	console.log(`workflows:check: not gating (named so the exclusion is visible): ${notGating.join(", ")}`);
 }
 

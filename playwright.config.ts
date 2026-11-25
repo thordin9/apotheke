@@ -26,7 +26,9 @@ export default defineConfig({
       // difference counts, which is the unit D67's measurements are in). 5,000 is 7.5x the worst
       // noise measured across two unplanted renders of one commit (663 px) and 9.3x below the
       // smallest material change measured (46,411 px). A count, not a ratio: noise is a pixel count,
-      // and 0.2% of a phone viewport (500 px) sits *below* that measured noise floor.
+      // and 0.2% of a viewport is 363 px on the iPhone SE and 517 px on iPhone 13 - below that noise
+      // floor on two of the three phone projects - while on desktop it is 2,201 px, looser than the
+      // count that replaced it (Playwright's own device table, D90).
       maxDiffPixels: 5_000, threshold: 0,
     },
   },

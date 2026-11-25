@@ -77,7 +77,11 @@ under `tests/` plus the 6 capture-side ones under `v4/` (D37, below).
 and it reads each workflow's own `on:` block rather than a hand-kept list. It runs its own self-test first,
 so a parser change that stops reading a trigger fails there rather than passing quietly. Path-filtered
 pull-request workflows — the v3 edge and frontend deploys — are not gates for this branch and are named in
-the output on every run, so the exclusion is visible rather than silent.
+the output on every run, so the exclusion is visible rather than silent. It also **loads every**
+`.github/workflows/*.yml` as YAML before it reads any of them: a file Actions cannot parse runs no job
+at all and fails with zero jobs, which `45699752450` at `d7fe8363` did because a step name carried
+": " inside a plain scalar (D91). Text scanning cannot see that, so the load is a case of its own in
+the self-test.
 
 ## Every PHP path in this line is accounted for (D37, revision 43)
 
