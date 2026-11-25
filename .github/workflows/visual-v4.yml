@@ -16,13 +16,17 @@ name: Visual v4 instrument
 # nothing; each costs one run when someone asks for an instrument reading or a fresh map. The flip
 # job's conclusion is a verdict: it runs the suite on the default harness (v4, no `E2E_APP`) and fails
 # when a test other than the three named ones executes, or when the pixel comparator stops being
-# reachable. It is a gate for the pushes this file can see, not for experimental-v4, which this
-# workflow cannot be triggered from.
+# reachable.
+#
+# `experimental-v4` is in the push list because the flip changes the default harness for the branch of
+# record, and a verdict that cannot fire there certifies where the change was developed rather than
+# where it lives (D92). Only the flip runs on that branch - the instrument and the map carry an `if:`
+# that keeps them on their own - so a landing spends one job, not three.
 
 on:
   workflow_dispatch:
   push:
-    branches: [v4/visual-instrument, v4/g1-map]
+    branches: [v4/visual-instrument, v4/g1-map, experimental-v4]
 
 permissions:
   contents: read
@@ -30,6 +34,10 @@ permissions:
 jobs:
   instrument:
     name: Boot v4, render /login, locate a planted pixel
+    # A reading is asked for on the instrument's own branch; a landing on the branch of record asks
+    # for the flip's verdict, not for two more readings (D92: the flip must fire where the flip
+    # lives, and only the flip).
+    if: github.event_name == 'workflow_dispatch' || github.ref_name != 'experimental-v4'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     container:
@@ -82,6 +90,9 @@ jobs:
     # It never gates. The expected output of this run is a suite that is mostly skips and refusals, so
     # a red here is a statement about the port, not about the change that triggered it.
     name: Harvest the CI4_UNPORTED map under E2E_APP=v4
+    # Same rule as the instrument: the map is harvested on the map branch, and a push to the branch of
+    # record spends one job - the verdict - rather than three.
+    if: github.event_name == 'workflow_dispatch' || github.ref_name != 'experimental-v4'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     container:
