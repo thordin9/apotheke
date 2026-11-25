@@ -1968,9 +1968,9 @@
    "path": "tests/Unit/RoundTripBudgetTest.php",
    "methods": 2,
    "dataProviders": 0,
-   "state": "dropped",
-   "target": "",
-   "note": "statement-count budgets measured through the PHP bridge's /query, /batch and /exec and CodeIgniter's DBQuery event; v4 has neither seam, and nothing counts statements today. The concern is real and unported: a budget would need a fresh measurement on v4's Sql wrapper, not this file's numbers",
+   "state": "scheduled",
+   "target": "P7",
+   "note": "the per-request statement budget, counted through the PHP bridge's /query, /batch and /exec and CodeIgniter's DBQuery event; v4 has neither seam, so these numbers do not transfer and this is not a port. The concern does not shrink with the bridge: on rqlite every query is an HTTP round trip (D1's reversal) and on D1 rows read are billed, so an N+1 page costs latency and money here more visibly than on PHP. Revision 50: owes statement counts per request on v4's Sql wrapper for the list, detail, search and session pages, then a budget declared at measured + margin - the runner's number, never v3's (D34 applied to a budget). Rides G7's performance sanity beside p95: p95 states the cost in milliseconds, a budget states it in queries",
    "kind": "retired"
   },
   {
