@@ -90,16 +90,23 @@ The `exceptions` list is the other half: the six capture-side generators under `
 `api-fixture-state.php`, `php-schema-dump.php`), each with the reason it is allowed to be PHP — they run
 by hand, never in CI, and `fixtures:capture` refuses under `CI`.
 
-`npm run ledger:check` is a step of `v4.yml`'s unit job. It runs a self-test first — fourteen synthetic
+`npm run ledger:check` is a step of `v4.yml`'s unit job. It runs a self-test first — sixteen synthetic
 ledgers, each with exactly one rule broken — so a validator that stops catching a missing row, a duplicate,
-a dangling `ported` target, an unknown kind or an undefined slice fails there instead of passing quietly.
+a dangling `ported` target, an unknown kind, an undefined slice, or an unaccounted `.php` fails there
+instead of passing quietly.
 It also refuses a ledger whose retired totals do not add up to the recorded 1,435 / 379, which catches an
 edit that drops a row without anyone noticing.
 
 When git history is present it reconciles the retired rows against `git show --name-status 5d65939e` in
 both directions — no row for a path that commit did not delete, no deleted path without a row — and
-requires every surviving or exception file to exist. CI checks out at depth 1, so there the recorded
-totals are the fallback and the check says which mode it ran in.
+requires every surviving or exception file to exist. The unit job checks out at full depth
+(`.github/workflows/v4.yml:56`, that job only) so the reconciliation always runs in CI; on a shallow clone
+without the commit the recorded totals are the fallback and the check says which mode it ran in.
+
+It also looks forward, not just back: every `.php` the branch commits under `tests/` or `v4/` must be
+accounted for — a row if it is under `tests/`, a named exception if it is under `v4/`. The rule is
+Stathis's "no php in the v4 branch", and a check that only reconciled one old commit would let the
+next PHP file in unwatched. Two of the self-test cases break exactly that.
 
 A row moves from `scheduled` to `ported` in the same commit as the spec that ports it, and a later slice
 (and any PR touching a retired module) owes its own row before it lands.

@@ -19,6 +19,9 @@
 //   - retired rows reconcile against `git show --name-status 5d65939e` in both directions when
 //     history is present; a surviving row's file must exist and must not be in that commit.
 //   - the 6 `v4/**.php` exceptions exist and each says why it is allowed to be PHP.
+//   - every .php the branch commits under tests/ or v4/ is accounted for: under tests/ it needs a
+//     row, under v4/ it needs to be a named exception. The ruling is "no php in the v4 branch",
+//     and a rule that only looks backwards at one commit cannot hold that line.
 //
 // Exit 1 printing every error it found.
 
@@ -142,6 +145,19 @@ export function validate(ledger, io) {
 			if (!deleted.has(row.path)) errors.push(`${row.path}: retired row for a path ${createdBy} did not delete`);
 		}
 	}
+
+	// The ruling is "no php in the v4 branch": every .php committed below tests/ or v4/ must be
+	// accounted for, not merely every path that happened to be deleted once. Without this, a new
+	// PHP file added tomorrow walks past the ledger.
+	if (io.treePhp) {
+		for (const path of io.treePhp) {
+			if (path.startsWith("tests/")) {
+				if (!seen.has(path)) errors.push(`${path}: .php under tests/ with no ledger row`);
+			} else if (path.startsWith("v4/")) {
+				if (!exSeen.has(path)) errors.push(`${path}: .php under v4/ that is not a named exception`);
+			}
+		}
+	}
 	return errors;
 }
 
@@ -182,6 +198,15 @@ function alive(path) {
 	return existsSync(join(REPO, path)) ? null : "does not exist in the tree";
 }
 
+/** Every .php the branch commits below tests/ or v4/ — the paths the ledger must account for. */
+function treePhp() {
+	const out = execFileSync("git", ["ls-files", "--", "tests", "v4"], { cwd: REPO, encoding: "utf8" });
+	return out
+		.split("\n")
+		.filter((p) => p.endsWith(".php"))
+		.sort();
+}
+
 function selfTest() {
 	const slices = new Set(["S0.1", "S1.7", "P2", "P5", "G1"]);
 	const io = {
@@ -190,6 +215,7 @@ function selfTest() {
 		targetProblem: (t) =>
 			t === "v4/test/ok.spec.ts" ? null : t === "v4/test/empty.spec.ts" ? "carries no tests" : "does not exist",
 		alive: (p) => (p === "tests/gone.php" ? "does not exist in the tree" : null),
+		treePhp: ["tests/live.php", "v4/scripts/gen-x.php"],
 	};
 	const good = () => ({
 		schema: 2,
@@ -215,11 +241,24 @@ function selfTest() {
 		["a surviving row whose file is gone", (() => { const l = good(); l.rows[2].path = "tests/gone.php"; return l; })(), (e) => e.some((x) => x.includes("does not exist in the tree"))],
 		["an exception without a reason", (() => { const l = good(); l.exceptions[0].reason = "x"; return l; })(), (e) => e.some((x) => x.includes("exception without a reason"))],
 		["a retired row the commit did not delete", good(), (e) => e.some((x) => x.includes("did not delete"))],
+		[
+			"a .php under tests/ with no row",
+			good(),
+			(e) => e.some((x) => x.includes("tests/new.php: .php under tests/ with no ledger row")),
+			{ treePhp: ["tests/live.php", "tests/new.php", "v4/scripts/gen-x.php"] },
+		],
+		[
+			"a .php under v4/ that is no exception",
+			good(),
+			(e) => e.some((x) => x.includes("v4/scripts/new.php: .php under v4/ that is not a named exception")),
+			{ treePhp: ["tests/live.php", "v4/scripts/gen-x.php", "v4/scripts/new.php"] },
+		],
 	];
 	let failed = 0;
-	for (const [name, input, ok] of cases) {
+	for (const [name, input, ok, extraIo] of cases) {
 		const errors = validate(input, {
 			...io,
+			...extraIo,
 			createdBy: name.includes("did not delete") ? "deadbeef" : undefined,
 			deleted: name.includes("did not delete") ? new Set(["tests/a.php"]) : undefined,
 		});
@@ -245,6 +284,7 @@ const errors = validate(ledger, {
 	planSlices: slices,
 	targetProblem,
 	alive,
+	treePhp: treePhp(),
 	createdBy: deleted ? DELETING_COMMIT : undefined,
 	deleted,
 });
