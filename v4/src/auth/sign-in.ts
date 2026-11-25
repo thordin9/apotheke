@@ -28,7 +28,7 @@ export { startSignIn };
 export const USERNAME_MAX = 40;
 
 /** `Accounts::DUMMY_HASH`: an unknown name costs one verify, so the answer does not time the name. */
-const DUMMY_HASH = "$2y$12$rGbXD6ftSShKrjjQ/V0Mp.DKflUCQZ2CgnF1mN0dY.pmyaxcHRNr2";
+export const DUMMY_HASH = "$2y$12$rGbXD6ftSShKrjjQ/V0Mp.DKflUCQZ2CgnF1mN0dY.pmyaxcHRNr2";
 
 /** `Accounts::verify()`'s one message for a wrong name and a wrong password. */
 export const WRONG = "Wrong user name or password.";

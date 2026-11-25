@@ -209,9 +209,21 @@ export class SessionRequest {
 	/**
 	 * `SessionGate::signIn()`: a new id (`session_regenerate_id(true)`) so an id a page was served
 	 * with cannot become a signed-in one, the account and its epoch in the row, and a fresh token.
+	 *
+	 * `keepSignIn` (v3's third argument): when the account this session already held is signed in
+	 * again — its own password changed, or "sign out everywhere" — the existing sign-in time is kept,
+	 * so `session_days` does not start again (#87). It is never taken over from another account.
 	 */
-	async signIn(input: { readonly userId: number; readonly authEpoch: string }): Promise<void> {
+	async signIn(input: {
+		readonly userId: number;
+		readonly authEpoch: string;
+		readonly keepSignIn?: boolean;
+	}): Promise<void> {
 		const previous = this.id;
+		const held = this.values;
+		const sameAccount = held.uid === input.userId;
+		const signedInAt =
+			input.keepSignIn === true && sameAccount && held.signedInAt > 0 ? held.signedInAt : this.now;
 		const id = newSessionId();
 		this.values = {
 			...EMPTY,
@@ -219,7 +231,7 @@ export class SessionRequest {
 			authEpoch: input.authEpoch,
 			csrf: newToken(),
 			lastActivity: this.now,
-			signedInAt: this.now,
+			signedInAt,
 		};
 		this.id = id;
 		this.csrf = this.values.csrf;

@@ -88,6 +88,8 @@ export const readPageData = async (sql: Sql, config: AppConfig, requestUri: stri
 			requestUri,
 			// No consent cookie until S1.2: the first-visit render, with the notice shown.
 			consent: false,
+			// The menu's sign-out branch reads it (`Page::menu()`); same decision as `signInEnabled`.
+			signInEnabled,
 		},
 		signInEnabled,
 		registrationOpen,

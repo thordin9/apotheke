@@ -12,6 +12,7 @@ export const TEST_PAGE: RouterConfig["page"] = {
 	csrf: "",
 	requestUri: "/",
 	consent: false,
+	signInEnabled: true,
 };
 
 export const TEST_LOGIN: RouterConfig["login"] = { registrationOpen: false, guestBrowsing: false };

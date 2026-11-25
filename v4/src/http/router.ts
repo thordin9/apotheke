@@ -10,12 +10,14 @@
 //   4. run the after chain (globals, then required).
 //
 // The handlers are registered one route at a time as their slice lands: `/login`, `/logout`,
-// `/consent`, `/claim`, the Users & sign-in pages (S1.2, S1.3) and the four `/api/v1` session routes
-// (S1.4). Every other controller arrives in P1/P2; until then a request that survives the chain — a
+// `/consent`, `/claim`, the Users & sign-in pages (S1.2, S1.3), the four `/api/v1` session routes
+// (S1.4) and `/account` with its two POSTs (S1.5). Every other controller arrives in P1/P2; until
+// then a request that survives the chain — a
 // route whose permission is `none` or `public`, on a safe method — gets 501 and nothing else. That is
 // what makes the fail-closed promise checkable: no route in the table answers 2xx except the ones a
 // slice has named here.
 
+import { accountHandler, accountSignOutHandler } from "../auth/account-routes";
 import { apiMe, apiSessionCreate, apiSessionDelete, apiSessionShow } from "../auth/api-session";
 import { resolveActor } from "../auth/permission";
 import { roleHandler, securityPageHandler, userHandler } from "../auth/security-routes";
@@ -93,6 +95,10 @@ const HANDLERS: ReadonlyMap<string, Handler> = new Map([
 	["\\Apotheke\\Auth\\Controllers\\Api\\SessionController::create", apiSessionCreate],
 	["\\Apotheke\\Auth\\Controllers\\Api\\SessionController::delete", apiSessionDelete],
 	["\\Apotheke\\Auth\\Controllers\\Api\\SessionController::account", apiMe],
+	// S1.5: the account page, its password POST and "sign out everywhere" — `self`, the page's own
+	// CSRF (`sessioncsrf`, 419), and v3's re-render with `#acct-err` for every refusal.
+	["\\Apotheke\\Auth\\Controllers\\AccountController::index", accountHandler],
+	["\\Apotheke\\Auth\\Controllers\\AccountController::signOutEverywhere", accountSignOutHandler],
 ]);
 
 const runAfter = (ctx: Ctx, response: Response, names: readonly string[]): Response => {

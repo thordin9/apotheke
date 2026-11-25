@@ -24,6 +24,8 @@ export class UserError extends Error {
 	constructor(
 		message: string,
 		readonly status: number,
+		/** A 429's `Retry-After`, when the refusal came from the limiter (`session/throttle.ts`). */
+		readonly retryAfterSeconds?: number,
 	) {
 		super(message);
 		this.name = "UserError";

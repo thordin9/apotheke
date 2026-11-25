@@ -98,8 +98,8 @@ one conditional 2xx under `/api`: its writes are refused by the consent filter, 
 the `self` permission. `test/http/router.spec.ts` turns **every row** of the table into a request and
 asserts both: the answer is one of the above, and the 2xx rows of that sweep are exactly that list —
 a route that starts answering 200 without being in it fails the test. The sweep signs nobody in, so
-`/settings/security` answers its 303 there and its 200 is proved by `test/http/security.spec.ts`
-instead. It runs with `APOTHEKE_HOSTED` unset, so `/claim` is the 404 below, not a 2xx.
+`/settings/security` and `/account` answer their 303 there and their 200s are proved by
+`test/http/security.spec.ts` and `test/html/account.spec.ts` instead. It runs with `APOTHEKE_HOSTED` unset, so `/claim` is the 404 below, not a 2xx.
 
 `problem+json` is the PHP app's shape (`ApiResponse::problem()`): `type` is `about:blank`, `title` is
 the HTTP reason phrase, `status`, `detail` for a human, and `code` for a client to match on.
@@ -151,6 +151,24 @@ then:
   `CORS_ALLOWED_ORIGINS` is not in the Worker's environment contract (§11), so only the app's own
   origin and `PUBLIC_URL`'s are accepted; and the Worker sends no `Expires`/`Pragma` headers, which
   PHP sends because `session_start()` runs.
+- **`/account` answers, with its header and menu (S1.5).** `GET /account` renders `AuthViews::account()`
+  — the shell, `Page::simpleHeader()` with `Page::menu()`, the account card. `POST /account` changes
+  the signed-in account's own password after checking the current one, and `POST /account/signout`
+  rotates its session epoch. Every refusal is v3's: 403 "The current password is not correct.", the
+  four 422s from `passwordValid()`, 419 from the page's own CSRF, and each one **re-renders the page
+  with `#acct-err`** rather than answering a problem document; both successes answer 303 to
+  `/account?done=pw|out`, with this session re-signed in under the new epoch (`keepSignIn`, so
+  `session_days` does not start again) and every other session of the account stopped. The
+  current-password check is throttled exactly as a sign-in is — `login_address` (30/900 s) and the
+  per-account `login` bucket (10/900 s), counted before the check, cleared on success, a failure
+  answered at `SignInPace`'s deadline — so `/account` is not an unthrottled password oracle. The page,
+  both refusals and both POSTs are compared byte for byte against `test/fixtures/php-account.json`,
+  captured over HTTP by `scripts/gen-account-fixture.sh` from two sessions of one viewer, an admin
+  and a throttled account. The header and menu arrived with this slice because the account page is
+  the first page whose v3 document renders them: `src/html/menu.ts` is `Page::simpleHeader()`,
+  `Page::menu()` and `Viewer::bodyClass()`. **The guest branch in `AccountController::index()` is
+  unreachable through these routes** — `self` refuses a guest first, so v3 answers 303 to `/login`
+  and the fixture records that twice (nobody, and the guest-browsing visitor).
 - **The failed sign-in is paced** (`SignInPace`, S1.4): every wrong name or password answers at
   v3's deadline (1000 ms, clamped to 400–10000), on `/login` and on `POST /api/v1/session`, so the
   answer time does not say whether an account exists. The wait is an `await`ed timer, not a blocking
@@ -161,8 +179,10 @@ then:
   approves, renames and deletes accounts. A refusal re-renders *that page* with v3's message and v3's
   status (409 last admin, 422 a taken name, 403 the admin-only guards, 404 an unknown action) rather
   than an error page of ours — the page is the answer, as it is in v3. Two parts of the document are
-  not there yet: the header (`Page::simpleHeader()` and the menu behind it) is P2, so the section
-  renders without the bar above it; and the section's settings form (`POST /settings/security`,
+  not there yet: the header (`Page::simpleHeader()` and the menu behind it) is ported since S1.5, and
+  `/account` renders it, but this page's own fixture was captured with the bar stubbed out, so the
+  section still renders without it — a known gap to close when that page is next touched; and the
+  section's settings form (`POST /settings/security`,
   `/settings/security/reset`, `/settings/password`) still answers 501, which is what the generated
   table says it does.
 - **The roles editor answers too (S1.3, increment 2b).** `POST /settings/roles`,
@@ -196,6 +216,7 @@ then:
 | `router.spec.ts` | with nobody signed in, no row answers 2xx except `/login` and the preflight; every refusal is problem+json (or the two plain-text guards); the page 404/405 are v3's error page; the `/api` 404 and the `Allow` header are v3's |
 | `http/security.spec.ts` | the Users & sign-in page renders for `users` and is refused to a viewer; a users POST without the token is v3's 419; a create writes the row and redirects with v3's toast; a refusal re-renders the page at v3's status; a roles POST without the token is v3's 419 rather than reaching its handler; creating, saving and deleting a role writes the row and redirects to v3's anchor; a fetch gets `{ok, key}` and `{ok: false, error}` |
 | `html/security.spec.ts` | `SecurityView::page()` is byte-identical to the PHP app's output on a pinned state, in both its normal and its re-rendered form |
+| `html/account.spec.ts` | `/account`, its password POST and its sign-out replay v3's 35 captured answers (status, pinned headers, bytes): the page for a viewer and an admin, both toasts, every re-render with `#acct-err`, both 419s, both 303s; `keepSignIn` keeps the sign-in time, the other session stops, the old password stops working, and the eleventh wrong current password is v4's 429 with `Retry-After` |
 | `auth/permissions.spec.ts` | the permission list and the built-in roles' permissions are v3's own, compared against `php-permissions.json` generated from `Permissions.php` — a typo in either would grant or withhold a permission silently |
 | `html/golden.spec.ts` | `/login`, the 404 and the 405 are byte-identical to the PHP app's own output, headers included |
 | `html/assets.spec.ts` | every bundled asset is served with the SHA-256 the bundle recorded from `public/assets/`, the documented content types and cache headers, and a miss is uncacheable |
@@ -210,6 +231,8 @@ then:
 | `escape.ts` | `Page::e()`: `htmlspecialchars(…, ENT_QUOTES \| ENT_SUBSTITUTE, 'UTF-8')`, plus PHP's `ucfirst()` |
 | `page.ts` | The shell: `Page::start()`, `consentNotice()`, `pageEnd()` and `brandLogo()`, and `Theme::safeBack()` |
 | `views.ts` | `AuthViews::login()` and `Layout\ErrorPage::html()` |
+| `menu.ts` | `Page::simpleHeader()`, `Page::menu()` and `Viewer::bodyClass()` (S1.5): the bar, the appearance switch, the links the role may use, the account and sign-in or sign-out |
+| `account-view.ts` | `AuthViews::account()` (S1.5): the account card, the two forms and the `#acct-err` slot |
 | `icons.ts` | `Icons::svg()` and its 39 icons, generated from `Icons.php` |
 | `md5.ts` | `md5()`, for the `?v=` cache keys PHP derives — pinned to RFC 1321's vectors and to values PHP computed |
 
@@ -237,7 +260,8 @@ the script pins every asset's mtime to 0 before rendering (`AssetUrl::url()` has
 a checkout's mtimes belong to the checkout), and it renders into a fresh `DATA_DIR` with `APP_PASSWORD`
 set and no `.env`, so the settings row is the fresh-install one.
 
-Not ported, because nothing renders them yet: the menu, the undo bar, the toast, the header, custom
-branding (`logo`/`app_icon`) and the `/theme.css` stylesheet a non-default accent links to. The page
-shell prints the default accent's markup and the consent notice a first visit gets; the `theme` cookie
-and the consent cookie arrive with S1.2.
+Still not ported, because nothing renders them yet: the undo bar, custom branding (`logo`/`app_icon`)
+and the `/theme.css` stylesheet a non-default accent links to. The menu, the header and the toast are
+ported since S1.5 (`menu.ts`), and the page shell prints the default accent's markup and the consent
+notice a first visit gets. The `theme` cookie is not read yet — the menu shows `theme_default` — and
+`POST /theme` still answers 501.

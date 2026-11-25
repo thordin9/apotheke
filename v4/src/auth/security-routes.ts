@@ -200,8 +200,9 @@ export const userHandler = async (ctx: Ctx): Promise<Response> => {
 			const epoch = await setPassword(ctx.session.sql, actor, uid, field("new"), field("confirm"));
 			if (uid === actor.id) {
 				// v3's own account: the session is re-signed in with the new epoch so it stays valid,
-				// which is what `SessionGate::signIn(..., keepSignIn: true)` does there.
-				await ctx.session.signIn({ userId: uid, authEpoch: epoch });
+				// and `keepSignIn` keeps its sign-in time, so `session_days` does not start again
+				// (`SecurityController.php:96`, `SessionGate::signIn(..., keepSignIn: true)`).
+				await ctx.session.signIn({ userId: uid, authEpoch: epoch, keepSignIn: true });
 				await ctx.session.ensureToken();
 			}
 			done = "user-pw";

@@ -34,6 +34,13 @@ export interface PageSettings {
 	readonly requestUri: string;
 	/** Whether the request carries consent. False until S1.2. */
 	readonly consent: boolean;
+	/** `SettingsService::signInEnabled()`: the menu offers "Sign out" when it is on and nobody is anon. */
+	readonly signInEnabled: boolean;
+	/**
+	 * `Viewer::bodyClass()` for this request's user, when the page renders the signed-in shell
+	 * (`html/menu.ts`'s `bodyClasses()`). Absent on pages v3 renders without a resolved user.
+	 */
+	readonly bodyClasses?: string;
 }
 
 /** `SettingsSchema::ACCENT_DEFAULT`. */
@@ -84,6 +91,8 @@ const consentNotice = (settings: PageSettings): string =>
 
 /** `Page::start()`: the document up to and including `<body>` and the consent notice. */
 export const pageStart = (settings: PageSettings, title: string, bodyClass = ""): string => {
+	// `trim($bodyClass . ' ' . $viewer->bodyClass())`: the page's own class, then the role's.
+	const body = `${bodyClass} ${settings.bodyClasses ?? ""}`.trim();
 	const name = settings.appName;
 	const tagline = settings.tagline;
 	const documentTitle = title === "" ? `${name} \u2013 ${tagline}` : `${title} \u00b7 ${name}`;
@@ -134,7 +143,7 @@ export const pageStart = (settings: PageSettings, title: string, bodyClass = "")
 		`<script src="${e(assetUrl("theme.js"))}"></script>\n` +
 		`<script src="${e(assetUrl("app.js"))}" defer></script>\n` +
 		"</head>\n" +
-		`<body class="${e(bodyClass.trim())}">\n` +
+		`<body class="${e(body)}">\n` +
 		consentNotice(settings)
 	);
 };
