@@ -27,11 +27,13 @@ type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: Ap
 /**
  * Tests that need a page CI4 has not ported yet, skipped (docs/HANDOFF.md keeps this list).
  * Key: "<spec file>: <describe> › <test title>" (the title path); value: the missing page. A key that names no
- * test must fail a check: tests/Unit/Ci4E2eSkipListTest.php did that until D36 retired the PHP suite from
- * this branch, and G1 owes the TypeScript replacement. The map is empty until then, so no entry can go stale.
+ * test is a finding: v4/scripts/check-visual-skip-list.mjs reads this file and fails the build, which is the
+ * replacement for tests/Unit/Ci4E2eSkipListTest.php, retired with the PHP suite by D36. The keys themselves live
+ * in ci4-unported.json, beside this file, so that the check and this fixture read one copy - edit that, not this.
  */
-export const CI4_UNPORTED: Record<string, string> = {
-};
+export const CI4_UNPORTED: Record<string, string> = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'ci4-unported.json'), 'utf8'),
+);
 
 const freePort = () => new Promise<number>((res, rej) => {
   const s = net.createServer();

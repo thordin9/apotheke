@@ -20,7 +20,8 @@
     "lint": "biome check . && depcruise src",
     "format": "biome check --write .",
     "workflows:check": "node scripts/check-workflows-php-free.mjs",
-    "ledger:check": "node scripts/check-php-ledger.mjs"
+    "ledger:check": "node scripts/check-php-ledger.mjs",
+    "skip-list:check": "node scripts/check-visual-skip-list.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",

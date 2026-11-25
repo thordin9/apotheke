@@ -81,6 +81,13 @@ jobs:
       # (a spec that exists and has tests), scheduled (a slice this plan defines) or dropped (a
       # reason). It runs its own self-test first, so a validator that stops reading fails here.
       - run: npm run ledger:check
+      # G1 (D43): CI4_UNPORTED in tests/visual is the list of pages still unported, and every key must
+      # name a test that exists - tests/Unit/Ci4E2eSkipListTest.php enforced that until D36 retired the
+      # PHP suite. It is a check and not a Playwright guard because no workflow runs the visual suite on
+      # a push (snapshots.yml renders baselines on dispatch or a label), so a guard there would never
+      # fail one. It reads the map from tests/visual/ci4-unported.json, the copy the fixture reads, and
+      # runs its own self-test first, so a parser that stops reading fails here rather than passing.
+      - run: npm run skip-list:check
       - run: npm test
 
   workerd-smoke:
