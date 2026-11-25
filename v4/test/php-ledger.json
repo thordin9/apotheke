@@ -1509,9 +1509,9 @@
    "path": "tests/Unit/Ci4E2eSkipListTest.php",
    "methods": 2,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "G1",
-   "note": "the CI4_UNPORTED guard, two assertions: every key names a test that exists (policed by v4/scripts/check-visual-skip-list.mjs, 23 self-test cases at 28b4f025), and docs/HANDOFF.md lists each skipped page (policed there too). The map is empty until the harness boots v4, so a key that actually skips a test is still owed by G1",
+   "state": "ported",
+   "target": "v4/scripts/check-visual-skip-list.mjs",
+   "note": "both assertions, against a map that is no longer empty: every key names a test that exists and a page docs/HANDOFF.md lists, and the page list there is generated from the map (`--write-handoff`, checked for drift). 31 self-test cases, and a planted stale key exits 1 while the same key restored exits 0 (reproduced at e47543c4); 112 keys, every one of which skipped a test in harvest run 45697085355",
    "kind": "retired"
   },
   {
