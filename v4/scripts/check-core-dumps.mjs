@@ -7,7 +7,7 @@
 // only the filesystem knows, and only if something looks. This looks.
 //
 //     node scripts/check-core-dumps.mjs                       # every core under v4/ and the repo root
-//     node scripts/check-core-dumps.mjs --since 1764106138    # only cores at or after that instant fail
+//     node scripts/check-core-dumps.mjs --since 1795559260    # 2026-11-25T22:27:40Z, the run above
 //     node scripts/check-core-dumps.mjs --self-test           # only the cases
 //
 // `--since` is the gate run's start, in epoch seconds or an ISO instant: a core older than the run is
@@ -66,7 +66,12 @@ export function scan(dirs, sinceMs) {
 			missing.push({ dir, why: err instanceof Error ? err.message : String(err) });
 			continue;
 		}
-		for (const core of cores) (core.mtimeMs >= sinceMs ? fresh : older).push(core);
+		// Rounded to whole milliseconds: stat's mtimeMs is a float and a file stamped at exactly the
+		// run's start reads back 0.0009765625 ms short of it, which would file this run's death as
+		// history. A real timestamp is never within a microsecond of a second's boundary in a way that
+		// this rounding could move, and the self-test pins the boundary in both directions.
+		const since = Math.round(sinceMs);
+		for (const core of cores) (Math.round(core.mtimeMs) >= since ? fresh : older).push(core);
 	}
 	return { fresh, older, missing };
 }
@@ -132,6 +137,16 @@ function selfTest() {
 		const broken = scan([path.join(box, "absent")], 0);
 		case_("an unreadable directory is reported", broken.missing.length === 1, JSON.stringify(broken.missing));
 
+		// The boundary the gate depends on: a core stamped exactly at the run's start is this run's
+		// death ("at or after"), and a scan that used `>` would let it pass as history.
+		const edge = path.join(box, "edge");
+		mkdirSync(edge);
+		const atStart = path.join(edge, "core.7");
+		writeFileSync(atStart, Buffer.alloc(16, 7));
+		const start = Date.now();
+		utimesSync(atStart, new Date(start), new Date(start));
+		case_("a core at the run's start is a finding", scan([edge], start).fresh.length === 1, "lost the boundary");
+
 		case_("epoch seconds are seconds", sinceMs("1764106138") === 1_764_106_138_000, String(sinceMs("1764106138")));
 		case_("an ISO instant parses", sinceMs("2026-11-25T23:56:00Z") === Date.parse("2026-11-25T23:56:00Z"), "wrong ms");
 		let threw = false;
@@ -145,7 +160,7 @@ function selfTest() {
 		rmSync(box, { recursive: true, force: true });
 	}
 
-	console.log(`self-test: 12 cases, ${failed} failed`);
+	console.log(`self-test: 13 cases, ${failed} failed`);
 	return failed === 0;
 }
 
@@ -174,7 +189,7 @@ function main(argv) {
 	if (missing.length > 0) return 2;
 	if (fresh.length > 0) {
 		console.error(
-			`core:check: FAIL ${fresh.length} core file(s) at or after ${iso(since)} - a process dumped core and no test reported it (D105)`,
+			`core:check: FAIL ${fresh.length} core file(s) at or after ${iso(since)} in ${dirs.length} director(ies) (${dirs.join(", ")}) - a process dumped core and no test reported it (D105)`,
 		);
 		return 1;
 	}
