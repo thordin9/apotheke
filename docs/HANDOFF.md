@@ -54,7 +54,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   [Deployment and operations](deployment-and-operations.md), [Operator console](operator-console.md),
   [Workers migration plan](future/workers-migration-plan.md) (a future option, not scheduled).
 - CI4 Playwright: the `CI4_UNPORTED` skip list (`tests/visual/ci4-unported.json`, read by
-  `tests/visual/fixtures.ts`) has 115 keys, harvested from runs under `E2E_APP=v4` by
+  `tests/visual/fixtures.ts`) has 111 keys, harvested from runs under `E2E_APP=v4` by
   `v4/scripts/visual-v4-map.mjs` (plan §5 G1). Every key must name its page somewhere in this file —
   `v4: npm run skip-list:check` fails a key whose page is not named there, and fails this bullet if it
   still claims the list has no keys once one exists, so a skip cannot leave this sentence behind. The
@@ -62,8 +62,12 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## CI4 Playwright skips
 
-Under `E2E_APP=v4` these 115 tests skip. Each opens a page the v4 app answers 501 for, or needs a
-fixture that runs PHP (`sql`, `settings`) or a spec that shells `php`, and a v4 run starts neither.
+Under `E2E_APP=v4` these 111 tests skip. Each opens a page the v4 app answers 501 for, or needs a
+fixture that runs PHP (`sql`, `settings`), and a v4 run starts none of it. Four more — the three
+autofill specs and `originals.spec.ts`, which shell `php` themselves — skip in the spec, not from this
+map: a key is evaluated inside the test's fixtures and cannot silence a failure outside the test body.
+Run 45687468048 measured that: 5 of its 115 keys failed anyway, two of them on a v4 boot that died
+before the skip could apply.
 The keys come from two harvest runs of the same tree (runs 45671253354 and 45677452961); a key only one of
 them produced is kept, because a v4 boot that dies on a port collision *costs* a key rather than
 adding one.

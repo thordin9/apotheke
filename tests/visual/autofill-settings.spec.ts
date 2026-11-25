@@ -1,6 +1,11 @@
-import { test, expect } from './fixtures';
+import { test, expect, APP } from './fixtures';
 import type { Page } from '@playwright/test';
 import { AutofillStub } from './autofill-stub';
+
+// v4 starts no `php` process, and these tests read the catalogue through one (`app.sql`, `app.image`),
+// so they cannot run there at all - which is not a page the map can name. A v4-native sql fixture is the
+// real fix; until it exists, skip here rather than leave a red the map cannot silence.
+test.skip(APP === 'v4', 'the spec shells `php` itself, and a v4 run starts none');
 
 /* AI autofill: Control Panel section, write-only token and "Test connection" against the PHP echo stub. */
 const stub = new AutofillStub();
