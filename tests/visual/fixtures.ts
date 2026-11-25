@@ -25,6 +25,9 @@ type Server = {
   php: (args: string[]) => Buffer;
   /** Map a repo / data / files path to where the PHP process sees it. */
   at: (p: string) => string;
+  /** v4 only: stop the app, wipe its persist directory and boot it again on the same port, so v4's own
+   *  migrate+seed phase rebuilds the database. That is `reset`'s seeding step (G1), and it starts no `php`. */
+  restartV4?: () => Promise<void>;
 };
 export const DOCKER_IMAGE = process.env.E2E_DOCKER_IMAGE || '';
 /** Which app the harness boots: `php` (v3, the default), `v4` (workerd), or the Docker image above. */
@@ -49,6 +52,20 @@ const freePort = () => new Promise<number>((res, rej) => {
   s.on('error', rej);
 });
 
+/** Wait until nothing listens on `port`: a stopped process group releases it a moment after SIGTERM. */
+async function waitPortClosed(port: number) {
+  for (let i = 0; i < 200; i++) {
+    const closed = await new Promise<boolean>(res => {
+      const s = net.connect({ port, host: '127.0.0.1' });
+      s.once('connect', () => { s.destroy(); res(false); });
+      s.once('error', () => res(true));
+    });
+    if (closed) return;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  throw new Error(`the stopped v4 process still holds 127.0.0.1:${port}`);
+}
+
 async function waitUp(base: string) {
   for (let i = 0; i < 300; i++) {
     try { const r = await fetch(base + '/healthz'); if (r.ok) return; } catch { /* not yet */ }
@@ -67,9 +84,10 @@ async function waitUp(base: string) {
  */
 function fixture(server: Server, op: 'seed' | 'sql' | 'exec' | 'migrate' | 'default-category' | 'settings', ...args: string[]): Buffer {
   if (APP === 'v4') {
-    throw new Error(`the visual harness's \`${op}\` fixture still writes the PHP app's data directory `
-      + '(tests/visual/ci4-fixtures.php); it has no v4 equivalent yet, so E2E_APP=v4 passes G1\'s boot seam '
-      + 'and not its seeding step.');
+    throw new Error(`the visual harness's \`${op}\` fixture runs tests/visual/ci4-fixtures.php inside PHP, and v4 has `
+      + 'no equivalent yet. Seeding is not this function under v4: `reset` calls `server.restartV4`, which reseeds '
+      + 'v4 through v4 itself. An `' + op + '` call means the spec is asserting on the catalog, and no v4 page serves '
+      + 'it yet - a fact about the port, not about the fixture.');
   }
   return server.php([server.at(path.join(ROOT, 'tests/visual/ci4-fixtures.php')), op, ...args]);
 }
@@ -88,6 +106,8 @@ export class App {
   }
   /** A small deterministic JPEG/PNG on disk, for file inputs. */
   image(name: string, rgb: [number, number, number], png = false): string {
+    if (APP === 'v4') throw new Error('the visual harness\'s image() fixture shells `php` for GD; under E2E_APP=v4 '
+      + 'no `php` process is started, so a spec that uploads a photo cannot run until the upload path has a v4 fixture.');
     const out = path.join(this.server.filesDir, name);
     if (fs.existsSync(out)) return out;
     const code = `$im=imagecreatetruecolor(640,480);imagefill($im,0,0,imagecolorallocate($im,${rgb.join(',')}));`
@@ -151,10 +171,22 @@ export const test = base.extend<TestOpts, WorkerOpts>({
       // G1's boot seam. `startV4` is the module v4/scripts/check-visual-boot.mjs boots on every push,
       // so this branch is exercised by CI even though no workflow runs Playwright: what it proves here
       // is that the harness starts v4 and no `php -S`, and what it does not prove is a rendered page.
-      const v4 = await startV4({ dataDir, env: appEnv, log: (chunk: string) => collect(Buffer.from(chunk)) });
+      const boot = (port?: number) =>
+        startV4({ dataDir, port, env: appEnv, log: (chunk: string) => collect(Buffer.from(chunk)) });
+      let v4 = await boot();
       server = { base: v4.base, dataDir, filesDir, env: appEnv, at: (p: string) => p,
-        php: (args: string[]) => execFileSync('php', args, { env: appEnv }) };
-      stop = v4.stop;   // stops the process group, so workerd does not outlive wrangler
+        php: (args: string[]) => execFileSync('php', args, { env: appEnv }),
+        // G1's seeding step. v3 reseeds by running tests/visual/ci4-fixtures.php; v4 has no PHP to run,
+        // so it reseeds the way v4 seeds: a wiped persist directory and its own migrate+seed on /readyz.
+        // Same port, because `baseURL` and the browser's cookies are bound to the origin.
+        restartV4: async () => {
+          const port = v4.port;
+          v4.stop();
+          await waitPortClosed(port);
+          fs.rmSync(path.join(dataDir, 'v4'), { recursive: true, force: true });
+          v4 = await boot(port);
+        } };
+      stop = () => v4.stop();   // stops the process group, so workerd does not outlive wrangler
     } else if (DOCKER_IMAGE) {
       const name = `apotheke-pw-${workerInfo.workerIndex}-${process.pid}`;
       const env = { ...appEnv, DATA_DIR: '/data', ALLOW_NO_LOGIN: '1' };   // start like php -S: sign-in off unless a test turns it on
@@ -194,9 +226,10 @@ export const test = base.extend<TestOpts, WorkerOpts>({
   }, { scope: 'worker' }],
   baseURL: async ({ server }, use) => { await use(server.base); },
   seed: ['demo', { option: true }],
-  /** Fresh, deterministic catalog for every test. */
+  /** Fresh, deterministic state for every test: v3 reseeds its data directory, v4 boots on a wiped one. */
   reset: [async ({ server, seed }, use) => {
-    fixture(server, 'seed', server.at(server.dataDir), seed);
+    if (server.restartV4) await server.restartV4();
+    else fixture(server, 'seed', server.at(server.dataDir), seed);
     await use();
   }, { auto: true }],
   /** Console errors and uncaught page errors fail the test. */
