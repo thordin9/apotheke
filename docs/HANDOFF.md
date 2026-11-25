@@ -54,23 +54,21 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   [Deployment and operations](deployment-and-operations.md), [Operator console](operator-console.md),
   [Workers migration plan](future/workers-migration-plan.md) (a future option, not scheduled).
 - CI4 Playwright: the `CI4_UNPORTED` skip list (`tests/visual/ci4-unported.json`, read by
-  `tests/visual/fixtures.ts`) has 111 keys, harvested from runs under `E2E_APP=v4` by
-  `v4/scripts/visual-v4-map.mjs` (plan §5 G1). Every key must name its page somewhere in this file —
-  `v4: npm run skip-list:check` fails a key whose page is not named there, and fails this bullet if it
-  still claims the list has no keys once one exists, so a skip cannot leave this sentence behind. The
-  skipped tests are listed under [CI4 Playwright skips](#ci4-playwright-skips).
+  `tests/visual/fixtures.ts`) holds one key per test whose page v4 does not serve, harvested from runs
+  under `E2E_APP=v4` by `v4/scripts/visual-v4-map.mjs` (plan §5 G1). Every key must name its page
+  somewhere in this file — `v4: npm run skip-list:check` fails a key whose page is not named there, and
+  fails this bullet if it still claims the list has no keys once one exists, so a skip cannot leave
+  this sentence behind. The skipped tests, with their count, are listed under
+  [CI4 Playwright skips](#ci4-playwright-skips), a section generated from the map.
 
 ## CI4 Playwright skips
 
-Under `E2E_APP=v4` these 111 tests skip. Each opens a page the v4 app answers 501 for, or needs a
-fixture that runs PHP (`sql`, `settings`), and a v4 run starts none of it. Four more — the three
-autofill specs and `originals.spec.ts`, which shell `php` themselves — skip in the spec, not from this
-map: a key is evaluated inside the test's fixtures and cannot silence a failure outside the test body.
-Run 45687468048 measured that: 5 of its 115 keys failed anyway, two of them on a v4 boot that died
-before the skip could apply.
-The keys come from two harvest runs of the same tree (runs 45671253354 and 45677452961); a key only one of
-them produced is kept, because a v4 boot that dies on a port collision *costs* a key rather than
-adding one.
+Under `E2E_APP=v4` these 111 tests skip: each names a page the v4 app answers 501 for, or
+needs a fixture that runs PHP (`sql`, `settings`). This section is generated from
+`tests/visual/ci4-unported.json` by `node scripts/check-visual-skip-list.mjs --write-handoff`;
+`skip-list:check` fails while the two disagree, so a hand edit does not survive a check (plan D80).
+A key is evaluated inside the test's fixtures: a spec that shells `php` itself skips in the spec,
+and a test whose v4 boot died is a defect, never a key.
 
 - `add.spec.ts`
   - add item › library input, inline new location + category, "Save & new" keeps them
@@ -81,12 +79,6 @@ adding one.
   - notes and attachments › wrong file type shows an error
 - `auth.spec.ts`
   - sign-in (APP_PASSWORD = account admin) › login, wrong password, logout @smoke
-- `autofill-on-demand.spec.ts`
-  - AI autofill on demand › default: picking a photo sends nothing; Analyze sends it and fills the empty fields @smoke
-- `autofill-settings.spec.ts`
-  - AI autofill settings › off by default; section in the Control Panel @smoke
-- `autofill-suggest.spec.ts`
-  - AI autofill suggestions › off: no request, no status line
 - `barcode.spec.ts`
   - barcodes › barcode field on the edit form
   - barcodes › manual lookup: unknown code → prefilled new item, then → the item @smoke
@@ -166,7 +158,6 @@ adding one.
   - merge duplicates › pick a target, confirm, everything moves over @smoke
 - `originals.spec.ts`
   - camera originals › a photo over the upload limit says the original is not kept
-  - camera originals › a photo under the limit is stored byte for byte and the served copy has no EXIF
 - `photos.spec.ts`
   - photo editing › drag to reorder; first photo becomes the cover
   - photo editing › rotate + drag a crop on the canvas, save a new version @smoke

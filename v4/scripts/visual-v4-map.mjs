@@ -32,7 +32,14 @@ export function keyOf(file, titles) {
 	return `${file}: ${titles.join(SEP)}`;
 }
 
-/** Classify one spec's one test. */
+/**
+ * Classify one spec's one test.
+ *
+ * Boot before everything but a skip (D77, D81): the `reset` fixture records a `v4-booted` annotation
+ * per test whose `restartV4` resolved on /readyz, and `v4-boot-failed` when it threw. A test that ran
+ * without one measured no page, so its red is a boot death and not a key - and a skip that never got
+ * a boot is simply a skip, which is what the map is for.
+ */
 export function classify(test) {
 	const annotations = [
 		...(test.annotations ?? []),
@@ -42,6 +49,13 @@ export function classify(test) {
 		...new Set(annotations.filter((a) => a?.type === "v4-unported").map((a) => a.description)),
 	].sort();
 	if (test.status === "skipped") return { kind: "skipped", why: "the run skipped it" };
+	const booted = annotations.some((a) => a?.type === "v4-booted");
+	const bootFailed = annotations.find((a) => a?.type === "v4-boot-failed");
+	if (bootFailed !== undefined) {
+		const first = String(bootFailed.description ?? "").split("\n").find((l) => l.trim() !== "") ?? "";
+		return { kind: "dead", why: first.trim() === "" ? "v4-boot-failed with no message" : first.trim() };
+	}
+	if (!booted) return { kind: "dead", why: "no `v4-booted` annotation: this test never had a live v4" };
 	if (test.status === "expected") {
 		return pages.length === 0
 			? { kind: "served", why: "passed" }
@@ -104,27 +118,34 @@ export function propose(rows) {
 function summarise(rows) {
 	const count = (kind) => rows.filter((r) => r.kind === kind).length;
 	const projects = [...new Set(rows.map((r) => r.project))];
+	const ran = rows.filter((r) => r.kind !== "skipped");
+	const booted = ran.filter((r) => r.kind !== "dead").length;
 	console.log(
 		`map-v4: ${rows.length} test(s) in ${projects.length} project(s): ${count("unported")} unported, ` +
-			`${count("served")} served, ${count("skipped")} skipped, ${count("unexplained")} unexplained`,
+			`${count("served")} served, ${count("skipped")} skipped, ${count("unexplained")} unexplained, ` +
+			`${count("dead")} dead; boot census ${booted} booted / ${count("dead")} dead of ${ran.length} that ran`,
 	);
+	for (const r of rows.filter((r) => r.kind === "dead")) {
+		console.log(`map-v4: dead ${r.key} [${r.project}]: ${r.why}`);
+	}
 	for (const r of rows.filter((r) => r.kind === "unexplained")) {
 		console.log(`map-v4: unexplained ${r.key} [${r.project}]: ${r.why}`);
 	}
 }
 
 function selfTest() {
+	const booted = [{ type: "v4-booted", description: "http://127.0.0.1:40123" }];
 	const cases = [
 		[
 			"a passing test is served, not unported",
-			classify({ status: "expected", results: [{ status: "passed", errors: [] }] }).kind,
+			classify({ status: "expected", annotations: booted, results: [{ status: "passed", errors: [] }] }).kind,
 			"served",
 		],
 		[
 			"a 501 annotation names the page",
 			classify({
 				status: "unexpected",
-				annotations: [{ type: "v4-unported", description: "/items" }],
+				annotations: [...booted, { type: "v4-unported", description: "/items" }],
 				results: [{ status: "failed", errors: [{ message: "expect(locator).toBeVisible: nope" }] }],
 			}).why,
 			"v4 answers 501 for /items",
@@ -133,6 +154,7 @@ function selfTest() {
 			"a refusing fixture is unported and named",
 			classify({
 				status: "unexpected",
+				annotations: booted,
 				results: [
 					{
 						status: "failed",
@@ -151,6 +173,7 @@ function selfTest() {
 			"a spec that shells php itself is unported, not a mystery",
 			classify({
 				status: "unexpected",
+				annotations: booted,
 				results: [{ status: "failed", errors: [{ message: "Error: spawn php ENOENT" }] }],
 			}).kind,
 			"unported",
@@ -159,9 +182,27 @@ function selfTest() {
 			"an unattributable failure is not absorbed",
 			classify({
 				status: "unexpected",
+				annotations: booted,
 				results: [{ status: "failed", errors: [{ message: "Error: expect(received).toBe(2)" }] }],
 			}).kind,
 			"unexplained",
+		],
+		[
+			"a test whose v4 boot threw is dead, whatever it failed on (D81)",
+			classify({
+				status: "unexpected",
+				annotations: [{ type: "v4-boot-failed", description: "Error: wrangler dev exited (1): Address already in use" }],
+				results: [{ status: "failed", errors: [{ message: "expect(locator).toBeVisible: nope" }] }],
+			}).kind,
+			"dead",
+		],
+		[
+			"a test that ran with no boot record is dead, not a key (D81)",
+			classify({
+				status: "unexpected",
+				results: [{ status: "failed", errors: [{ message: "Error: expect(received).toBe(2)" }] }],
+			}).why,
+			"no `v4-booted` annotation: this test never had a live v4",
 		],
 		["a skip is a skip", classify({ status: "skipped", results: [{ status: "skipped" }] }).kind, "skipped"],
 		["the key matches fixtures.ts", keyOf("visual.spec.ts", ["Items", "list renders"]), "visual.spec.ts: Items › list renders"],

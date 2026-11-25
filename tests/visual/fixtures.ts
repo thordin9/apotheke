@@ -55,6 +55,27 @@ export const CI4_UNPORTED: Record<string, string> = JSON.parse(
  */
 const UNPORTED = new Set<string>();
 
+/**
+ * E2E_APP=v4 only: watch an APIRequestContext. `page.request.get('/x')` raises no `response` event on
+ * the page or on the context (D76), so a spec that reads a page that way - qa-fixes.spec.ts does, on
+ * its first line - got a 501 no listener could see, and the map called it unexplained. Wrapping the
+ * verb methods records the status the context got, which is the only place it exists.
+ */
+const watchApi = <T extends object>(ctx: T): T => {
+  const c = ctx as unknown as Record<string, unknown>;
+  for (const name of ['get', 'post', 'put', 'patch', 'delete', 'head', 'fetch']) {
+    const original = c[name];
+    if (typeof original !== 'function') continue;
+    const call = (original as (...args: unknown[]) => Promise<{ status: () => number; url: () => string }>).bind(ctx);
+    c[name] = async (...args: unknown[]) => {
+      const response = await call(...args);
+      if (response.status() === 501) UNPORTED.add(new URL(response.url()).pathname);
+      return response;
+    };
+  }
+  return ctx;
+};
+
 const freePort = () => new Promise<number>((res, rej) => {
   const s = net.createServer();
   s.listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => res(p)); });
@@ -236,9 +257,19 @@ export const test = base.extend<TestOpts, WorkerOpts>({
   baseURL: async ({ server }, use) => { await use(server.base); },
   seed: ['demo', { option: true }],
   /** Fresh, deterministic state for every test: v3 reseeds its data directory, v4 boots on a wiped one. */
-  reset: [async ({ server, seed }, use) => {
-    if (server.restartV4) await server.restartV4();
-    else fixture(server, 'seed', server.at(server.dataDir), seed);
+  reset: [async ({ server, seed }, use, info) => {
+    if (server.restartV4) {
+      // D81: the boot is per test (restartV4 wipes and reboots on /readyz). Record that this test got
+      // a live app, so the harvest can count "N booted / M dead" from the report itself instead of
+      // inferring a boot from a failure that does not name one.
+      try {
+        await server.restartV4();
+      } catch (error) {
+        info.annotations.push({ type: 'v4-boot-failed', description: String(error) });
+        throw error;
+      }
+      info.annotations.push({ type: 'v4-booted', description: server.base });
+    } else fixture(server, 'seed', server.at(server.dataDir), seed);
     await use();
   }, { auto: true }],
   /** Console errors and uncaught page errors fail the test. */
@@ -280,10 +311,16 @@ export const test = base.extend<TestOpts, WorkerOpts>({
       browser.newContext = async (...args: Parameters<typeof open>) => {
         const ctx = await open(...args);
         ctx.on('response', r => { if (r.status() === 501) UNPORTED.add(new URL(r.url()).pathname); });
+        watchApi(ctx.request);
         return ctx;
       };
     }
     await use(browser);
+  },
+  page: async ({ page }, use) => {
+    // `page.request` is an APIRequestContext: its responses fire no event, so it is wrapped here.
+    if (APP === 'v4') watchApi(page.request);
+    await use(page);
   },
   app: async ({ page, server }, use, info) => { await use(new App(page, server, info)); },
   ci4Unported: [async ({}, use, info) => {

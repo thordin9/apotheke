@@ -33,12 +33,13 @@
 //
 //     node scripts/check-visual-skip-list.mjs              # the real tree
 //     node scripts/check-visual-skip-list.mjs --self-test  # only the cases
+//     node scripts/check-visual-skip-list.mjs --write-handoff  # regenerate the list in docs/HANDOFF.md (D80)
 //
 // The self-test runs first on every invocation: a check that has never failed is a promise with a
 // filename. Its cases assert the words this script prints, so a parser change that stops reading a
 // title shows up as a failed case rather than a green run.
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 
 const SEP = " › ";
@@ -444,6 +445,80 @@ export function handoffVerdict(map, handoff) {
 	return errors;
 }
 
+/**
+ * The "## CI4 Playwright skips" section, rendered from the map (D80). One carrier: the section is
+ * generated, so the count and every title follow the map instead of being retyped beside it.
+ */
+export function renderSkips(map) {
+	const keys = Object.keys(map).sort();
+	const byFile = new Map();
+	for (const key of keys) {
+		const at = key.indexOf(": ");
+		const file = at === -1 ? key : key.slice(0, at);
+		const title = at === -1 ? "" : key.slice(at + 2);
+		if (!byFile.has(file)) byFile.set(file, []);
+		byFile.get(file).push(title);
+	}
+	const lines = [
+		"## CI4 Playwright skips",
+		"",
+		`Under \`E2E_APP=v4\` these ${keys.length} tests skip: each names a page the v4 app answers 501 for, or`,
+		"needs a fixture that runs PHP (`sql`, `settings`). This section is generated from",
+		"`tests/visual/ci4-unported.json` by `node scripts/check-visual-skip-list.mjs --write-handoff`;",
+		"`skip-list:check` fails while the two disagree, so a hand edit does not survive a check (plan D80).",
+		"A key is evaluated inside the test's fixtures: a spec that shells `php` itself skips in the spec,",
+		"and a test whose v4 boot died is a defect, never a key.",
+		"",
+	];
+	for (const [file, titles] of [...byFile].sort((a, b) => a[0].localeCompare(b[0]))) {
+		lines.push(`- \`${file}\``);
+		for (const title of titles.sort()) lines.push(`  - ${title}`);
+	}
+	return `${lines.join("\n")}\n`;
+}
+
+/** The section as docs/HANDOFF.md carries it, or null when the heading is absent. */
+export function readSkips(handoff) {
+	const lines = handoff.split("\n");
+	const start = lines.findIndex((l) => l === "## CI4 Playwright skips");
+	if (start === -1) return null;
+	let end = start + 1;
+	while (end < lines.length && !lines[end].startsWith("## ")) end++;
+	return lines.slice(start, end).join("\n").replace(/\s+$/, "");
+}
+
+/**
+ * The section and the map must agree (D80): the map is generated from runs and the section from the
+ * map, so a hand edit to either is drift the check has to catch rather than a difference nobody reads.
+ */
+export function sectionVerdict(map, handoff) {
+	const carried = readSkips(handoff);
+	if (carried === null) {
+		return ['docs/HANDOFF.md: no "## CI4 Playwright skips" section, so the generated list has nowhere to live'];
+	}
+	if (carried !== renderSkips(map).replace(/\s+$/, "")) {
+		return [
+			`docs/HANDOFF.md: the "## CI4 Playwright skips" section does not match the map's ${Object.keys(map).length} key(s) - run \`node scripts/check-visual-skip-list.mjs --write-handoff\` (D80)`,
+		];
+	}
+	return [];
+}
+
+/** `--write-handoff`: replace the section with the map's rendering, and return the new file text. */
+export function writeHandoff(map, handoff) {
+	const lines = handoff.split("\n");
+	const start = lines.findIndex((l) => l === "## CI4 Playwright skips");
+	const rendered = renderSkips(map);
+	if (start === -1) {
+		return `${handoff.replace(/\s+$/, "")}\n\n${rendered}`;
+	}
+	let end = start + 1;
+	while (end < lines.length && !lines[end].startsWith("## ")) end++;
+	const before = lines.slice(0, start).join("\n").replace(/\s+$/, "");
+	const after = lines.slice(end).join("\n");
+	return after.trim() === "" ? `${before}\n\n${rendered}` : `${before}\n\n${rendered}\n${after}`;
+}
+
 function selfTest() {
 	const corpus = [
 		{
@@ -608,6 +683,39 @@ function selfTest() {
 			true,
 		],
 		[
+			"the generated section is exactly what the check reads back (D80)",
+			readSkips(`intro\n\n${renderSkips({ "a.spec.ts": "v4 answers 501 for /x" })}\n## Next\n`) ===
+				renderSkips({ "a.spec.ts": "v4 answers 501 for /x" }).replace(/\s+$/, ""),
+			true,
+		],
+		[
+			"a section whose key count drifted from the map is a finding",
+			sectionVerdict(
+				{ "a.spec.ts: one": "v4 answers 501 for /x", "a.spec.ts: two": "v4 answers 501 for /y" },
+				renderSkips({ "a.spec.ts: one": "v4 answers 501 for /x" }),
+			).some((e) => e.includes("does not match the map")),
+			true,
+		],
+		[
+			"a hand-edited title cannot pass, even with the right count",
+			sectionVerdict(
+				{ "a.spec.ts": "v4 answers 501 for /x" },
+				renderSkips({ "b.spec.ts": "v4 answers 501 for /x" }),
+			).some((e) => e.includes("does not match the map")),
+			true,
+		],
+		[
+			"a hand-off with no section is a finding, not a silent pass",
+			sectionVerdict({}, "no section here\n").some((e) => e.includes('no "## CI4 Playwright skips" section')),
+			true,
+		],
+		[
+			"writing regenerates the section and leaves the rest of the file alone",
+			writeHandoff({ "a.spec.ts": "v4 answers 501 for /x" }, "- CI4 Playwright: the list.\n\n## CI4 Playwright skips\n\n- `b.spec.ts`\n  - gone\n\n## Database\nkeep me\n")
+				=== "- CI4 Playwright: the list.\n\n" + renderSkips({ "a.spec.ts": "v4 answers 501 for /x" }) + "\n## Database\nkeep me\n",
+			true,
+		],
+		[
 			"a recorded dynamic title no key uses is stale",
 			verdict(
 				{},
@@ -654,6 +762,15 @@ function main(argv) {
 	}
 	const corpus = specs.map((name) => ({ name, text: readFileSync(path.join(dir, name), "utf8") }));
 	const map = JSON.parse(readFileSync(mapPath, "utf8"));
+	if (argv.includes("--write-handoff")) {
+		// D80: the list in docs/HANDOFF.md is generated from the map, never retyped beside it.
+		const doc = path.join(root, "docs/HANDOFF.md");
+		writeFileSync(doc, writeHandoff(map, readFileSync(doc, "utf8")));
+		console.log(
+			`skip-list:check: wrote the "## CI4 Playwright skips" section for ${Object.keys(map).length} key(s)`,
+		);
+		return;
+	}
 	const { errors, tests, keys } = verdict(map, corpus);
 	// The map is a v4 skip list. Under v3 the same tests own the rendered baselines, so an
 	// ungated lookup would silence every listed test in every v3 run - and nothing runs
@@ -670,7 +787,10 @@ function main(argv) {
 	if (!existsSync(handoffPath)) {
 		errors.push("docs/HANDOFF.md is missing, so no skipped page can be listed there");
 	} else {
-		errors.push(...handoffVerdict(map, readFileSync(handoffPath, "utf8")));
+		const handoffText = readFileSync(handoffPath, "utf8");
+		errors.push(...handoffVerdict(map, handoffText));
+		// D80: the section is generated from the map; a hand edit to either is drift, not a choice.
+		errors.push(...sectionVerdict(map, handoffText));
 	}
 	for (const e of UNRESOLVABLE) {
 		if (!corpus.some((f) => f.name === e.file)) {
