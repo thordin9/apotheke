@@ -60,10 +60,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   somewhere in this file — `v4: npm run skip-list:check` fails a key whose page is not named there, and
   fails this bullet if it still claims the list has no keys once one exists, so a skip cannot leave
   this sentence behind. The skipped tests, with their count, are listed under
-  [CI4 Playwright skips](#ci4-playwright-skips), a section generated from the map. `v4: npm run
-  visual-boot:check` is **not** one of the six local gates (plan §6, D30): it boots workerd, so it
-  runs only in CI's `workerd-smoke` job (`v4.yml:127`), and a green local run says nothing about it —
-  one red commit (`45694333366` → `82f9d2db`) is what that gap cost.
+  [CI4 Playwright skips](#ci4-playwright-skips), a section generated from the map.
 
 ## CI4 Playwright skips
 
