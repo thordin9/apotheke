@@ -1,10 +1,20 @@
 name: Update visual snapshots
 
-# Renders the Playwright baselines in the same container as the CI "e2e" job and uploads them as the
-# "snapshots" artifact. Trigger it by adding the label "update-snapshots" to a PR (or manually from main),
-# then fetch the files with:  scripts/update-snapshots.sh --from-ci <run id>
+# Fallback copy for the D53 re-baseline. Two changes from main's file, both forced by evidence:
+#   1. job timeout 40 -> 120 minutes: the render is 810 tests, not 512 (8 projects plus pgsql-smoke),
+#      and the first real dispatch was cancelled at 16:47:12 after 39:09 of rendering.
+#   2. the "Install the runtime (intl, Composer, vendor)" step: main's file has none, so `vendor/`
+#      never exists and every test fails "app server did not start" after waitUp's 30 s. That is why
+#      the first dispatch produced 810 failures in 39 minutes and re-rendered nothing.
+# The step is copied from .github/workflows/ci.yml's working "e2e" job; the app is main's.
+
 on:
   workflow_dispatch:
+    inputs:
+      extra_args:
+        description: 'Extra Playwright args, e.g. --project=desktop-chromium visual-login.spec.ts'
+        required: false
+        default: ''
   pull_request:
     types: [labeled]
 
@@ -15,7 +25,7 @@ jobs:
   update-snapshots:
     if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'update-snapshots'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 120
     container:
       image: mcr.microsoft.com/playwright:v1.65.1-noble
       options: --ipc=host
@@ -35,10 +45,19 @@ jobs:
       TEST_PG_PASSWORD: apotheke
     steps:
       - uses: actions/checkout@v7
-      - run: scripts/e2e-container-setup.sh
+      - run: scripts/e2e-container-setup.sh 8.4
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install the runtime (intl, Composer, vendor)
+        run: |
+          # PHP 8.4: the app does not boot under 8.3 (measured: two 8.3 renders, 810 failures each, "app server did not start"; the same file with 8.4 passes). The prebuilt PHP has intl; only the ppa:ondrej/php fallback needs the package.
+          php -m | grep -qix intl || scripts/ci-apt.sh install --no-install-recommends php8.4-intl >/dev/null
+          # shellcheck disable=SC2016 # PHP code, expanded by php
+          php -r '$f = "/usr/local/bin/composer"; copy("https://getcomposer.org/download/2.10.3/composer.phar", $f);
+            if (hash_file("sha256", $f) !== "7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6") { unlink($f); fwrite(STDERR, "composer.phar checksum mismatch\n"); exit(1); }
+            chmod($f, 0755);'
+          composer install --no-interaction --no-progress --prefer-dist --no-dev
       - name: Render baselines
-        run: npx playwright test --update-snapshots=all --retries=0 --workers=3
+        run: npx playwright test --update-snapshots=all --retries=0 --workers=3 ${{ inputs.extra_args }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:
