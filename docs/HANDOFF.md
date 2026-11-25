@@ -54,5 +54,6 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   [Deployment and operations](deployment-and-operations.md), [Operator console](operator-console.md),
   [Workers migration plan](future/workers-migration-plan.md) (a future option, not scheduled).
 - CI4 Playwright: the `CI4_UNPORTED` skip list (`tests/visual/ci4-unported.json`, read by
-  `tests/visual/fixtures.ts`) is empty. Every key must name its page on this line — `v4: npm run
-  skip-list:check` fails a key whose page is not named here, so a skip cannot leave this sentence behind.
+  `tests/visual/fixtures.ts`) is empty. Every key must name its page somewhere in this file — `v4: npm run
+  skip-list:check` fails a key whose page is not named there, and fails this bullet if it still claims the
+  list has no keys once one exists, so a skip cannot leave this sentence behind.

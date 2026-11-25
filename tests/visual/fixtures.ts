@@ -1,5 +1,6 @@
 import { test as base, expect, Page, TestInfo } from '@playwright/test';
 import { spawn, execFileSync } from 'node:child_process';
+import { startV4 } from './v4-server.cjs';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -10,8 +11,13 @@ export const ROOT = path.resolve(__dirname, '../..');
 export const CLOCK = '2026-06-15 09:00:00';
 
 /**
- * The app under test. By default `php -S` on the host; with E2E_DOCKER_IMAGE=<image> the real container
- * (nginx + php-fpm) instead, with the repo mounted read-only at /repo so seed/SQL helpers run inside it.
+ * The app under test. `php -S` on the host by default; with E2E_DOCKER_IMAGE=<image> the real container
+ * (nginx + php-fpm) instead, with the repo mounted read-only at /repo so seed/SQL helpers run inside it;
+ * with E2E_APP=v4, v4 on workerd (G1's boot seam - see ./v4-server.cjs and v4/scripts/check-visual-boot.mjs).
+ *
+ * v4 is opt-in and not yet the default: v4 serves `/login` and the sign-in chain today and answers 501
+ * for every page a slice has not ported, so a suite booted against it would skip almost every test -
+ * a green run over nothing. The default flips with the map that names those pages, not before it.
  */
 type Server = {
   base: string; dataDir: string; filesDir: string; env: NodeJS.ProcessEnv;
@@ -21,6 +27,8 @@ type Server = {
   at: (p: string) => string;
 };
 export const DOCKER_IMAGE = process.env.E2E_DOCKER_IMAGE || '';
+/** Which app the harness boots: `php` (v3, the default), `v4` (workerd), or the Docker image above. */
+export const APP = process.env.E2E_APP === 'v4' ? 'v4' : 'php';
 type WorkerOpts = { appPassword: string; dbDriver: 'sqlite' | 'pgsql'; publicUrl: string; server: Server };
 type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: App; ci4Unported: void };
 
@@ -49,8 +57,20 @@ async function waitUp(base: string) {
   throw new Error('app server did not start at ' + base);
 }
 
-/** Fixture work through the app's own code: tests/visual/ci4-fixtures.php. */
+/**
+ * Fixture work through the app's own code: tests/visual/ci4-fixtures.php.
+ *
+ * Under E2E_APP=v4 it refuses rather than answering: ci4-fixtures.php writes the PHP app's `DATA_DIR`,
+ * which v4 never reads, so a silent success here would be a fixture that seeds nothing. v4's own
+ * migrate+seed phase runs at boot (`/readyz`), which `startV4` awaits; the catalog fixtures the v3
+ * suite uses per test are G1's next step and do not exist on v4 yet.
+ */
 function fixture(server: Server, op: 'seed' | 'sql' | 'exec' | 'migrate' | 'default-category' | 'settings', ...args: string[]): Buffer {
+  if (APP === 'v4') {
+    throw new Error(`the visual harness's \`${op}\` fixture still writes the PHP app's data directory `
+      + '(tests/visual/ci4-fixtures.php); it has no v4 equivalent yet, so E2E_APP=v4 passes G1\'s boot seam '
+      + 'and not its seeding step.');
+  }
   return server.php([server.at(path.join(ROOT, 'tests/visual/ci4-fixtures.php')), op, ...args]);
 }
 
@@ -127,7 +147,15 @@ export const test = base.extend<TestOpts, WorkerOpts>({
     let log = '';
     const collect = (d: Buffer) => { log += d; if (log.length > 200_000) log = log.slice(-100_000); };
     let server: Server, stop: () => void;
-    if (DOCKER_IMAGE) {
+    if (APP === 'v4') {
+      // G1's boot seam. `startV4` is the module v4/scripts/check-visual-boot.mjs boots on every push,
+      // so this branch is exercised by CI even though no workflow runs Playwright: what it proves here
+      // is that the harness starts v4 and no `php -S`, and what it does not prove is a rendered page.
+      const v4 = await startV4({ dataDir, env: appEnv, log: (chunk: string) => collect(Buffer.from(chunk)) });
+      server = { base: v4.base, dataDir, filesDir, env: appEnv, at: (p: string) => p,
+        php: (args: string[]) => execFileSync('php', args, { env: appEnv }) };
+      stop = v4.stop;   // stops the process group, so workerd does not outlive wrangler
+    } else if (DOCKER_IMAGE) {
       const name = `apotheke-pw-${workerInfo.workerIndex}-${process.pid}`;
       const env = { ...appEnv, DATA_DIR: '/data', ALLOW_NO_LOGIN: '1' };   // start like php -S: sign-in off unless a test turns it on
       const e = Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
@@ -153,8 +181,10 @@ export const test = base.extend<TestOpts, WorkerOpts>({
       server = { base: `http://127.0.0.1:${port}`, dataDir, filesDir, env, at: p => p, php: args => execFileSync('php', args, { env }) };
       stop = () => { proc.kill(); };
     }
-    await waitUp(server.base);   // first: in Docker the entrypoint must have prepared /data
-    fixture(server, 'seed', server.at(dataDir), 'empty');
+    if (APP !== 'v4') {
+      await waitUp(server.base);   // first: in Docker the entrypoint must have prepared /data
+      fixture(server, 'seed', server.at(dataDir), 'empty');
+    }   // v4: startV4 resolved on /readyz, which is the app's own migration and seed phase
     await use(server);
     stop();
     if (/\[apotheke\]|PHP (Fatal|Warning|Notice|Deprecated)/.test(log)) console.error('server log:\n' + log.split('\n').filter(l => /apotheke|PHP /.test(l)).join('\n'));

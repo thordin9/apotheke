@@ -21,7 +21,8 @@
     "format": "biome check --write .",
     "workflows:check": "node scripts/check-workflows-php-free.mjs",
     "ledger:check": "node scripts/check-php-ledger.mjs",
-    "skip-list:check": "node scripts/check-visual-skip-list.mjs"
+    "skip-list:check": "node scripts/check-visual-skip-list.mjs",
+    "visual-boot:check": "node scripts/check-visual-boot.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",
