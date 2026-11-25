@@ -9,6 +9,7 @@ import { runMigrations, seedState } from "../src/db/migration-runner";
 import { type Sql, statement } from "../src/db/sql";
 import { loadConfig } from "../src/platform/config";
 import { prepareInstallation, problem, readinessResponse } from "../src/readiness";
+import { SLOW_TEST_MS } from "./helpers/deadline";
 import { resetSchema } from "./helpers/schema";
 
 const sqlite = (name: string): Sql =>
@@ -47,23 +48,29 @@ describe("the readiness answer", () => {
 		return sql;
 	};
 
-	it("is 200 with a reason to be, and 503 problem+json when the seed refuses", async () => {
-		const ready = await prepareInstallation(await fresh("readiness"), config, "2026-11-23 12:00:00");
-		expect(ready).toEqual({ ok: true, schema: "0036", seed: "done" });
-		expect(readinessResponse(ready, "sqlite").status).toBe(200);
+	it(
+		"is 200 with a reason to be, and 503 problem+json when the seed refuses",
+		async () => {
+			const ready = await prepareInstallation(await fresh("readiness"), config, "2026-11-23 12:00:00");
+			expect(ready).toEqual({ ok: true, schema: "0036", seed: "done" });
+			expect(readinessResponse(ready, "sqlite").status).toBe(200);
 
-		const refused = await prepareInstallation(
-			await fresh("readiness-refused"),
-			loadConfig({ APP_PASSWORD: "short" }),
-			"2026-11-23 12:00:00",
-		);
-		expect(refused).toMatchObject({ ok: false, code: "seed.refused" });
+			const refused = await prepareInstallation(
+				await fresh("readiness-refused"),
+				loadConfig({ APP_PASSWORD: "short" }),
+				"2026-11-23 12:00:00",
+			);
+			expect(refused).toMatchObject({ ok: false, code: "seed.refused" });
 
-		const res = readinessResponse(refused, "sqlite");
-		expect(res.status).toBe(503);
-		expect(res.headers.get("content-type")).toContain("application/problem+json");
-		expect(await res.json()).toMatchObject({ status: 503, title: "seed.refused" });
-	});
+			const res = readinessResponse(refused, "sqlite");
+			expect(res.status).toBe(503);
+			expect(res.headers.get("content-type")).toContain("application/problem+json");
+			expect(await res.json()).toMatchObject({ status: 503, title: "seed.refused" });
+			// Two fresh installations, each the 36-migration chain plus the seed: 5069 ms on CI's
+			// runner (run 45578984620 attempt 1, against the default 5 s), 1709 ms here.
+		},
+		SLOW_TEST_MS,
+	);
 
 	it("refuses a database newer than the code, never downgrades it", async () => {
 		const sql = await fresh("readiness-newer");

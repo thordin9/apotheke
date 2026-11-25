@@ -22,6 +22,7 @@ import { CONSENT_COOKIE } from "../../src/session/consent";
 import { newToken } from "../../src/session/csrf";
 import { openSession } from "../../src/session/request";
 import { sessionKey, writeSession } from "../../src/session/store";
+import { SLOW_TEST_MS } from "../helpers/deadline";
 import { TEST_LOGIN, TEST_PAGE } from "../helpers/page";
 
 const NOW = 1_764_000_000;
@@ -321,28 +322,34 @@ describe("POST /login", () => {
 		expect(answer.status, answer.body.slice(0, 200)).toBe(303);
 	});
 
-	it("counts by address and account, so a fresh session does not reset it (D21)", async () => {
-		for (let attempt = 0; attempt < 10; attempt += 1) {
-			const answer = await submit({ username: "Ada", password: "nope" });
-			expect(answer.status, `attempt ${attempt + 1}`).toBe(401);
-		}
-		// The eleventh is over the limit: 10 per 900 s, recorded before it is counted.
-		const refused = await submit({ username: "Ada", password: "nope" });
-		expect(refused.status, refused.body.slice(0, 200)).toBe(429);
-		expect(refused.headers.get("retry-after")).toBe("900");
-		// A brand-new session is free to mint, which is exactly why the counter does not hang off one.
-		const fresh = await anonymousSession(sql);
-		const again = await send(
-			sql,
-			"/login",
-			post(`${CONSENTED}; apothekesid=${fresh.id}`, {
-				username: "Ada",
-				password: "nope",
-				csrf: fresh.token,
-			}),
-		);
-		expect(again.status, again.body.slice(0, 200)).toBe(429);
-	});
+	it(
+		"counts by address and account, so a fresh session does not reset it (D21)",
+		async () => {
+			for (let attempt = 0; attempt < 10; attempt += 1) {
+				const answer = await submit({ username: "Ada", password: "nope" });
+				expect(answer.status, `attempt ${attempt + 1}`).toBe(401);
+			}
+			// The eleventh is over the limit: 10 per 900 s, recorded before it is counted.
+			const refused = await submit({ username: "Ada", password: "nope" });
+			expect(refused.status, refused.body.slice(0, 200)).toBe(429);
+			expect(refused.headers.get("retry-after")).toBe("900");
+			// A brand-new session is free to mint, which is exactly why the counter does not hang off one.
+			const fresh = await anonymousSession(sql);
+			const again = await send(
+				sql,
+				"/login",
+				post(`${CONSENTED}; apothekesid=${fresh.id}`, {
+					username: "Ada",
+					password: "nope",
+					csrf: fresh.token,
+				}),
+			);
+			expect(again.status, again.body.slice(0, 200)).toBe(429);
+			// Eleven bcrypt verifies at PHP's default cost plus two sign-ins: 3284 ms on CI's
+			// runner, 3654 ms here.
+		},
+		SLOW_TEST_MS,
+	);
 
 	it("stops authenticating a pre-rotation session once the epoch moves, and destroys its row", async () => {
 		const signed = await submit({ username: "Ada", password: PASSWORD });

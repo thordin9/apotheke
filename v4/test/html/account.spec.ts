@@ -35,6 +35,7 @@ import { openSession } from "../../src/session/request";
 import { sessionKey } from "../../src/session/store";
 import { readPageData } from "../../src/settings";
 import fixtureJson from "../fixtures/php-account.json";
+import { SLOW_TEST_MS } from "../helpers/deadline";
 
 const NOW = 1_764_000_000;
 const STEP_SECONDS = 60;
@@ -472,28 +473,32 @@ describe("the /account page against v3's answers", () => {
 		expect(admin.body).toContain('id="menu-settings"');
 	});
 
-	it("the current-password check is throttled exactly as a sign-in is", async () => {
-		const step = byName("lockme_rateLimited");
-		await applySetup(step);
-		await expectStep("login_lockme");
-		await expectStep("login_lockme_post");
-		await expectStep("lockme_page");
-		// The ten attempts the capture made before its eleventh, replayed on the same jar.
-		for (let attempt = 0; attempt < 10; attempt += 1) {
+	it(
+		"the current-password check is throttled exactly as a sign-in is",
+		async () => {
+			const step = byName("lockme_rateLimited");
+			await applySetup(step);
+			await expectStep("login_lockme");
+			await expectStep("login_lockme_post");
+			await expectStep("lockme_page");
+			// The ten attempts the capture made before its eleventh, replayed on the same jar.
+			for (let attempt = 0; attempt < 10; attempt += 1) {
+				clock += STEP_SECONDS;
+				await send(sql, jars.e, { ...step, setup: [] }, clock);
+			}
 			clock += STEP_SECONDS;
-			await send(sql, jars.e, { ...step, setup: [] }, clock);
-		}
-		clock += STEP_SECONDS;
-		const sent = await send(sql, jars.e, { ...step, setup: [] }, clock);
-		expect(sent.answer.status).toBe(429);
-		// v4's addition on top of v3's status: the window as `Retry-After` (D21).
-		expect(sent.answer.headers["retry-after"]).toBe("900");
-		expect(sent.answer.body).toContain(
-			'id="acct-err">Too many attempts for this account from this address – please wait 15 minutes and try again.</div>',
-		);
-		// Eleven password checks at bcrypt's default cost plus two sign-ins: 4 s on this box, and over
-		// the default 5 s on CI's runners, where the first landing of this spec timed out.
-	}, 60_000);
+			const sent = await send(sql, jars.e, { ...step, setup: [] }, clock);
+			expect(sent.answer.status).toBe(429);
+			// v4's addition on top of v3's status: the window as `Retry-After` (D21).
+			expect(sent.answer.headers["retry-after"]).toBe("900");
+			expect(sent.answer.body).toContain(
+				'id="acct-err">Too many attempts for this account from this address – please wait 15 minutes and try again.</div>',
+			);
+			// Eleven password checks at bcrypt's default cost plus two sign-ins: 4 s on this box, and over
+			// the default 5 s on CI's runners, where the first landing of this spec timed out.
+		},
+		SLOW_TEST_MS,
+	);
 
 	it("the fixture holds the sources and answers it was generated from", () => {
 		expect(Object.keys(fixture.sources)).toHaveLength(20);

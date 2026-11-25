@@ -24,6 +24,7 @@ import { ROUTES } from "../../src/http/routes.generated";
 // moves a `pathname` comparison out of the entry carries this `?raw` target with it.
 // @ts-expect-error Vite's `?raw` suffix has no type declaration for this import
 import workerSource from "../../src/index.ts?raw";
+import { SLOW_TEST_MS } from "../helpers/deadline";
 import { samplePath } from "../helpers/paths";
 
 /** Not `PUBLIC_URL`'s host and not a local name, so `hostcheck` refuses it. */
@@ -49,25 +50,29 @@ describe("the probe bypass", () => {
 		expect([200, 503]).toContain(res.status);
 	});
 
-	it("leaves every route in the table to the chain, so nothing else bypasses", async () => {
-		const bypassing: string[] = [];
-		for (const route of ROUTES) {
-			if (UNCONSTRUCTABLE.has(route.method)) {
-				continue;
+	it(
+		"leaves every route in the table to the chain, so nothing else bypasses",
+		async () => {
+			const bypassing: string[] = [];
+			for (const route of ROUTES) {
+				if (UNCONSTRUCTABLE.has(route.method)) {
+					continue;
+				}
+				const path = `/${samplePath(route.path)}`;
+				// `/healthz` is both a probe and a row in the table (v3 declares it); it is the one route
+				// whose request legitimately never reaches the chain.
+				if ((PROBE_PATHS as readonly string[]).includes(path)) {
+					continue;
+				}
+				const res = await SELF.fetch(`${REJECTED}${path}`, { method: route.method });
+				if (res.status !== 421) {
+					bypassing.push(`${route.method} ${path} → ${res.status}`);
+				}
 			}
-			const path = `/${samplePath(route.path)}`;
-			// `/healthz` is both a probe and a row in the table (v3 declares it); it is the one route
-			// whose request legitimately never reaches the chain.
-			if ((PROBE_PATHS as readonly string[]).includes(path)) {
-				continue;
-			}
-			const res = await SELF.fetch(`${REJECTED}${path}`, { method: route.method });
-			if (res.status !== 421) {
-				bypassing.push(`${route.method} ${path} → ${res.status}`);
-			}
-		}
-		expect(bypassing).toEqual([]);
-	}, 60_000);
+			expect(bypassing).toEqual([]);
+		},
+		SLOW_TEST_MS,
+	);
 
 	it("compares the path against nothing but the two probe constants", () => {
 		const comparisons = [

@@ -17,6 +17,7 @@ import type { Sql } from "../src/db/sql";
 import { loadConfig } from "../src/platform/config";
 import { verifyPassword } from "../src/platform/passwords";
 import fixture from "./fixtures/php-v4.0.0-schema.json";
+import { SLOW_TEST_MS } from "./helpers/deadline";
 import { resetSchema } from "./helpers/schema";
 
 const CLOCK = "2026-11-23 12:00:00";
@@ -59,12 +60,18 @@ describe("row parity with the PHP seed (G0, rows)", () => {
 		await resetSchema(sqlite("seed-parity"));
 	});
 
-	it("writes the same 64 settings rows PHP writes, on D1", async () => {
-		const sql = d1();
-		await seedFresh(sql);
+	it(
+		"writes the same 64 settings rows PHP writes, on D1",
+		async () => {
+			const sql = d1();
+			await seedFresh(sql);
 
-		expect(await readSettings(sql)).toEqual(fixture.seed_rows.settings);
-	});
+			expect(await readSettings(sql)).toEqual(fixture.seed_rows.settings);
+			// A full install on the emulated binding: 4683 ms on CI's runner, within 7% of the
+			// default 5 s, and 1226 ms here.
+		},
+		SLOW_TEST_MS,
+	);
 
 	it("writes the same 64 settings rows PHP writes, on local DO SQLite", async () => {
 		const sql = sqlite("seed-parity");
