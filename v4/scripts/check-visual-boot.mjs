@@ -93,6 +93,17 @@ const SELFTEST = [
 		ok: () => v4Args({ port: 8791, persist: "/tmp/x", env: {} }).join(" ").includes("--port 8791"),
 	},
 	{
+		name: "the seam lets the inspector port be chosen, so concurrent boots do not collide",
+		ok: () => {
+			// Measured at the seam, not assumed: four boots started together survived 1/3 and 2/4 without
+			// this word and 4/4 with it, and four staggered by 6 s always survived. The loser's message
+			// (`Address already in use (socket "direct:1:default")`) names the inspector proxy, not the app.
+			const args = v4Args(SAMPLE);
+			const at = args.indexOf("--inspector-port");
+			return at !== -1 && args[at + 1] === "0";
+		},
+	},
+	{
 		name: "the harness reseeds v4 through the seam (reset calls restartV4 before the php seed)",
 		ok: () => {
 			if (!existsSync(HARNESS)) return false;

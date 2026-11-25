@@ -77,6 +77,13 @@ const v4Args = ({ port, persist, env }) => [
 	'--persist-to', persist,
 	'--log-level', 'warn',
 	'--show-interactive-dev-session=false',
+	// Playwright runs one worker per CPU, and every boot here is the same worker name. The inspector
+	// port is not per-boot by default: two boots starting within the same second both ask for it, and
+	// the loser dies with `Address already in use (socket "direct:1:default")` before the app is
+	// ever reached - a boot failure that reads like a v4 defect. Measured: 4 concurrent boots, 1/3
+	// and 2/4 surviving without this; 4/4 with it, and 4/4 staggered by 6 s. Nothing inspects the
+	// boot, so let the port be chosen.
+	'--inspector-port', '0',
 	...v4Vars(env),
 ];
 
