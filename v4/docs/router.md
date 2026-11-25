@@ -77,6 +77,8 @@ Two consequences worth knowing:
 | Route with no permission recorded | 403 problem+json | `permission.denied` |
 | Unsafe write without the session's token (S1.3) | 419: v3's error page, or `{"ok":false,…}` for a fetch | — (`CsrfCheck`) |
 | Unsafe write from another site | 403 problem+json | `origin.refused` |
+| Unsafe `/api` write without the session's token, or from another origin, or with `Sec-Fetch-Site` naming one (S1.4) | 403 problem+json, `The request was refused: reload and try again.` | `csrf.invalid` (`ApiCsrf`) |
+| Unsafe `/api` write whose body is not JSON or multipart | 415 problem+json | `unsupported_media_type` |
 | Unknown Host | 421 `text/plain`, legacy's text | — |
 | Path no route serves (page) | 404, the app's error page | — |
 | Path no route serves (under `/api`) | 404 problem+json | `not_found` |
@@ -90,12 +92,14 @@ Two consequences worth knowing:
 
 The 2xx answers are the page routes — `/login` (GET and HEAD) and, on a hosted install, `/claim` —
 plus, since S1.3, `GET /settings/security` for a role that has the `users` permission, and the CORS
-preflight (204, which carries no data and needs no session). `test/http/router.spec.ts` turns **every
-row** of the table into a request and asserts both: the answer is one of the above, and the 2xx rows
-of that sweep are exactly `/login` — a route that starts answering 200 without being in that list
-fails the test. The sweep signs nobody in, so `/settings/security` answers its 303 there and its 200
-is proved by `test/http/security.spec.ts` instead. It runs with `APOTHEKE_HOSTED` unset, so `/claim`
-is the 404 below, not a 2xx.
+preflight (204, which carries no data and needs no session), and since S1.4 `GET /api/v1/session`,
+which answers a visitor who has no session with `signed_in: false` and an empty token. That is the
+one conditional 2xx under `/api`: its writes are refused by the consent filter, and `/api/v1/me` by
+the `self` permission. `test/http/router.spec.ts` turns **every row** of the table into a request and
+asserts both: the answer is one of the above, and the 2xx rows of that sweep are exactly that list —
+a route that starts answering 200 without being in it fails the test. The sweep signs nobody in, so
+`/settings/security` answers its 303 there and its 200 is proved by `test/http/security.spec.ts`
+instead. It runs with `APOTHEKE_HOSTED` unset, so `/claim` is the 404 below, not a 2xx.
 
 `problem+json` is the PHP app's shape (`ApiResponse::problem()`): `type` is `about:blank`, `title` is
 the HTTP reason phrase, `status`, `detail` for a human, and `code` for a client to match on.
@@ -108,13 +112,11 @@ on `/api` (CSP `default-src 'none'`, `no-store`, HSTS only when `PUBLIC_URL` is 
 
 ## What is deferred, and why it is still closed
 
-`DEFERRED` in `filters.ts`, asserted by name in the tests:
+`DEFERRED` in `filters.ts`, asserted by name in the tests. `session`, `consent` and `apicsrf` left
+this table in S1.2 and S1.4 (they decide for real now; this paragraph said otherwise until then):
 
 | Filter | Why not yet | What keeps it closed |
 |---|---|---|
-| `session` | the session store is P1 | it records "no identity", and `permission` refuses every route that needs one |
-| `apicsrf` | Origin + token need the session | an unsafe `/api` write is refused (403) |
-| `consent` | the consent cookie arrives with the session layer | the writes it would refuse are refused first (401/403) |
 | `formfields` | a validation rule, not an access decision | the writes it would 422 are refused before it |
 | `harness` | marks a PHPUnit request in the PHP process | nothing to read in a Worker, and nothing to allow |
 | `opsbackup`, `opsaccounts` | the hosted operator console is C2 | the `/internal` paths they own answer 501 rather than pass |
@@ -139,11 +141,21 @@ then:
 - **`/healthz` and `/readyz` are answered before the chain**, in `src/index.ts`. `/healthz` is the
   container probe (§11 rule 7) and must answer 200 whatever a filter thinks of the Host header; the
   legacy `/health` alias goes through the chain like any other route.
-- **Every unsafe `/api` write is refused with 403 so far**, because the Origin/token rules the API's
-  CSRF check needs are part of the session contract (P1). It is a refusal, not a bypass. The page
-  routes' own POSTs — `/login`, `/logout`, `/consent`, `/claim`, `/settings/users…`,
-  `/settings/roles…` — are not `/api` writes and answer as their handlers do above; `/login` has
-  signed in since S1.2.
+- **The four `/api/v1` session routes answer (S1.4).** `GET /api/v1/session`, `POST`, `DELETE` and
+  `GET /api/v1/me` are `SessionController`'s, ported: the same `attemptSignIn()` as `/login` (one
+  implementation, because v3 has one), the same cookie session, and the API's own CSRF rule
+  (`ApiCsrf`): same-origin, a JSON body, and the token in `X-CSRF-Token`. Their answers are compared
+  byte for byte — status, the pinned headers and the JSON — against `test/fixtures/php-api.json`,
+  which `scripts/gen-api-fixture.sh` captures from the PHP app's own routes, and the bodies are also
+  checked against `docs/api/openapi.yaml`. Two named differences from v3 on this surface:
+  `CORS_ALLOWED_ORIGINS` is not in the Worker's environment contract (§11), so only the app's own
+  origin and `PUBLIC_URL`'s are accepted; and the Worker sends no `Expires`/`Pragma` headers, which
+  PHP sends because `session_start()` runs.
+- **The failed sign-in is paced** (`SignInPace`, S1.4): every wrong name or password answers at
+  v3's deadline (1000 ms, clamped to 400–10000), on `/login` and on `POST /api/v1/session`, so the
+  answer time does not say whether an account exists. The wait is an `await`ed timer, not a blocking
+  sleep: it costs wall time, not CPU time. A pending account still answers at once, as v3 does,
+  because its password was right.
 - **The Users & sign-in page answers, and so does its users half (S1.3).** `GET /settings/security`
   renders `SecurityView::page()` for a role with `users`, and `POST /settings/users…` creates, changes,
   approves, renames and deletes accounts. A refusal re-renders *that page* with v3's message and v3's

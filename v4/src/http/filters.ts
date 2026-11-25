@@ -11,7 +11,8 @@
 //                 route that needs one. It never invents a user.
 //   sessioncsrf   real since S1.3: the token lives in the session, the body is parsed before the
 //                 chain, and a request without the token answers v3's 419.
-//   apicsrf      the same for /api's Origin + token check.
+//   apicsrf      /api's own CSRF rule (`ApiCsrf`): same-origin (or an allowed CORS origin), a JSON
+//                body type, and the token in X-CSRF-Token — real since S1.4.
 //   consent      the cookie contract arrives with sessions (P1); the writes it would refuse are
 //                 refused by `permission` (401) and `sessioncsrf` (419) or `apicsrf` (403) first.
 //   formfields   a validation rule, not an access decision; the writes it would 422 are refused first.
@@ -25,7 +26,7 @@ import { type Actor, refusal as permissionRefusal, SIGN_IN } from "../auth/permi
 import type { PageSettings } from "../html/page";
 import { errorPage } from "../html/views";
 import { CONSENT_CODE, CONSENT_MESSAGE, CONSENT_STATUS, consentNeeded } from "../session/consent";
-import { CSRF_MESSAGE, CSRF_STATUS, csrfPasses } from "../session/csrf";
+import { CSRF_MESSAGE, CSRF_STATUS, csrfApplies, csrfPasses } from "../session/csrf";
 import type { SessionRequest } from "../session/request";
 import type { Identity } from "../session/store";
 import type { FormPost } from "./form";
@@ -405,6 +406,18 @@ const ownOrigins = (ctx: Ctx): readonly string[] => {
 	return origins.map((origin) => origin.toLowerCase().replace(/\/+$/, ""));
 };
 
+/**
+ * `SameOrigin::normalise()`: lower case, no trailing `/`, and one trailing dot of the host dropped
+ * (`example.test.` is `example.test`). The page's own check lower-cases the header and stops there,
+ * which is why this lives beside it rather than inside it.
+ */
+const normaliseOrigin = (origin: string): string =>
+	origin
+		.trim()
+		.toLowerCase()
+		.replace(/\/+$/, "")
+		.replace(/^([a-z][a-z0-9+.-]*:\/\/[^/:[\]]+)\.(:\d+)?$/, "$1$2");
+
 /** The origin of a `Referer`, or "" when there is none. */
 const refererOrigin = (referer: string): string => {
 	if (referer.trim() === "") {
@@ -566,21 +579,54 @@ const formfields: Filter = {
 		"a validation rule, not an access decision; the writes it would 422 are refused before it (P1/P2)",
 };
 
-const apicsrf: Filter = {
-	before: (ctx) => {
-		if (isSafe(ctx.request.method)) {
-			return null;
-		}
+/**
+ * `ApiCsrf::DETAIL`: one sentence for every refusal on this surface, as v3 sends it.
+ */
+export const API_CSRF_DETAIL = "The request was refused: reload and try again.";
+
+/** `ApiCsrf::refusal()`, with the body-type half v3 answers as 415. */
+const apiCsrfRefusal = (ctx: Ctx): Response | null => {
+	const method = ctx.request.method.toUpperCase();
+	if (!csrfApplies(method) || method === "OPTIONS") {
+		return null;
+	}
+	const refuse = (): Response => problem(ctx.path, ctx.config.https, 403, "csrf.invalid", API_CSRF_DETAIL);
+
+	// `Sec-Fetch-Site`, when the browser sends it: same-origin or same-site only.
+	const site = (ctx.request.headers.get("sec-fetch-site") ?? "").trim().toLowerCase();
+	if (site !== "" && site !== "same-origin" && site !== "same-site") {
+		return refuse();
+	}
+	// `Origin` is required here (unlike the pages, where its absence leaves the token to decide):
+	// it must be this request's own origin or `PUBLIC_URL`'s. `CORS_ALLOWED_ORIGINS` is not in v4's
+	// environment contract (§11), so the list is empty and no third origin is allowed.
+	const origin = normaliseOrigin(ctx.request.headers.get("origin") ?? "");
+	if (origin === "" || !ownOrigins(ctx).includes(origin)) {
+		return refuse();
+	}
+	// A body must be JSON, or multipart for a file: v3 answers 415 rather than 403, so a client that
+	// sent a form body learns which rule it broke.
+	const type = (ctx.request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+	const hasBody =
+		contentLength(ctx.request) > 0 || (ctx.request.headers.get("transfer-encoding") ?? "").trim() !== "";
+	if ((hasBody || type !== "") && type !== "application/json" && type !== "multipart/form-data") {
 		return problem(
 			ctx.path,
 			ctx.config.https,
-			403,
-			"csrf.unavailable",
-			"An /api write needs the session's CSRF token and the Origin check; phase 0 can check neither (P1).",
+			415,
+			"unsupported_media_type",
+			"Send application/json, or multipart/form-data for a file upload.",
 		);
-	},
-	deferred: "Origin + token checks need the session (P1); an unsafe /api request is refused",
+	}
+	// The token, from the header only: the pages' `csrf` form field does not count on this surface.
+	const token = (ctx.request.headers.get("x-csrf-token") ?? "").trim();
+	if (!csrfPasses(ctx.session.csrf, new Map(), token)) {
+		return refuse();
+	}
+	return null;
 };
+
+const apicsrf: Filter = { before: apiCsrfRefusal };
 
 /* ------------------------------------------------------------------------------------------------
  * The after chain

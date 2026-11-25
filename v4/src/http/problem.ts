@@ -24,6 +24,7 @@ const REASONS: Readonly<Record<number, string>> = {
 	400: "Bad Request",
 	401: "Unauthorized",
 	403: "Forbidden",
+	409: "Conflict",
 	404: "Not Found",
 	405: "Method Not Allowed",
 	413: "Payload Too Large",
@@ -39,11 +40,19 @@ const REASONS: Readonly<Record<number, string>> = {
 /** The stable machine codes this router can answer with. One list, so a typo cannot slip in. */
 export type ProblemCode =
 	| "auth.required"
+	| "auth.invalid_credentials"
+	| "auth.pending_approval"
+	| "auth.sign_in_off"
+	| "bad_request"
 	| "consent_required"
 	| "auth.throttled"
-	| "permission.denied"
+	| "csrf.invalid"
 	| "csrf.unavailable"
 	| "origin.refused"
+	| "permission.denied"
+	| "rate_limited"
+	| "unsupported_media_type"
+	| "validation.failed"
 	| "host.untrusted"
 	| "method_not_allowed"
 	| "not_found"
@@ -82,6 +91,8 @@ export const headersFor = (path: string, https: boolean): Record<string, string>
 export interface ProblemOptions {
 	/** Extra response headers a filter needs (`Allow` on a 405, `Retry-After`, …). */
 	readonly extra?: Readonly<Record<string, string>>;
+	/** Field => message, for a 422 (`ApiResponse::problem()`'s `$errors`), in this order. */
+	readonly errors?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -96,13 +107,17 @@ export const problem = (
 	detail: string,
 	options: ProblemOptions = {},
 ): Response => {
-	const body = {
+	// The key order is PHP's, because the fixture compares these answers byte for byte.
+	const body: Record<string, unknown> = {
 		type: "about:blank",
 		title: REASONS[status] ?? "Error",
 		status,
 		detail,
 		code,
 	};
+	if (options.errors !== undefined && Object.keys(options.errors).length > 0) {
+		body.errors = options.errors;
+	}
 	return new Response(JSON.stringify(body), {
 		status,
 		headers: {

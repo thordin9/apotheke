@@ -167,3 +167,18 @@ on another host of the same site (`https://app.example.com`) to let it call the 
 The sign-in limits count the client's address. Besides `X-Forwarded-For` from `TRUSTED_PROXIES`, the app can read
 `REAL_IP_HEADER` (for example `CF-Connecting-IP`) from a listed proxy, and `X-Apotheke-Client-IP` from the hosted
 edge proxy when it sends the matching `PROXY_SHARED_SECRET`. See [Configuration](configuration.md).
+
+## On the Worker (Apotheke v4)
+
+The Worker port answers these four session routes, and the contract above is unchanged: the statuses,
+the `code`s, the sentences and the `/api` header set are compared byte for byte against a fixture
+captured from the PHP app (`v4/test/fixtures/php-api.json`), and every JSON body against this
+document. Three differences are named rather than hidden:
+
+* `CORS_ALLOWED_ORIGINS` is not part of the Worker's configuration, so a write is accepted only from
+  the app's own origin or `PUBLIC_URL`'s. That is the self-hosted default here too; a deployment that
+  sets the variable gets the extra origins on PHP only.
+* The Worker does not create the account `admin` from `APP_PASSWORD` during a request: it is created
+  once, when the installation is seeded. The four answers are the same either way.
+* `Expires` and `Pragma` are not sent. PHP adds them because `session_start()` runs; they are not
+  part of this contract.

@@ -9,12 +9,14 @@
 //   3. dispatch the matched route's handler;
 //   4. run the after chain (globals, then required).
 //
-// Phase 0 has two handlers: the `/api` fallback (`ApiController::notFound`, which is a frozen
-// interface — §4 rule 3 freezes the 404 problem+json under /api) and "not ported yet", which answers
-// 501 problem+json. Every other controller arrives in P1/P2; until then a request that survives the
-// chain — a route whose permission is `none` or `public`, on a safe method — gets 501 and nothing
-// else. That is what makes the fail-closed promise checkable: no route in the table answers 2xx.
+// The handlers are registered one route at a time as their slice lands: `/login`, `/logout`,
+// `/consent`, `/claim`, the Users & sign-in pages (S1.2, S1.3) and the four `/api/v1` session routes
+// (S1.4). Every other controller arrives in P1/P2; until then a request that survives the chain — a
+// route whose permission is `none` or `public`, on a safe method — gets 501 and nothing else. That is
+// what makes the fail-closed promise checkable: no route in the table answers 2xx except the ones a
+// slice has named here.
 
+import { apiMe, apiSessionCreate, apiSessionDelete, apiSessionShow } from "../auth/api-session";
 import { resolveActor } from "../auth/permission";
 import { roleHandler, securityPageHandler, userHandler } from "../auth/security-routes";
 import { claimHandler, consentHandler, logoutHandler, signInHandler } from "../auth/session-routes";
@@ -85,6 +87,12 @@ const HANDLERS: ReadonlyMap<string, Handler> = new Map([
 	["\\Apotheke\\Auth\\Controllers\\SecurityController::role", roleHandler],
 	["\\Apotheke\\Auth\\Controllers\\SecurityController::role/$1", roleHandler],
 	["\\Apotheke\\Auth\\Controllers\\SecurityController::role/$1/delete", roleHandler],
+	// S1.4: `/api/v1/session` (public) and `/api/v1/me` (`self`). The write routes keep `public` too —
+	// the CSRF rule that guards them is `apicsrf`, not a permission.
+	["\\Apotheke\\Auth\\Controllers\\Api\\SessionController::show", apiSessionShow],
+	["\\Apotheke\\Auth\\Controllers\\Api\\SessionController::create", apiSessionCreate],
+	["\\Apotheke\\Auth\\Controllers\\Api\\SessionController::delete", apiSessionDelete],
+	["\\Apotheke\\Auth\\Controllers\\Api\\SessionController::account", apiMe],
 ]);
 
 const runAfter = (ctx: Ctx, response: Response, names: readonly string[]): Response => {

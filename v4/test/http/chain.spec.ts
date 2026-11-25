@@ -68,7 +68,9 @@ describe("the filter chain a request runs", () => {
 	});
 
 	it("runs the globals-minus-except list, then apicsrf last, on an /api route", async () => {
-		const routed = await routeRequest(request("/api/v1/session"), CONFIG);
+		// `/api/v1/branding` rather than `/api/v1/session`: this file has no database, and S1.4's
+		// session handler reads one (a detached session refuses). The chain is the same chain.
+		const routed = await routeRequest(request("/api/v1/branding"), CONFIG);
 		expect(routed.trace).toEqual([
 			...REQUIRED,
 			// `sessioncsrf` is excepted for api and api/*, `formfields` too; `apicsrf` is the path rule.
@@ -92,8 +94,8 @@ describe("the filter chain a request runs", () => {
 	});
 
 	it("turns HEAD into GET in headasget, before routing", async () => {
-		const head = await routeRequest(request("/api/v1/session", "HEAD"), CONFIG);
-		const get = await routeRequest(request("/api/v1/session", "GET"), CONFIG);
+		const head = await routeRequest(request("/api/v1/branding", "HEAD"), CONFIG);
+		const get = await routeRequest(request("/api/v1/branding", "GET"), CONFIG);
 		expect(head.trace).toEqual(get.trace);
 		expect(head.response.status).toBe(get.response.status);
 	});

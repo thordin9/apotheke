@@ -14,7 +14,7 @@
     "routes": "node scripts/gen-routes.mjs",
     "assets": "node scripts/gen-assets.mjs",
     "assets:check": "node scripts/gen-assets.mjs --check",
-    "fixtures:check": "bash scripts/gen-html-fixtures.sh --check && bash scripts/gen-session-fixture.sh --check && bash scripts/gen-claim-fixture.sh --check && bash scripts/gen-security-fixture.sh --check && bash scripts/gen-permissions-fixture.sh --check",
+    "fixtures:check": "bash scripts/gen-html-fixtures.sh --check && bash scripts/gen-session-fixture.sh --check && bash scripts/gen-claim-fixture.sh --check && bash scripts/gen-security-fixture.sh --check && bash scripts/gen-permissions-fixture.sh --check && bash scripts/gen-api-fixture.sh --check",
     "typecheck": "tsc --noEmit",
     "lint": "biome check . && depcruise src",
     "format": "biome check --write ."

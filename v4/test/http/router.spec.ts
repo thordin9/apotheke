@@ -9,10 +9,13 @@
 // It also pins the two answers §4 freezes: the /api 404 is problem+json with the API header set, and
 // a 405 carries `Allow`.
 
+import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
+import { durableObjectSql, type InstallationStub } from "../../src/db/do-sql";
 import { isApi } from "../../src/http/problem";
 import { type RouterConfig, routeRequest } from "../../src/http/router";
 import { ROUTES } from "../../src/http/routes.generated";
+import { openSession } from "../../src/session/request";
 import { TEST_LOGIN, TEST_PAGE } from "../helpers/page";
 import { samplePath as sample } from "../helpers/paths";
 
@@ -35,14 +38,28 @@ const UNCONSTRUCTABLE = new Set(["CONNECT", "TRACE"]);
  */
 let requests: { route: (typeof ROUTES)[number]; path: string; response: Response }[] = [];
 
+/**
+ * The sweep runs on a real database since S1.4: `GET /api/v1/session` is the first route whose
+ * handler reads one, and a detached session refuses a read by design.
+ */
+const sql = durableObjectSql(
+	env.INSTALLATION.get(env.INSTALLATION.idFromName("s0.5-router-sweep")) as unknown as InstallationStub,
+);
+
 beforeAll(async () => {
 	requests = await Promise.all(
 		ROUTES.filter((route) => !UNCONSTRUCTABLE.has(route.method)).map(async (route) => {
 			const path = `/${sample(route.path)}`;
-			const routed = await routeRequest(
-				new Request(`http://localhost${path}`, { method: route.method }),
-				CONFIG,
-			);
+			const request = new Request(`http://localhost${path}`, { method: route.method });
+			const session = await openSession({
+				sql,
+				request,
+				now: 1_764_000_000,
+				secure: false,
+				limits: { lifetimeSeconds: 30 * 86_400, idleSeconds: 168 * 3_600 },
+			});
+			const routed = await routeRequest(request, CONFIG, session);
+			await session.flush();
 			return { route, path, response: routed.response };
 		}),
 	);
@@ -62,9 +79,11 @@ describe("every route in the table", () => {
 					expect(response.status).toBe(204);
 					continue;
 				}
-				// S1.1's one live page. A route that starts answering 200 without being in this
-				// list fails here — which is what "no route silently starts answering" means.
-				expect(route.name, label).toBe("login");
+				// S1.1's one live page, and S1.4's four API routes — of which only the read answers
+				// 200 without a session (the writes are refused by cookie consent, `me` by permission).
+				// A route that starts answering 2xx without being in this list fails here, which is
+				// what "no route silently starts answering" means.
+				expect(["login", "api/v1/session"], label).toContain(route.name);
 				expect(response.status).toBe(200);
 				continue;
 			}
@@ -72,7 +91,13 @@ describe("every route in the table", () => {
 			expect([303, 401, 403, 404, 405, 413, 421, 501], label).toContain(response.status);
 		}
 		// The page 2xx rows are exactly the login page, asked as GET and as HEAD.
-		expect(twoHundreds.filter((row) => !row.startsWith("OPTIONS "))).toEqual(["GET /login", "HEAD /login"]);
+		// S1.4 added the one conditional 2xx: the session read answers 200 to a request with no
+		// session (its writes are refused by consent and its account by permission).
+		expect(twoHundreds.filter((row) => !row.startsWith("OPTIONS "))).toEqual([
+			"GET /login",
+			"GET /api/v1/session",
+			"HEAD /login",
+		]);
 		// Every row is asked with its own verb, so no 405 appears here; the separate 405 test covers it.
 		expect([...answered].sort((a, b) => a - b)).toEqual([200, 204, 303, 401, 403, 404, 501]);
 	});
@@ -94,6 +119,11 @@ describe("every route in the table", () => {
 			if (type === "text/html; charset=UTF-8") {
 				// The page answers: /login and the 404/405 error pages. /api never renders one.
 				expect(isApi(path), label).toBe(false);
+				continue;
+			}
+			// S1.4: the session read answers JSON, not problem+json, and only under /api.
+			if (isApi(path) && response.status === 200) {
+				expect(type, label).toBe("application/json; charset=utf-8");
 				continue;
 			}
 			expect(type === "application/problem+json" || type === "text/plain; charset=UTF-8", label).toBe(true);
@@ -165,13 +195,22 @@ describe("the answers phase 0 is allowed to give", () => {
 		expect(await response.json()).toMatchObject({ code: "consent_required" });
 	});
 
-	it("then refuses the same /api write as an unchecked CSRF, once consent is present", async () => {
+	it("then refuses the same /api write for its CSRF rule, once consent is present", async () => {
+		// S1.4 ported `ApiCsrf`: a token-less write on this surface is v3's own `403 csrf.invalid`,
+		// not the phase-0 "cannot check this" refusal. `test/http/api-session.spec.ts` proves both
+		// directions (refused without the token, accepted with it).
 		const response = await json("/api/v1/session", {
 			method: "POST",
 			headers: { cookie: "apotheke_consent=v1" },
 		});
 		expect(response.status).toBe(403);
-		expect(await response.json()).toMatchObject({ code: "csrf.unavailable" });
+		expect(await response.json()).toEqual({
+			type: "about:blank",
+			title: "Forbidden",
+			status: 403,
+			detail: "The request was refused: reload and try again.",
+			code: "csrf.invalid",
+		});
 	});
 
 	it("answers 501 for a route whose controller is P1/P2, and names the handler", async () => {

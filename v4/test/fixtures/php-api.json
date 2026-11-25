@@ -1,0 +1,1070 @@
+{
+	"generatedBy": "v4/scripts/gen-api-fixture.sh",
+	"php": "8.4.23",
+	"note": "Raw answers of v3's four /api/v1 session routes, captured over HTTP from a migrated and seeded SQLite install. Pinned: status, the API's own headers (content-type, cache-control, retry-after, set-cookie, the security set) and the body bytes. Normalised, and only these: csrf_token -> <csrf>, the session cookie's value -> <id>, expires -> <date>. PHP's own Expires/Pragma, sent because session_start() runs, are not part of the API contract and are not pinned. `setup` is what the capture changed first: a settings row written the way the settings page writes it, or an account whose password is `password`.",
+	"appPassword": "fixture-password",
+	"sources": {
+		"modules/Auth/Controllers/Api/SessionController.php": "54dea6b6456496cdd80727dd4f7f1975a8baf7945230e8fe73a620bdeb70cae2",
+		"modules/Auth/Controllers/AuthPages.php": "6006e349b2d46643d257a49800d6e0dc6581ab100ed9ad43d8c1b376e3145cdc",
+		"modules/Auth/Controllers/SignInController.php": "68956bb6e67afd8cbacaa4ef7b965939b699a23236c413e7e4fe2f93d4800c37",
+		"modules/Auth/Accounts.php": "dd7826a55e5f4094ac435996ff8479ba80689c5df9d51cd64a5f52983ff36fb1",
+		"modules/Auth/CurrentUser.php": "1066ebaf9ae7ef5abdaccd9b036d46429a6c4ad69a79edfa32fc9fcc3dd62ee9",
+		"modules/Auth/PermissionCheck.php": "a1c05d0434851eb936c0e5b9b052cb585f46c6b1217588c286ec26ff0fcd4d05",
+		"modules/Auth/Permissions.php": "7e84a491e17d33b02f85c965c204cb957cb446f525c6b02cf86fdb038b18e38b",
+		"modules/Auth/RateLimiter.php": "cb7ddbbb3e379f8e2e8f6fb8ffd2282029010cdddab5bb4124ae48232bba54c7",
+		"modules/Auth/SessionEpoch.php": "071bfba033e7f94f052860c3998dfa4caf9165c14f6f9dbcda8bfb8f6e0c114c",
+		"modules/Auth/SignInPace.php": "057e4ca64fce8894d63a7eca09ad39b3436e99fd7c075888a3cecbc184854d68",
+		"modules/Auth/UserRepository.php": "263b907685b9585a7274963677554e82f8ab80f9b1031f0e2d515eaef063e370",
+		"modules/Core/Filters/ApiCsrfFilter.php": "396b84bd3053fb7868afd8cc757604e612dd56aa21613f98949eb51fff23be5d",
+		"modules/Core/Filters/ApiFilter.php": "8501f9efe1952448ee0fe21e7b9aedf89f45e49bf73b7077cffddbf766f3eba4",
+		"modules/Core/Filters/ConsentFilter.php": "2f01eaacb128f8102befc592d266ef3694fc81ef39c75a1b1b49b401af52b688",
+		"modules/Core/Filters/SessionCookie.php": "c4ffa2eef0db7e80ebcbf63946a525a5e8566365fec9e9f46ef558b7536bbf1a",
+		"modules/Core/Http/ApiCsrf.php": "f0aefa2f2b48ba37d583f979d3fdf65307649a6c57e7648e61fe8945fa8d0b2f",
+		"modules/Core/Http/ApiResponse.php": "7876ed60ea917172758c6f7ae9893f81d7b2159acc590c200436e833d1397291",
+		"modules/Core/Http/ApiSecurityPolicy.php": "7f43e1ed7b268d0ff7d88d1a47406e56d633c5ed1b6c03a2a0be00c3053dc11a",
+		"modules/Core/Http/CsrfCheck.php": "a7d798f8fdf73cf31c485dd1ca23a6fd943f18a6ea40d602c79199a3fb3cca6f",
+		"modules/Core/Http/EmptyBody.php": "1c3243205bd07af45f7c543b6bc5872d617b9fa4cfeb61f4f28dd4e6301d3033",
+		"modules/Core/Http/SessionGate.php": "e522e25dbb2562177f422cfa64fc20b7c41cd6811d4912937d0ef99b0c4b731f",
+		"modules/Core/Http/SessionToken.php": "0463df79d97237d5e58b4310b1af9a18905137ab673578e33d4cccfafad122e4",
+		"modules/Core/Http/SameOrigin.php": "c78eb7ddc5c68d83246bfe3de03fb296bf7fc96992adc8848f50982c3ec94bc1",
+		"modules/Core/Libraries/Text.php": "10c38b65fe3f5c929bc35174abf1611eb2f8b74c8220f78771bc82c456ddabc8",
+		"modules/Settings/SettingsService.php": "1f7c398352e0b42afc4a4883c1f31c56730f25955b7220796d9a927495ad7272",
+		"app/Config/Filters.php": "0436f74496fd88f003eeffcf7a4a4d3eabcba41ca657717feb4c5180f1c8e801",
+		"app/Config/Routes.php": "28cc0963a509d6034b632acbc1b00629cb33421342cd75dc2a2b17e25f5257ec",
+		"docs/api/openapi.yaml": "74c9b7d53b61fd96813ea591fa00f39833c6d7be788233168983ce128a9645ea"
+	},
+	"settings": {
+		"accent": "\"#5b3b8e\"",
+		"app_name": "\"Apotheke\"",
+		"app_tagline": "\"the storehouse for your stuff\"",
+		"attach_max_mb": "10",
+		"attach_max_per_item": "10",
+		"attach_types": "\"pdf_images\"",
+		"auth_enabled": "true",
+		"auth_guest_disabled": "true",
+		"auth_register_approval": "false",
+		"auth_register_disabled": "true",
+		"auth_register_role": "\"viewer\"",
+		"autofill_auto": "false",
+		"autofill_enabled": "false",
+		"autofill_image_size": "0",
+		"autofill_max_image_bytes": "\"auto\"",
+		"autofill_model": "\"\"",
+		"autofill_timeout": "50",
+		"autofill_token": "\"\"",
+		"autofill_url": "\"\"",
+		"currency": "\"EUR\"",
+		"currency_position": "\"after\"",
+		"date_format": "\"Y-m-d\"",
+		"default_expiry_months": "null",
+		"default_min_qty": "null",
+		"default_notes": "\"\"",
+		"default_purchase_today": "false",
+		"default_quantity": "1",
+		"default_sort": "\"recent\"",
+		"default_tags": "\"\"",
+		"expiry_soon_days": "30",
+		"icon_background": "\"#FBF1E3\"",
+		"image_full_max": "1600",
+		"image_thumb_max": "480",
+		"import_create_missing": "true",
+		"jpeg_quality": "82",
+		"label_border": "true",
+		"label_columns": "3",
+		"label_gap_mm": "4",
+		"label_height_mm": "70",
+		"label_show_sub": "true",
+		"label_show_url": "true",
+		"label_width_mm": "60",
+		"lend_due_days": "null",
+		"list_view": "\"grid\"",
+		"logo": "\"\"",
+		"max_photos": "12",
+		"max_upload_mb": "20",
+		"money_format": "\"en\"",
+		"overview_open": "true",
+		"page_size": "60",
+		"password_hash": "\"\"",
+		"public_url": "\"\"",
+		"recent_limit": "8",
+		"recent_scope": "\"device\"",
+		"saved_filters_max": "50",
+		"search_typos": "true",
+		"session_days": "30",
+		"session_idle_hours": "168",
+		"stocktake_apply_moves": "true",
+		"theme_default": "\"auto\"",
+		"time_format": "\"H:i\"",
+		"timezone": "\"Europe/Athens\"",
+		"trust_proxy": "false",
+		"undo_seconds": "30"
+	},
+	"pacing": {
+		"DEFAULT_MS": 1000,
+		"MIN_MS": 400,
+		"MAX_MS": 10000,
+		"clamped": {
+			"0": 400,
+			"1": 400,
+			"399": 400,
+			"400": 400,
+			"1000": 1000,
+			"5000": 5000,
+			"10000": 10000,
+			"10001": 10000
+		}
+	},
+	"contract": {
+		"schemas": {
+			"Session": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": [
+					"signed_in",
+					"sign_in_enabled",
+					"registration_open",
+					"user",
+					"permissions",
+					"csrf_token"
+				],
+				"properties": {
+					"signed_in": {
+						"type": "boolean"
+					},
+					"sign_in_enabled": {
+						"type": "boolean",
+						"description": "Off: everyone is the anonymous admin and there is nothing to sign in to"
+					},
+					"registration_open": {
+						"type": "boolean"
+					},
+					"user": {
+						"type": "object",
+						"nullable": true,
+						"additionalProperties": false,
+						"required": [
+							"id",
+							"username",
+							"role"
+						],
+						"properties": {
+							"id": {
+								"type": "integer"
+							},
+							"username": {
+								"type": "string"
+							},
+							"role": {
+								"type": "string"
+							}
+						}
+					},
+					"permissions": {
+						"$ref": "#/components/schemas/Permissions"
+					},
+					"csrf_token": {
+						"type": "string",
+						"pattern": "^([a-f0-9]{64})?$",
+						"description": "Empty without cookie consent: no session is started"
+					}
+				}
+			},
+			"Me": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": [
+					"id",
+					"username",
+					"role",
+					"permissions"
+				],
+				"properties": {
+					"id": {
+						"type": "integer"
+					},
+					"username": {
+						"type": "string"
+					},
+					"role": {
+						"type": "string"
+					},
+					"permissions": {
+						"$ref": "#/components/schemas/Permissions"
+					}
+				}
+			},
+			"Problem": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": [
+					"type",
+					"title",
+					"status",
+					"detail",
+					"code"
+				],
+				"properties": {
+					"type": {
+						"type": "string"
+					},
+					"title": {
+						"type": "string"
+					},
+					"status": {
+						"type": "integer"
+					},
+					"detail": {
+						"type": "string"
+					},
+					"code": {
+						"type": "string",
+						"description": "A stable machine code: auth.required, auth.invalid_credentials, auth.pending_approval, auth.sign_in_off, bad_request, csrf.invalid, not_found, permission.denied, rate_limited, unsupported_media_type, upload.too_large, validation.failed, import.done, import.gone, method_not_allowed, restore.conflict, restore.busy, storage.insufficient, consent_required"
+					},
+					"error": {
+						"type": "string",
+						"enum": [
+							"consent_required"
+						],
+						"description": "Only on 403 consent_required: the same code"
+					},
+					"errors": {
+						"type": "object",
+						"additionalProperties": {
+							"type": "string"
+						},
+						"description": "Field => message, for 422"
+					}
+				}
+			},
+			"Permissions": {
+				"type": "array",
+				"items": {
+					"type": "string",
+					"enum": [
+						"view",
+						"create",
+						"edit",
+						"delete",
+						"move",
+						"bulk",
+						"lend",
+						"import",
+						"export",
+						"stocktake",
+						"labels",
+						"settings",
+						"users",
+						"backup",
+						"restore"
+					]
+				}
+			}
+		},
+		"parameters": {
+			"CsrfToken": {
+				"name": "X-CSRF-Token",
+				"in": "header",
+				"required": true,
+				"description": "The csrf_token from GET /api/v1/session",
+				"schema": {
+					"type": "string"
+				}
+			}
+		}
+	},
+	"steps": [
+		{
+			"name": "session_noConsent",
+			"uses": "none",
+			"setup": [],
+			"request": {
+				"method": "GET",
+				"path": "/api/v1/session",
+				"body": null,
+				"contentType": null,
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/json; charset=utf-8",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"signed_in\":false,\"sign_in_enabled\":true,\"registration_open\":false,\"user\":null,\"permissions\":[],\"csrf_token\":\"\"}"
+			}
+		},
+		{
+			"name": "session_guest",
+			"uses": "consent",
+			"setup": [],
+			"request": {
+				"method": "GET",
+				"path": "/api/v1/session",
+				"body": null,
+				"contentType": null,
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/json; charset=utf-8",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff",
+					"set-cookie": [
+						"apothekesid=<id>; expires=<date>; Max-Age=2592000; path=/; HttpOnly; SameSite=Lax"
+					]
+				},
+				"body": "{\"signed_in\":false,\"sign_in_enabled\":true,\"registration_open\":false,\"user\":null,\"permissions\":[],\"csrf_token\":\"<csrf>\"}"
+			}
+		},
+		{
+			"name": "me_guest",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "GET",
+				"path": "/api/v1/me",
+				"body": null,
+				"contentType": null,
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 401,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"Sign in first.\",\"code\":\"auth.required\"}"
+			}
+		},
+		{
+			"name": "session_invalidJson",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 400,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"The body is not valid JSON.\",\"code\":\"bad_request\"}"
+			}
+		},
+		{
+			"name": "session_emptyObject",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{}",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 422,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"Enter a user name and password.\",\"code\":\"validation.failed\",\"errors\":{\"username\":\"Required.\",\"password\":\"Required.\"}}"
+			}
+		},
+		{
+			"name": "session_notText",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":5,\"password\":null}",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 422,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"Enter a user name and password.\",\"code\":\"validation.failed\",\"errors\":{\"username\":\"Must be text.\",\"password\":\"Required.\"}}"
+			}
+		},
+		{
+			"name": "session_missingPassword",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":\"admin\"}",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 422,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"Enter a user name and password.\",\"code\":\"validation.failed\",\"errors\":{\"password\":\"Required.\"}}"
+			}
+		},
+		{
+			"name": "session_emptyBody",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 422,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"Enter a user name and password.\",\"code\":\"validation.failed\",\"errors\":{\"username\":\"Required.\",\"password\":\"Required.\"}}"
+			}
+		},
+		{
+			"name": "session_noToken",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":\"admin\",\"password\":\"fixture-password\"}",
+				"contentType": "application/json",
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 403,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"The request was refused: reload and try again.\",\"code\":\"csrf.invalid\"}"
+			}
+		},
+		{
+			"name": "session_wrongOrigin",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":\"admin\",\"password\":\"fixture-password\"}",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "evil"
+			},
+			"response": {
+				"status": 403,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"The request was refused: reload and try again.\",\"code\":\"csrf.invalid\"}"
+			}
+		},
+		{
+			"name": "session_textPlain",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "x",
+				"contentType": "text/plain",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 415,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Unsupported Media Type\",\"status\":415,\"detail\":\"Send application/json, or multipart/form-data for a file upload.\",\"code\":\"unsupported_media_type\"}"
+			}
+		},
+		{
+			"name": "session_unknownUser",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":\"nobody\",\"password\":\"fixture-password\"}",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 401,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"Wrong user name or password.\",\"code\":\"auth.invalid_credentials\"}"
+			}
+		},
+		{
+			"name": "session_wrongPassword",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":\"admin\",\"password\":\"nope-nope\"}",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 401,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"Wrong user name or password.\",\"code\":\"auth.invalid_credentials\"}"
+			}
+		},
+		{
+			"name": "session_pending",
+			"uses": "session",
+			"setup": [
+				{
+					"op": "user",
+					"username": "waiting",
+					"role": "viewer",
+					"status": "pending"
+				}
+			],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":\"waiting\",\"password\":\"fixture-password\"}",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 403,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Your account is waiting for an admin’s approval.\",\"code\":\"auth.pending_approval\"}"
+			}
+		},
+		{
+			"name": "session_guestBrowsing",
+			"uses": "session",
+			"setup": [
+				{
+					"op": "set",
+					"name": "auth_guest_disabled",
+					"value": "false"
+				}
+			],
+			"request": {
+				"method": "GET",
+				"path": "/api/v1/session",
+				"body": null,
+				"contentType": null,
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/json; charset=utf-8",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"signed_in\":false,\"sign_in_enabled\":true,\"registration_open\":false,\"user\":null,\"permissions\":[\"view\"],\"csrf_token\":\"<csrf>\"}"
+			}
+		},
+		{
+			"name": "me_guestBrowsing",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "GET",
+				"path": "/api/v1/me",
+				"body": null,
+				"contentType": null,
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 401,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"Sign in first.\",\"code\":\"auth.required\"}"
+			}
+		},
+		{
+			"name": "session_signInViewer",
+			"uses": "session",
+			"setup": [
+				{
+					"op": "set",
+					"name": "auth_guest_disabled",
+					"value": "true"
+				},
+				{
+					"op": "user",
+					"username": "viewer",
+					"role": "viewer",
+					"status": "active"
+				}
+			],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":\"viewer\",\"password\":\"fixture-password\"}",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/json; charset=utf-8",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff",
+					"set-cookie": [
+						"apothekesid=<id>; expires=<date>; Max-Age=2592000; path=/; HttpOnly; SameSite=Lax"
+					]
+				},
+				"body": "{\"signed_in\":true,\"sign_in_enabled\":true,\"registration_open\":false,\"user\":{\"id\":3,\"username\":\"viewer\",\"role\":\"viewer\"},\"permissions\":[\"view\",\"export\",\"labels\",\"backup\"],\"csrf_token\":\"<csrf>\"}"
+			}
+		},
+		{
+			"name": "me_viewer",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "GET",
+				"path": "/api/v1/me",
+				"body": null,
+				"contentType": null,
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/json; charset=utf-8",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"id\":3,\"username\":\"viewer\",\"role\":\"viewer\",\"permissions\":[\"view\",\"export\",\"labels\",\"backup\"]}"
+			}
+		},
+		{
+			"name": "session_deleteViewer",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "DELETE",
+				"path": "/api/v1/session",
+				"body": null,
+				"contentType": null,
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 204,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff",
+					"set-cookie": [
+						"apothekesid=<id>; expires=<date>; Max-Age=0; path=/; HttpOnly; SameSite=Lax"
+					]
+				},
+				"body": ""
+			}
+		},
+		{
+			"name": "session_afterDelete",
+			"uses": "consent",
+			"setup": [],
+			"request": {
+				"method": "GET",
+				"path": "/api/v1/session",
+				"body": null,
+				"contentType": null,
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/json; charset=utf-8",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff",
+					"set-cookie": [
+						"apothekesid=<id>; expires=<date>; Max-Age=2592000; path=/; HttpOnly; SameSite=Lax"
+					]
+				},
+				"body": "{\"signed_in\":false,\"sign_in_enabled\":true,\"registration_open\":false,\"user\":null,\"permissions\":[],\"csrf_token\":\"<csrf>\"}"
+			}
+		},
+		{
+			"name": "session_signIn",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":\"admin\",\"password\":\"fixture-password\"}",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/json; charset=utf-8",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff",
+					"set-cookie": [
+						"apothekesid=<id>; expires=<date>; Max-Age=2592000; path=/; HttpOnly; SameSite=Lax"
+					]
+				},
+				"body": "{\"signed_in\":true,\"sign_in_enabled\":true,\"registration_open\":false,\"user\":{\"id\":1,\"username\":\"admin\",\"role\":\"admin\"},\"permissions\":[\"view\",\"create\",\"edit\",\"delete\",\"move\",\"bulk\",\"lend\",\"import\",\"export\",\"stocktake\",\"labels\",\"settings\",\"users\",\"backup\",\"restore\"],\"csrf_token\":\"<csrf>\"}"
+			}
+		},
+		{
+			"name": "me_signedIn",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "GET",
+				"path": "/api/v1/me",
+				"body": null,
+				"contentType": null,
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/json; charset=utf-8",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"id\":1,\"username\":\"admin\",\"role\":\"admin\",\"permissions\":[\"view\",\"create\",\"edit\",\"delete\",\"move\",\"bulk\",\"lend\",\"import\",\"export\",\"stocktake\",\"labels\",\"settings\",\"users\",\"backup\",\"restore\"]}"
+			}
+		},
+		{
+			"name": "session_registrationOpen",
+			"uses": "session",
+			"setup": [
+				{
+					"op": "set",
+					"name": "auth_register_disabled",
+					"value": "false"
+				}
+			],
+			"request": {
+				"method": "GET",
+				"path": "/api/v1/session",
+				"body": null,
+				"contentType": null,
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/json; charset=utf-8",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"signed_in\":true,\"sign_in_enabled\":true,\"registration_open\":true,\"user\":{\"id\":1,\"username\":\"admin\",\"role\":\"admin\"},\"permissions\":[\"view\",\"create\",\"edit\",\"delete\",\"move\",\"bulk\",\"lend\",\"import\",\"export\",\"stocktake\",\"labels\",\"settings\",\"users\",\"backup\",\"restore\"],\"csrf_token\":\"<csrf>\"}"
+			}
+		},
+		{
+			"name": "session_signInOff",
+			"uses": "session",
+			"setup": [
+				{
+					"op": "set",
+					"name": "auth_register_disabled",
+					"value": "true"
+				},
+				{
+					"op": "set",
+					"name": "auth_enabled",
+					"value": "false"
+				}
+			],
+			"request": {
+				"method": "GET",
+				"path": "/api/v1/session",
+				"body": null,
+				"contentType": null,
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/json; charset=utf-8",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"signed_in\":false,\"sign_in_enabled\":false,\"registration_open\":false,\"user\":null,\"permissions\":[\"view\",\"create\",\"edit\",\"delete\",\"move\",\"bulk\",\"lend\",\"import\",\"export\",\"stocktake\",\"labels\",\"settings\",\"users\",\"backup\",\"restore\"],\"csrf_token\":\"<csrf>\"}"
+			}
+		},
+		{
+			"name": "me_signInOff",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "GET",
+				"path": "/api/v1/me",
+				"body": null,
+				"contentType": null,
+				"csrf": false,
+				"origin": "own"
+			},
+			"response": {
+				"status": 403,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Your role (Admin) does not allow this. Ask an admin.\",\"code\":\"permission.denied\"}"
+			}
+		},
+		{
+			"name": "session_signInOffPost",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":\"admin\",\"password\":\"fixture-password\"}",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 409,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Conflict\",\"status\":409,\"detail\":\"Sign-in is turned off on this server.\",\"code\":\"auth.sign_in_off\"}"
+			}
+		},
+		{
+			"name": "session_rateLimited",
+			"uses": "session",
+			"setup": [
+				{
+					"op": "set",
+					"name": "auth_enabled",
+					"value": "true"
+				}
+			],
+			"request": {
+				"method": "POST",
+				"path": "/api/v1/session",
+				"body": "{\"username\":\"lockme\",\"password\":\"wrong-one\"}",
+				"contentType": "application/json",
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 429,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"content-type": "application/problem+json",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"retry-after": "900",
+					"x-content-type-options": "nosniff"
+				},
+				"body": "{\"type\":\"about:blank\",\"title\":\"Too Many Requests\",\"status\":429,\"detail\":\"Too many attempts for this account from this address – please wait 15 minutes and try again.\",\"code\":\"rate_limited\"}"
+			}
+		},
+		{
+			"name": "session_delete",
+			"uses": "session",
+			"setup": [],
+			"request": {
+				"method": "DELETE",
+				"path": "/api/v1/session",
+				"body": null,
+				"contentType": null,
+				"csrf": true,
+				"origin": "own"
+			},
+			"response": {
+				"status": 204,
+				"headers": {
+					"cache-control": "no-store",
+					"content-security-policy": "default-src 'none'; frame-ancestors 'none'; sandbox",
+					"cross-origin-opener-policy": "same-origin",
+					"cross-origin-resource-policy": "same-site",
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff",
+					"set-cookie": [
+						"apothekesid=<id>; expires=<date>; Max-Age=0; path=/; HttpOnly; SameSite=Lax"
+					]
+				},
+				"body": ""
+			}
+		}
+	]
+}

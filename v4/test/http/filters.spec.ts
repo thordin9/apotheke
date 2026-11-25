@@ -58,7 +58,6 @@ describe("the registry", () => {
 	it("declares the deferred filters by name, and only the ones phase 0 cannot carry yet", () => {
 		expect(Object.keys(DEFERRED).sort()).toEqual([
 			"api",
-			"apicsrf",
 			"formfields",
 			"harness",
 			"opsaccounts",
@@ -68,8 +67,47 @@ describe("the registry", () => {
 	});
 
 	it("fails closed in the filters it defers, or names what closes the gap", () => {
-		// `apicsrf` still refuses rather than pass; the rest cannot decide anything in phase 0.
-		expect(DEFERRED.apicsrf).toContain("refused");
+		// Every deferred filter names why it cannot decide here. None of them is a write path that
+		// quietly passes: the refusals in front of them are the permission and CSRF filters.
+		for (const [name, reason] of Object.entries(DEFERRED)) {
+			expect(reason, name).not.toBe("");
+		}
+	});
+
+	it("answers /api's CSRF rule from the session and the Origin, and refuses without either", () => {
+		const token = "a".repeat(64);
+		const write = (init: RequestInit, csrf = true): Response | null => {
+			const ctx = createContext(
+				new Request("http://localhost/api/v1/session", {
+					method: "POST",
+					headers: { origin: "http://localhost", "content-type": "application/json" },
+					...init,
+				}),
+				CONFIG,
+			);
+			ctx.session.csrf = csrf ? token : "";
+			return FILTERS.apicsrf?.before?.(ctx) ?? null;
+		};
+		// With the session's token, same origin, JSON body: passes.
+		expect(
+			write({
+				headers: { origin: "http://localhost", "content-type": "application/json", "x-csrf-token": token },
+			}),
+		).toBeNull();
+		// Without the token: v3's 403 csrf.invalid.
+		const refused = write({ headers: { origin: "http://localhost", "content-type": "application/json" } });
+		expect(refused?.status).toBe(403);
+		// A foreign Origin is refused even with the token.
+		const foreign = write({
+			headers: { origin: "https://evil.example", "content-type": "application/json", "x-csrf-token": token },
+		});
+		expect(foreign?.status).toBe(403);
+		// A body that is not JSON is 415, not 403.
+		const typed = write({
+			headers: { origin: "http://localhost", "content-type": "text/plain", "x-csrf-token": token },
+			body: "x",
+		});
+		expect(typed?.status).toBe(415);
 	});
 });
 
