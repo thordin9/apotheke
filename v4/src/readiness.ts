@@ -8,8 +8,9 @@
 //     electing a leader — or an install whose seed was refused — must not restart-loop the compose
 //     stack (§11 rule 7). The self-host healthcheck probes `/healthz`, never `/readyz`.
 //   - `/readyz` is where the reason goes: 200 with the schema version, or 503 problem+json naming
-//     what is wrong. In phase 1 it moves behind the session/permission filter, like every other
-//     route; until then it is the bare readiness probe the compose file has nothing to call.
+//     what is wrong. It is answered before the router (S0.5, `src/index.ts`), so it stays a bare
+//     probe that an unauthenticated caller can read; the compose stack still defaults to `/healthz`,
+//     because a 503 there means "still booting", not "restart me".
 
 import { runMigrations, SchemaNewerThanCodeError, seedState } from "./db/migration-runner";
 import { KNOWN_VERSIONS } from "./db/migrations";

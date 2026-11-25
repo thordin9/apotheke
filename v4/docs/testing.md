@@ -28,7 +28,11 @@ it("…", async () => {
 Specs that carry it today: `test/readiness.spec.ts` (double `prepareInstallation`), `test/seed-parity.spec.ts`
 (install on the emulated D1 binding), `test/html/account.spec.ts`, `test/session/signin.spec.ts` and
 `test/http/api-session.spec.ts` (eleven bcrypt verifies plus two sign-ins), `test/http/probes.spec.ts`
-(a request per route in the table). Add yours here with the rest when you join the class.
+(a request per route in the table), and the three S1.7 ports, `test/settings.spec.ts`,
+`test/auth/roles.spec.ts` and `test/auth/users.spec.ts`, whose first case in each boots that spec's own
+installation — 1554 / 3221 / 1158 ms here alone, 4110 / 5846 / 2734 ms with the three booting together;
+the runner's numbers for them come with the run that lands them. Add yours here with the rest when you
+join the class.
 
 The line is a measurement, not a rule of thumb: the numbers above are from the runner itself, and the
 other specs that boot an installation were measured in the same run and stay on the default because they

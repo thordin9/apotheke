@@ -33,9 +33,9 @@
    "path": "tests/Modules/Auth/AuthStatusD1Test.php",
    "methods": 5,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "installation auth status (app password on/off, hosted default) is one table v4 has not ported yet",
+   "state": "ported",
+   "target": "v4/test/settings.spec.ts",
+   "note": "the boot's sign-in table ported from SettingsService::signInEnabled(): hosted always on, else auth_enabled, else APP_PASSWORD before the account count (the count is shown unread). v3's exit codes are the CLI's: 4 refuses the seed (test/seed.spec.ts), 1 is readiness' database problem (test/readiness.spec.ts)",
    "kind": "retired"
   },
   {
@@ -70,8 +70,8 @@
    "methods": 5,
    "dataProviders": 5,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "disable ends only that account's sessions; v4 has the last-admin guard but not the disable/session sweep",
+   "target": "P6",
+   "note": "hosted disable/enable of one account: the flag row, session removal by uid, and the last-admin refusal. The ops surface answers 501 today, so the behaviour is P6's to build",
    "kind": "retired"
   },
   {
@@ -105,9 +105,9 @@
    "path": "tests/Modules/Auth/RegisterFormTest.php",
    "methods": 1,
    "dataProviders": 1,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the registration form's name rule; registration answers 501 today",
+   "state": "ported",
+   "target": "v4/test/auth/users.spec.ts",
+   "note": "the rule ported where it lives: validName() refuses a NUL as sent, before the trim (PHP's trim strips NUL, JS's does not). The POST /register page itself answers 501 and stays P6",
    "kind": "retired"
   },
   {
@@ -123,9 +123,9 @@
    "path": "tests/Modules/Auth/RoleRepositoryTest.php",
    "methods": 3,
    "dataProviders": 2,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "built-in roles returned on a database error; v4's role reader has no test for the failure path yet",
+   "state": "ported",
+   "target": "v4/test/auth/roles.spec.ts",
+   "note": "built-in roles when the read is empty, and has(). Dropped with a reason: the DB-error catch (a failed read is an outage, not an old schema, so it fails loudly, pinned by the third case) and the no-connection case (no such state in v4)",
    "kind": "retired"
   },
   {
@@ -1898,7 +1898,7 @@
    "dataProviders": 0,
    "state": "dropped",
    "target": "",
-   "note": "v3 DSNs; v4 config is the env names of \u00a711 (D18)",
+   "note": "v3 DSNs; v4 config is the env names of §11 (D18)",
    "kind": "retired"
   },
   {
