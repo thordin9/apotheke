@@ -56,8 +56,10 @@ toolchain for a step whose output is committed. The script refuses to run when `
 set, and it ends by running `fixtures:check` — a capture that cannot reproduce its own source hashes is not
 a capture. Point `PHP` at the binary when `php` is not on PATH.
 
-The v3 PHPUnit suite is not on this branch: `tests/Unit`, `tests/Modules`, `phpunit.xml` and `tests/run.sh`
-stay on `main` until cutover, and nothing in this gate ever depended on them.
+The v3 PHPUnit suite left this branch at `5d65939e` (D36b, 231 `.php` files, 1,435 test methods); it stays
+on `main` until cutover, and nothing in this gate ever depended on it. What it asserted is not lost:
+`test/php-ledger.json` gives every retired path one destination, and names the 14 `.php` that survive
+under `tests/` plus the 6 capture-side ones under `v4/` (D37, below).
 
 ## The gate is PHP-free, and stays that way (D36)
 
@@ -67,3 +69,37 @@ and it reads each workflow's own `on:` block rather than a hand-kept list. It ru
 so a parser change that stops reading a trigger fails there rather than passing quietly. Path-filtered
 pull-request workflows — the v3 edge and frontend deploys — are not gates for this branch and are named in
 the output on every run, so the exclusion is visible rather than silent.
+
+## Every PHP path in this line is accounted for (D37, revision 43)
+
+`5d65939e` removed 231 `.php` files carrying 1,435 `public function test*` methods and 379
+`#[DataProvider]` attributes. Fourteen `.php` still live under `tests/` (13 v3 tools, plus
+`tests/visual/ci4-fixtures.php`), and six under `v4/` are the only PHP the line keeps on purpose.
+`test/php-ledger.json` names all of them, so "no PHP in the v4 branch" is checkable rather than a
+claim.
+
+| rows | means | the check enforces |
+| --- | --- | --- |
+| `retired`, `ported` | a TypeScript spec already asserts the same behaviour | the named file exists and carries `it()`/`test()` |
+| `retired`, `scheduled` | the slice that builds the behaviour will port it | the target is a slice or gate `docs/v4-migration.md` defines |
+| `retired`, `dropped` | v4 makes it meaningless (PHP harness, CI4, Postgres-only rows) | a written reason, and no target |
+| `surviving`, `scheduled` | the PHP file is here until the harness slice replaces it | the file exists, and it is not one `5d65939e` deleted |
+| `surviving`, `dropped` | it serves v3 runs that stay on `main` | the same, plus a reason |
+
+The `exceptions` list is the other half: the six capture-side generators under `v4/` (`gen-*-fixture.php`,
+`api-fixture-state.php`, `php-schema-dump.php`), each with the reason it is allowed to be PHP — they run
+by hand, never in CI, and `fixtures:capture` refuses under `CI`.
+
+`npm run ledger:check` is a step of `v4.yml`'s unit job. It runs a self-test first — fourteen synthetic
+ledgers, each with exactly one rule broken — so a validator that stops catching a missing row, a duplicate,
+a dangling `ported` target, an unknown kind or an undefined slice fails there instead of passing quietly.
+It also refuses a ledger whose retired totals do not add up to the recorded 1,435 / 379, which catches an
+edit that drops a row without anyone noticing.
+
+When git history is present it reconciles the retired rows against `git show --name-status 5d65939e` in
+both directions — no row for a path that commit did not delete, no deleted path without a row — and
+requires every surviving or exception file to exist. CI checks out at depth 1, so there the recorded
+totals are the fallback and the check says which mode it ran in.
+
+A row moves from `scheduled` to `ported` in the same commit as the spec that ports it, and a later slice
+(and any PR touching a retired module) owes its own row before it lands.

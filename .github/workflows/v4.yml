@@ -71,6 +71,11 @@ jobs:
       # gains a PHP setup step, a composer command or a PHP test runner - a check, not a promise. It runs
       # its own self-test first, so a parser that stops reading a trigger fails here rather than passing.
       - run: npm run workflows:check
+      # D37 (revision 42): the retired v3 suite's 1,435 test methods may not leave without a
+      # destination. Every one of the 231 paths deleted by 5d65939e carries exactly one of ported
+      # (a spec that exists and has tests), scheduled (a slice this plan defines) or dropped (a
+      # reason). It runs its own self-test first, so a validator that stops reading fails here.
+      - run: npm run ledger:check
       - run: npm test
 
   workerd-smoke:

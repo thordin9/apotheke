@@ -1,0 +1,2237 @@
+{
+ "schema": 2,
+ "deletedBy": "5d65939e",
+ "rows": [
+  {
+   "path": "tests/ApiContract.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "the API contract is v4/test/fixtures/php-api.json (28 captured steps) + routes:check; a PHP class cannot be v4's contract",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/AccountActionsTest.php",
+   "methods": 7,
+   "dataProviders": 6,
+   "state": "ported",
+   "target": "v4/test/html/account.spec.ts",
+   "note": "sign-out-everywhere (leaves this device) and password change ending other sessions; 0028's row in migrations.spec.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/AppPasswordProblemTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/seed.spec.ts",
+   "note": "the legacy app-password rule is pinned by 'appPasswordProblem matches Accounts::appPasswordProblem'; the sensitive-parameter redaction has no v4 analogue (workers log no parameters)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/AuthStatusD1Test.php",
+   "methods": 5,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "installation auth status (app password on/off, hosted default) is one table v4 has not ported yet",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/ClaimFormTest.php",
+   "methods": 3,
+   "dataProviders": 3,
+   "state": "ported",
+   "target": "v4/test/auth/claim.spec.ts",
+   "note": "404 off a hosted install, one claim, and right/wrong tokens answered alike",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/FirstAdminClaimTest.php",
+   "methods": 17,
+   "dataProviders": 14,
+   "state": "ported",
+   "target": "v4/test/auth/claim.spec.ts",
+   "note": "claim lifecycle ported; the six Postgres-parallel methods are dropped with Postgres (D1)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/HostedAdminResetTest.php",
+   "methods": 9,
+   "dataProviders": 7,
+   "state": "scheduled",
+   "target": "P6",
+   "note": "the hosted admin-reset command and its claim/session cleanup; the ops surface is P6 and answers 501 today",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/HostedDisabledUsersTest.php",
+   "methods": 5,
+   "dataProviders": 5,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "disable ends only that account's sessions; v4 has the last-admin guard but not the disable/session sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/OpsAccountsDisableHttpTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P6",
+   "note": "ops account disable/enable endpoint; not ported (501)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/OpsAccountsHttpTest.php",
+   "methods": 6,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P6",
+   "note": "ops reset/claim endpoint with its signature check; not ported (501)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/PermissionFilterTest.php",
+   "methods": 20,
+   "dataProviders": 4,
+   "state": "ported",
+   "target": "v4/test/http/filters.spec.ts",
+   "note": "the filter's answers (fail-closed, form target, HEAD, redirect) are pinned here; the 281-route permission matrix by routes-parity.spec.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/RegisterFormTest.php",
+   "methods": 1,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the registration form's name rule; registration answers 501 today",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/RestorePermissionTest.php",
+   "methods": 9,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "the backup/restore permission split and role defaults; restore is P5",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/RoleRepositoryTest.php",
+   "methods": 3,
+   "dataProviders": 2,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "built-in roles returned on a database error; v4's role reader has no test for the failure path yet",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/SessionUidMatchTest.php",
+   "methods": 3,
+   "dataProviders": 2,
+   "state": "ported",
+   "target": "v4/test/session/store.spec.ts",
+   "note": "the uid binding is anchored the same way; a session whose account is gone stops authenticating",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/SignInAccountsTest.php",
+   "methods": 28,
+   "dataProviders": 21,
+   "state": "ported",
+   "target": "v4/test/session/signin.spec.ts",
+   "note": "sign-in, timing-safe refusal and pace ported (S1.4); the rate-limit buckets by v4/test/session/throttle.spec.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/TurnOnPaceTest.php",
+   "methods": 1,
+   "dataProviders": 1,
+   "state": "ported",
+   "target": "v4/test/session/signin.spec.ts",
+   "note": "every refusal spends a password check and waits for the deadline",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Auth/UserAdminTest.php",
+   "methods": 9,
+   "dataProviders": 8,
+   "state": "ported",
+   "target": "v4/test/auth/guards.spec.ts",
+   "note": "last-admin and last-manager guards, pending admin, non-admin refusal; the users POST surface by http/security.spec.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Autofill/AutofillTest.php",
+   "methods": 37,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "autofill client, cache and token policy",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/BackupHelpersTest.php",
+   "methods": 18,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/BackupSnapshotTest.php",
+   "methods": 1,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/BackupStorageTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/D1BackupCreateTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/D1RestoreTest.php",
+   "methods": 14,
+   "dataProviders": 2,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/DataDirOwnerGroupsTest.php",
+   "methods": 1,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/JsonReaderTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/OpsBackupHttpTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/OpsBackupsTest.php",
+   "methods": 12,
+   "dataProviders": 7,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/RestoreConfirmJobTest.php",
+   "methods": 15,
+   "dataProviders": 4,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/RestoreFenceTest.php",
+   "methods": 5,
+   "dataProviders": 2,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/RestoreStageTest.php",
+   "methods": 15,
+   "dataProviders": 15,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/RestoreStorageLeaseTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/RestoreUploadsTest.php",
+   "methods": 29,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/RestorerFatalCleanupTest.php",
+   "methods": 3,
+   "dataProviders": 3,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/RestorerWorkerModeTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/StagedRestoreTest.php",
+   "methods": 9,
+   "dataProviders": 9,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/StoredBackupsTest.php",
+   "methods": 13,
+   "dataProviders": 6,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup/restore: ZIP, staged restore, fence and sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Backup/restore-fence-worker.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP worker script for the restore-fence test",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Catalog/CatalogTest.php",
+   "methods": 9,
+   "dataProviders": 7,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "read-only catalog: list, filters, detail",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Catalog/ItemDeleteControllerTest.php",
+   "methods": 3,
+   "dataProviders": 3,
+   "state": "scheduled",
+   "target": "P3",
+   "note": "item delete is a catalog write, not phase 2",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Catalog/PhotoRepositoryTest.php",
+   "methods": 7,
+   "dataProviders": 6,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "photo metadata is the media slice",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/ControlPanel/AutofillViewTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "the autofill panel view",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/ControlPanel/LogoInstallerTest.php",
+   "methods": 4,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "branding/logo install rides the settings and page surface",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/ApiCsrfTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/filters.spec.ts",
+   "note": "403 csrf.invalid and 415 for a non-JSON body",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/ApiResponseTest.php",
+   "methods": 6,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the v3 API envelope across every controller",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/ApothekeDbServiceTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "CI4's shared DB service wiring",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/AppBaseUrlTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "PUBLIC_URL vs allowed host",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/BootMigrationTest.php",
+   "methods": 5,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/migrations.spec.ts",
+   "note": "migration on open, refuse-if-newer, atomic per step",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/CatalogStorageSelectionTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "storage mode selection for the catalog",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/ClientAddressTest.php",
+   "methods": 6,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "trusted-proxy address derivation; v4 parses the headers but the proxy rules are untested",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/CompiledRoutesTest.php",
+   "methods": 6,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/routes-parity.spec.ts",
+   "note": "the generated table: 281 routes, 3 chains",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/ConsentFilterTest.php",
+   "methods": 13,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/session/signin.spec.ts",
+   "note": "the consent gate (D20): no session without consent",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/CorsTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "CORS_ALLOWED_ORIGINS is not honoured yet (revision 33 records it)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/CsrfFilterTest.php",
+   "methods": 9,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/filters.spec.ts",
+   "note": "419 sessioncsrf for a form write, safe methods pass",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/D1DriverBridgeTest.php",
+   "methods": 6,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the v3 D1 bridge",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/D1DriverTest.php",
+   "methods": 19,
+   "dataProviders": 2,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the v3 D1 driver",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/D1HostedBulkTest.php",
+   "methods": 7,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "D1 hosted bulk paths",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/D1HostedImportTest.php",
+   "methods": 7,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "D1 hosted import paths",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/D1HostedRefusalsTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "D1 hosted refusals",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/D1HostedWritesTest.php",
+   "methods": 17,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "D1 hosted writes",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/D1HttpExecutorTest.php",
+   "methods": 13,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the D1 HTTP executor (hosted bridge)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/D1IntegrationTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "D1 integration",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/D1SelectionTest.php",
+   "methods": 6,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "driver/storage selection",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/DatabaseSessionHandlerTest.php",
+   "methods": 26,
+   "dataProviders": 23,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the PHP session handler; v4's store has the row shape, not the handler's gc/locking",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/DatabaseStateTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "guards PHP static state; a Worker request has no module state to leak",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/FilterStateTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "guards PHP static properties in filters/services; not a v4 hazard",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/FormFieldsTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "form field list rules",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/HostAllowListTest.php",
+   "methods": 10,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/filters.spec.ts",
+   "note": "421 for an unknown host, PUBLIC_URL's host accepted",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/HostedLimitsTest.php",
+   "methods": 16,
+   "dataProviders": 9,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "hosted ceilings (the Postgres-parallel methods drop with D1)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/JobQueueTest.php",
+   "methods": 14,
+   "dataProviders": 12,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "jobs table replaced by DO alarms (P5)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/JobRunnerTest.php",
+   "methods": 8,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "jobs table replaced by DO alarms (P5)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/JobsCliTest.php",
+   "methods": 5,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "jobs table replaced by DO alarms (P5)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/LegacyPathRouterTest.php",
+   "methods": 3,
+   "dataProviders": 1,
+   "state": "ported",
+   "target": "v4/test/http/router.spec.ts",
+   "note": "barcode path routing and the exact-path rule",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/LocalStorageTest.php",
+   "methods": 10,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "the local-disk blob store",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/NativeSessionTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP's native session handler; v4 has its own store",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/OpenApiTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "openapi.yaml covers every route",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/PlainHandlerTest.php",
+   "methods": 7,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the v3 top-level handler's headers/exit paths",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/PostTooLargeTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/filters.spec.ts",
+   "note": "413 past MAX_UPLOAD_MB",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/PublicBaseTest.php",
+   "methods": 9,
+   "dataProviders": 8,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the per-request base URL and settings fallback",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/ReadCacheTest.php",
+   "methods": 9,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the per-request read cache",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/RedactingFileHandlerTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP log redaction of file writes",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/RefusalCacheControlTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "no-store on refusals; S1.5 records a deliberate narrowing (`no-cache` dropped)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/RowsManyTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "batched reads over the D1 driver",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/SameOriginTest.php",
+   "methods": 6,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/filters.spec.ts",
+   "note": "cross-site write 403, same-origin/safe/no-signal pass",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/SecretBoxTest.php",
+   "methods": 8,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/platform.spec.ts",
+   "note": "enc:v1: secrets open and re-seal byte for byte",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/SessionCookieDatabaseTest.php",
+   "methods": 5,
+   "dataProviders": 2,
+   "state": "ported",
+   "target": "v4/test/session/cookie.spec.ts",
+   "note": "name, Secure derivation and the one-release fallback",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/SessionCookieWorkerTest.php",
+   "methods": 5,
+   "dataProviders": 4,
+   "state": "ported",
+   "target": "v4/test/session/cookie.spec.ts",
+   "note": "the __Host- name and no Domain",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/SessionGateTest.php",
+   "methods": 12,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/session/store.spec.ts",
+   "note": "expiry shapes and the destruct-on-copy rule",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/SessionIdleTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/session/store.spec.ts",
+   "note": "v3's idle limit",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/SessionLifetimeTest.php",
+   "methods": 4,
+   "dataProviders": 2,
+   "state": "ported",
+   "target": "v4/test/session/store.spec.ts",
+   "note": "v3's absolute limit",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/SqlExecutorTest.php",
+   "methods": 9,
+   "dataProviders": 6,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the v3 SQL executor",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/StoragePreflightTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "disk directory preflight",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/StreamedResponseTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "streamed responses (ZIP/exports)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/TrustProxyOnceTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the Secure flag follows the request settings",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/UnitOfWorkHistorySitesTest.php",
+   "methods": 8,
+   "dataProviders": 6,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "per-site batching (history)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/UnitOfWorkLockTest.php",
+   "methods": 9,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the write lock",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/UnitOfWorkRemainingSites2Test.php",
+   "methods": 6,
+   "dataProviders": 6,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "per-site batching",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/UnitOfWorkRemainingSitesRaceTest.php",
+   "methods": 21,
+   "dataProviders": 20,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the 20-row race table across remaining sites",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/UnitOfWorkRemainingSitesTest.php",
+   "methods": 5,
+   "dataProviders": 5,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "per-site batching",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/UnitOfWorkSitesTest.php",
+   "methods": 8,
+   "dataProviders": 6,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "per-site batching",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/UnitOfWorkTest.php",
+   "methods": 26,
+   "dataProviders": 22,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the unit-of-work contract",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/WiredCommandsTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "jobs table replaced by DO alarms (P5)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/WorkerRecycleTest.php",
+   "methods": 6,
+   "dataProviders": 1,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP worker recycling cap; workerd isolates per request",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/WritesTransactionTest.php",
+   "methods": 3,
+   "dataProviders": 2,
+   "state": "ported",
+   "target": "v4/test/rqlite.spec.ts",
+   "note": "a refused commit keeps nothing",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/WritesTypedRowsTest.php",
+   "methods": 1,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "typed row mapping",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/_d1-driver-race-client.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP race-test client script",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Core/_d1-hosted-worker.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP worker script for the hosted-limit tests",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/ImportExport/CsvExportTest.php",
+   "methods": 4,
+   "dataProviders": 3,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "CSV import and export",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/ImportExport/ImportJobTest.php",
+   "methods": 6,
+   "dataProviders": 6,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "CSV import and export",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/ImportExport/ImportPreviewTest.php",
+   "methods": 3,
+   "dataProviders": 2,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "CSV import and export",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/ImportExport/ImportsTest.php",
+   "methods": 6,
+   "dataProviders": 5,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "CSV import and export",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Labels/QrJitTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "label/QR rendering",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Layout/LayoutTest.php",
+   "methods": 6,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the page shell: menu, layout, error pages",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Lending/LoansTest.php",
+   "methods": 2,
+   "dataProviders": 2,
+   "state": "scheduled",
+   "target": "P3",
+   "note": "lending is a catalog write",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Media/MediaTest.php",
+   "methods": 21,
+   "dataProviders": 2,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "upload, thumbnails, originals (D2)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Media/fixtures/fatal-on-thumb.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "Imagick fatal-error fixture; no Imagick in v4 (D2)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Migrations/D1BootstrapTest.php",
+   "methods": 12,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "D1 bootstrap and race refusal; v4's DO gate is built, the concurrent-open case is untested",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Migrations/D1FreshInstallRolesTest.php",
+   "methods": 3,
+   "dataProviders": 1,
+   "state": "ported",
+   "target": "v4/test/seed.spec.ts",
+   "note": "a fresh install seeds the four roles and the first admin",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Migrations/D1MigrationRunnerTest.php",
+   "methods": 28,
+   "dataProviders": 2,
+   "state": "ported",
+   "target": "v4/test/migrations.spec.ts",
+   "note": "the chain, per-migration atomicity, refuse-if-newer and the version rows",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Migrations/D1SchemaDumpTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/schema-parity.spec.ts",
+   "note": "the applied schema matches the PHP dump",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Migrations/D1SqliteStandIn.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP SQLite stand-in for the D1 bootstrap test",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Migrations/_d1-bootstrap-race-client.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP race-test client script",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Notes/MarkdownRendererTest.php",
+   "methods": 6,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "P3",
+   "note": "markdown notes are a catalog write",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Settings/BrandingControllerTest.php",
+   "methods": 7,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "the settings values page and service; S1.3 shipped users & roles only",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Settings/LocalBrandStoreTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "the settings values page and service; S1.3 shipped users & roles only",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Settings/SettingsCliTest.php",
+   "methods": 5,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "the settings values page and service; S1.3 shipped users & roles only",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Settings/SettingsServiceTest.php",
+   "methods": 26,
+   "dataProviders": 23,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "the settings values page and service; S1.3 shipped users & roles only",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Settings/SettingsWriteFailureTest.php",
+   "methods": 2,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "the settings values page and service; S1.3 shipped users & roles only",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Stocktake/StocktakesTest.php",
+   "methods": 6,
+   "dataProviders": 6,
+   "state": "scheduled",
+   "target": "P3",
+   "note": "stocktake is a catalog write",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Taxonomy/TaxonomyTest.php",
+   "methods": 6,
+   "dataProviders": 4,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "taxonomy pages and API",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/Taxonomy/WriteFailureTest.php",
+   "methods": 8,
+   "dataProviders": 8,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "taxonomy write refusals ride the taxonomy slice",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/_support/D1UowSchema.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP test-harness support (schema stand-in, memory R2, worker scripts); v4's equivalents are v4/test/helpers/*.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/_support/MemoryR2.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP test-harness support (schema stand-in, memory R2, worker scripts); v4's equivalents are v4/test/helpers/*.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/_support/TestDatabase.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP test-harness support (schema stand-in, memory R2, worker scripts); v4's equivalents are v4/test/helpers/*.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/_support/UowSchema.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP test-harness support (schema stand-in, memory R2, worker scripts); v4's equivalents are v4/test/helpers/*.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/_support/full-disk-write.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP test-harness support (schema stand-in, memory R2, worker scripts); v4's equivalents are v4/test/helpers/*.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/_support/hold-transaction.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP test-harness support (schema stand-in, memory R2, worker scripts); v4's equivalents are v4/test/helpers/*.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/_support/lock-snapshot.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP test-harness support (schema stand-in, memory R2, worker scripts); v4's equivalents are v4/test/helpers/*.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/_support/session-lock-worker.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP test-harness support (schema stand-in, memory R2, worker scripts); v4's equivalents are v4/test/helpers/*.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/_support/uow-race-worker.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP test-harness support (schema stand-in, memory R2, worker scripts); v4's equivalents are v4/test/helpers/*.ts",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Modules/bootstrap.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHPUnit bootstrap for the module suite",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/ApothekeConfigTest.php",
+   "methods": 14,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/platform.spec.ts",
+   "note": "config loader: PHP defaults, empty variable, value normalisation",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Backup/RestoreObjectStoreTest.php",
+   "methods": 11,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "restore object store",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/BackupMemoryTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup memory ceiling",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4AccountsCliTest.php",
+   "methods": 9,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P6",
+   "note": "accounts CLI becomes the ops surface",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ApiCookieTest.php",
+   "methods": 5,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/api-session.spec.ts",
+   "note": "the cookie the API sets and clears",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ApiHttpTest.php",
+   "methods": 10,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the API surface outside session/users",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ApiImportsTest.php",
+   "methods": 7,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "import API",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ApiJobsTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "jobs API",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ApiRestoreJobTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "restore job",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ApiRestoresTest.php",
+   "methods": 11,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "restore API",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ApiSessionTest.php",
+   "methods": 5,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/api-session.spec.ts",
+   "note": "GET/POST/DELETE /api/v1/session state",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ApiSettingsTest.php",
+   "methods": 6,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the settings API; settings values are P2",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ApiUsersTest.php",
+   "methods": 10,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/security.spec.ts",
+   "note": "the users POST surface",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4AuthParityTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/routes-parity.spec.ts",
+   "note": "route permissions match v3",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4BackupCliTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup CLI",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4BackupFailureTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup failure paths",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4BackupParityTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup parity",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4BackupRaceTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "backup race",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4BackupRestoreChecksTest.php",
+   "methods": 31,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "31 restore preflight checks",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4BranchCiTest.php",
+   "methods": 15,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 branch/CI conventions; v4's guard is workflows:check plus main-freeze",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4BrandingHttpTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "branding HTTP",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4BulkMergeParityTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P3",
+   "note": "bulk merge",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ConnectFailureLeakTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "a connect failure must not leak credentials",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4CookieConsentTest.php",
+   "methods": 20,
+   "dataProviders": 2,
+   "state": "ported",
+   "target": "v4/test/session/signin.spec.ts",
+   "note": "the consent gate (D20)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4DiRuleTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 DI-container rules; v4 enforces boundaries with dependency-cruiser",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4DsnCredentialsTest.php",
+   "methods": 8,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 DSN parsing; v4 takes the sixteen env names (D18)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4E2eSkipListTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the CI4_UNPORTED guard: G1 owes a typed map that fails on a stale key",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4HttpTest.php",
+   "methods": 8,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/router.spec.ts",
+   "note": "the HTTP surface through the router",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ImportExportParityTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "import/export parity",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ImportHtmlScopeTest.php",
+   "methods": 6,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "import HTML scope",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ImportRaceTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "import race",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ImportSweepTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "import sweep",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ItemPhotosParityTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "photo metadata parity",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4JobsWorkTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "jobs",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4LabelsLendingParityTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "labels/QR is P2; the lending half is P3",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4MigrateTest.php",
+   "methods": 9,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/migrations.spec.ts",
+   "note": "the migrate command's chain",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4ModuleSuiteTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHPUnit module-suite wiring",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4OneConnectionTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3's single SQLite connection; v4 runs on D1 or the DO's storage",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4PageHttpTest.php",
+   "methods": 5,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "page routes that still answer 501",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4PagesGoldenTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/html/golden.spec.ts",
+   "note": "the page output",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4PhotoRacesTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "photo races",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4RequestHardeningHttpTest.php",
+   "methods": 7,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/security.spec.ts",
+   "note": "security headers and hardening",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4RequestValidationTest.php",
+   "methods": 10,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P3",
+   "note": "write-endpoint validation",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4RouteMethodTest.php",
+   "methods": 7,
+   "dataProviders": 5,
+   "state": "ported",
+   "target": "v4/test/http/filters.spec.ts",
+   "note": "405 with Allow, 404 problem+json",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4SchemaTest.php",
+   "methods": 10,
+   "dataProviders": 2,
+   "state": "ported",
+   "target": "v4/test/schema-parity.spec.ts",
+   "note": "the applied schema",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4SeedCliTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/seed.spec.ts",
+   "note": "the seed phase",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4SessionEndTest.php",
+   "methods": 5,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/session/store.spec.ts",
+   "note": "ending a session by its cookie",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4SettingsCliTest.php",
+   "methods": 10,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "settings CLI",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4StocktakeParityTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P3",
+   "note": "stocktake parity",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4UnparsablePathTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/router.spec.ts",
+   "note": "unparsable paths 404 like v3",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Ci4UsersRolesParityTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/auth/guards.spec.ts",
+   "note": "user and role writes match v3",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/ConfigFunctionsTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3's config()/env() helpers",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/ConfigMigrateWhereTest.php",
+   "methods": 17,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "P6",
+   "note": "the migrate CLI's sanitised DSN output",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/ConfigTest.php",
+   "methods": 16,
+   "dataProviders": 1,
+   "state": "dropped",
+   "target": "",
+   "note": "v3's config.php array; v4's configuration is env.ts (D18)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Core/Storage/ObjectLeaseTest.php",
+   "methods": 10,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "object leases on upload",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Core/Storage/R2StorageTest.php",
+   "methods": 34,
+   "dataProviders": 4,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "the R2 blob store; v4's Blobs is built and has one layout test",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Core/Storage/R2TransportTest.php",
+   "methods": 7,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "the R2 transport",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Core/Storage/StorageFactoryTest.php",
+   "methods": 11,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "storage mode selection",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Core/Storage/StorageModeWriteTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "storage-mode writes",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Core/Storage/VersionedStorageTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P4",
+   "note": "versioned blobs",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Core/Storage/_conditional-race.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP race fixture",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/Core/Storage/_r2-race-client.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHP race client",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/CoverageReadmeTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3's coverage doc sync",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/DatabaseFactoryTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "driver selection",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/DbConnectErrorTest.php",
+   "methods": 8,
+   "dataProviders": 4,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "a connect failure logs a line with no credentials",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/DeployWorkflowsTest.php",
+   "methods": 14,
+   "dataProviders": 9,
+   "state": "dropped",
+   "target": "",
+   "note": "v3's edge/frontend deploy workflows, excluded from this line by D36",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/DevServerRouterTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/http/filters.spec.ts",
+   "note": "the /originals/ guard, any spelling",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/DockerfileTest.php",
+   "methods": 17,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "the v3 PHP Dockerfile; v4 ships its own image at P6",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/DsnBootErrorTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P6",
+   "note": "the boot error line for a bad DSN",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/DsnTranslatorTest.php",
+   "methods": 11,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 DSNs; v4 config is the env names of \u00a711 (D18)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/ExportMemoryTest.php",
+   "methods": 1,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P5",
+   "note": "export memory ceiling",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/ImagickPolicyCheckTest.php",
+   "methods": 3,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3's Imagick policy; no Imagick in v4 (D2)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/LinkCheckTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 docs link check; the docs moved",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/MigrateDsnTest.php",
+   "methods": 5,
+   "dataProviders": 1,
+   "state": "scheduled",
+   "target": "P6",
+   "note": "the migrate CLI's allowlisted DSN fields",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/ParityRecorderTest.php",
+   "methods": 6,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P7",
+   "note": "the parity recorder's allowlist and diffing (G7)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/ReleaseTest.php",
+   "methods": 17,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3's release/CHANGELOG procedure",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/RequestSchemeTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "ported",
+   "target": "v4/test/session/cookie.spec.ts",
+   "note": "Secure derives from the request the same way",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/RoundTripBudgetTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the per-request round-trip/statement budget",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/SharedTokensTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P2",
+   "note": "CSS design tokens and the default accent (visual parity)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/SkipsOutsideCi.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHPUnit skip helper",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/SkipsOutsideCiTest.php",
+   "methods": 2,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "the skip guard G1 replaces with a typed map",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/Unit/StorageModeBootErrorTest.php",
+   "methods": 4,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "storage-mode boot refusals (503, no SQLite fallback)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/ci4-migrate-worker.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 CI4 entry point for PHPUnit's migrate tests",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/ci4-router.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 CI4 router used by PHPUnit's HTTP tests",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/ci4-session-on-demand.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 CI4 session bootstrap for PHPUnit",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/coverage/merge.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 coverage-merge tooling; coverage runs live on main"
+  },
+  {
+   "path": "tests/coverage/prepend.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 coverage bootstrap; coverage runs live on main"
+  },
+  {
+   "path": "tests/coverage/router.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 coverage router; coverage runs live on main"
+  },
+  {
+   "path": "tests/e2e/seed.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 e2e seed; the e2e runs live on main"
+  },
+  {
+   "path": "tests/heic_image_check.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "probes v3's Imagick/HEIC extensions; v4 uses the Workers Images binding (D2)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/imagick_color_check.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "probes v3's Imagick colour handling; no Imagick in v4 (D2)",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/lib.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHPUnit helpers",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/parity/recorder.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "P7",
+   "note": "v3's parity recorder; v4's recorder is the G7 parity gate"
+  },
+  {
+   "path": "tests/phpunit-bootstrap.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "PHPUnit bootstrap",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/round-trip-router.php",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 CI4 router for the round-trip test",
+   "kind": "retired"
+  },
+  {
+   "path": "tests/stubs/autofill-stub.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "G1",
+   "note": "serves the autofill client until D36c removes the harness's PHP seeding"
+  },
+  {
+   "path": "tests/upgrade/ci4-only.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 upgrade harness; upgrade runs live on main"
+  },
+  {
+   "path": "tests/upgrade/compare.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 upgrade harness; upgrade runs live on main"
+  },
+  {
+   "path": "tests/upgrade/lib.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 upgrade harness; upgrade runs live on main"
+  },
+  {
+   "path": "tests/upgrade/mutate.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 upgrade harness; upgrade runs live on main"
+  },
+  {
+   "path": "tests/upgrade/seed-extra.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 upgrade harness; upgrade runs live on main"
+  },
+  {
+   "path": "tests/upgrade/snapshot.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 upgrade harness; upgrade runs live on main"
+  },
+  {
+   "path": "tests/upgrade/staged-restore.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "dropped",
+   "target": "",
+   "note": "v3 upgrade harness; upgrade runs live on main"
+  },
+  {
+   "path": "tests/visual/ci4-fixtures.php",
+   "kind": "surviving",
+   "methods": 0,
+   "dataProviders": 0,
+   "state": "scheduled",
+   "target": "G1",
+   "note": "the PHP seeder the browser harness uses today; D36c replaces it with v4's own seed"
+  }
+ ],
+ "exceptions": [
+  {
+   "path": "v4/scripts/api-fixture-state.php",
+   "reason": "D36a capture side: boots v3's state for the API fixture, run by hand, never in CI"
+  },
+  {
+   "path": "v4/scripts/gen-claim-fixture.php",
+   "reason": "D36a capture side: boots v3 to capture the claim fixture, run by hand, never in CI"
+  },
+  {
+   "path": "v4/scripts/gen-permissions-fixture.php",
+   "reason": "D36a capture side: captures the permissions matrix, run by hand, never in CI"
+  },
+  {
+   "path": "v4/scripts/gen-security-fixture.php",
+   "reason": "D36a capture side: captures the security pages, run by hand, never in CI"
+  },
+  {
+   "path": "v4/scripts/gen-session-fixture.php",
+   "reason": "D36a capture side: captures the session/API answers, run by hand, never in CI"
+  },
+  {
+   "path": "v4/test/fixtures/php-schema-dump.php",
+   "reason": "D36a capture side: dumps v3's applied schema for schema-parity, run by hand, never in CI"
+  }
+ ]
+}
