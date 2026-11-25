@@ -11,9 +11,13 @@ name: Visual v4 instrument
 # Why the push trigger on branches, when D51 said dispatch-only: a new workflow file cannot be
 # dispatched until it exists on the default branch, and main is frozen at 4a187d0f. So the trigger
 # that can actually be fired, and read, is a push to one of the branches listed below:
-# `v4/visual-instrument` for an instrument reading, `v4/g1-map` for the CI4_UNPORTED harvest (D49),
-# whose job can only fire where this file lives. Neither job gates anything; each costs one run when
-# someone asks for an instrument reading or a fresh map.
+# `v4/visual-instrument` for an instrument reading, `v4/g1-map` for the CI4_UNPORTED harvest (D49)
+# and for the flip, whose jobs can only fire where this file lives. The instrument and the map gate
+# nothing; each costs one run when someone asks for an instrument reading or a fresh map. The flip
+# job's conclusion is a verdict: it runs the suite on the default harness (v4, no `E2E_APP`) and fails
+# when a test other than the three named ones executes, or when the pixel comparator stops being
+# reachable. It is a gate for the pushes this file can see, not for experimental-v4, which this
+# workflow cannot be triggered from.
 
 on:
   workflow_dispatch:
@@ -107,5 +111,51 @@ jobs:
           path: |
             tests/visual/v4-map-report.json
             tests/visual/ci4-unported.proposed.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  flip:
+    # G1's last step, and the only job in this file whose conclusion is a verdict: the default is v4 (no
+    # `E2E_APP`), and this run is the evidence. v4/scripts/check-visual-flip.mjs reads its report and
+    # asserts the shape by name - three tests execute and pass, every other test is a key or a
+    # self-skip, and no test dies without a boot - then plants pixels into a committed baseline and
+    # requires the assertion to fail naming that baseline. That second half is the point: "zero diff
+    # on the pages v4 implements" is a threshold (D66, D67), and a comparator that cannot go red
+    # certifies nothing. Two baselines are compared today (login.png, not-found.png); the other 510
+    # belong to pages that still answer 501, so this is not a 512-baseline proof and does not read as
+    # one.
+    name: Flip gate - the default harness boots v4
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
+      options: --ipc=host
+    env:
+      CI: '1'
+      HOME: /root
+    steps:
+      - uses: actions/checkout@v7
+      - run: node --version
+      - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+        working-directory: v4
+      - name: Self-test the flip check (no browser, no boot)
+        run: node v4/scripts/check-visual-flip.mjs --self-test
+      - name: Run the suite on the default harness (no E2E_APP)
+        continue-on-error: true
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: tests/visual/flip-report.json
+        run: npx playwright test --project=desktop-chromium --retries=0 --reporter=json
+      - name: The run's shape, by name
+        run: node v4/scripts/check-visual-flip.mjs --report tests/visual/flip-report.json
+      - name: The comparator is reachable: planted baselines go red, unplanted stays green
+        run: node v4/scripts/check-visual-flip.mjs --control
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: visual-v4-flip
+          path: |
+            tests/visual/flip-report.json
+            tests/visual/test-results/
           if-no-files-found: warn
           retention-days: 14

@@ -37,7 +37,12 @@ jobs:
       - uses: actions/checkout@v7
       - run: scripts/e2e-container-setup.sh
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      # v3 renders the baselines while v4 is the harness's default (G1's flip): these 512 PNGs are
+      # the PHP app's, and phase 2 re-renders them page by page as the pages are ported. Without this
+      # line the renderer would boot v4, where 112 tests skip and 102 pages answer 501.
       - name: Render baselines
+        env:
+          E2E_APP: php
         run: npx playwright test --update-snapshots=all --retries=0 --workers=3
       - uses: actions/upload-artifact@v7
         if: always()

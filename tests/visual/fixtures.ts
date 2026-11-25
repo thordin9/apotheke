@@ -11,13 +11,19 @@ export const ROOT = path.resolve(__dirname, '../..');
 export const CLOCK = '2026-06-15 09:00:00';
 
 /**
- * The app under test. `php -S` on the host by default; with E2E_DOCKER_IMAGE=<image> the real container
- * (nginx + php-fpm) instead, with the repo mounted read-only at /repo so seed/SQL helpers run inside it;
- * with E2E_APP=v4, v4 on workerd (G1's boot seam - see ./v4-server.cjs and v4/scripts/check-visual-boot.mjs).
+ * The app under test: v4 on workerd by default (G1's boot seam - see ./v4-server.cjs and
+ * v4/scripts/check-visual-boot.mjs); `E2E_APP=php` boots v3 through `php -S`; with
+ * E2E_DOCKER_IMAGE=<image> the real container (nginx + php-fpm) instead, with the repo mounted
+ * read-only at /repo so seed/SQL helpers run inside it.
  *
- * v4 is opt-in and not yet the default: v4 serves `/login` and the sign-in chain today and answers 501
- * for every page a slice has not ported, so a suite booted against it would skip almost every test -
- * a green run over nothing. The default flips with the map that names those pages, not before it.
+ * v4 became the default at G1's flip. The 112 keys in ci4-unported.json name every test whose page v4
+ * refuses, so the run skips what it cannot measure instead of reading it as a page that renders wrong,
+ * and those keys come from a live run rather than a hand. v4 is not the whole suite yet: 102 pages
+ * answer 501 and the four specs that shell `php` skip in their own files, so a green default run is
+ * three tests (v4/scripts/check-visual-flip.mjs names them), not 170. v3 stays reachable because the
+ * 512 rendered baselines are v3's until phase 2 ports the pages that own them: the renderer pins
+ * E2E_APP=php (snapshots.yml, scripts/update-snapshots.sh), and so does the pgsql smoke project,
+ * whose subject is v3's PostgreSQL driver rather than a page.
  */
 type Server = {
   base: string; dataDir: string; filesDir: string; env: NodeJS.ProcessEnv;
@@ -30,8 +36,12 @@ type Server = {
   restartV4?: () => Promise<void>;
 };
 export const DOCKER_IMAGE = process.env.E2E_DOCKER_IMAGE || '';
-/** Which app the harness boots: `php` (v3, the default), `v4` (workerd), or the Docker image above. */
-export const APP = process.env.E2E_APP === 'v4' ? 'v4' : 'php';
+const REQUESTED_APP = process.env.E2E_APP ?? '';
+if (REQUESTED_APP && REQUESTED_APP !== 'php' && REQUESTED_APP !== 'v4') {
+  throw new Error(`E2E_APP=${REQUESTED_APP} is not an app: leave it unset for v4, or say php for v3`);
+}
+/** Which app the harness boots: v4 (workerd) unless `E2E_APP=php` asks for v3, which the Docker image always does. */
+export const APP = REQUESTED_APP === 'php' || (!REQUESTED_APP && DOCKER_IMAGE) ? 'php' : 'v4';
 type WorkerOpts = { appPassword: string; dbDriver: 'sqlite' | 'pgsql'; publicUrl: string; server: Server };
 type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: App; ci4Unported: void };
 
@@ -47,7 +57,7 @@ export const CI4_UNPORTED: Record<string, string> = JSON.parse(
 );
 
 /**
- * E2E_APP=v4 only: the paths v4 answered 501 for during the current test, from any context.
+ * v4 only: the paths v4 answered 501 for during the current test, from any context.
  * v4 serves /login and the sign-in chain and answers 501 for every page no slice has ported; the
  * `errors` fixture turns this set into a `v4-unported` annotation, and v4/scripts/visual-v4-map.mjs
  * turns that into a CI4_UNPORTED entry, so the map comes from a run (D49) rather than a red read by
@@ -56,7 +66,7 @@ export const CI4_UNPORTED: Record<string, string> = JSON.parse(
 const UNPORTED = new Set<string>();
 
 /**
- * E2E_APP=v4 only: watch an APIRequestContext. `page.request.get('/x')` raises no `response` event on
+ * v4 only: watch an APIRequestContext. `page.request.get('/x')` raises no `response` event on
  * the page or on the context (D76), so a spec that reads a page that way - qa-fixes.spec.ts does, on
  * its first line - got a 501 no listener could see, and the map called it unexplained. Wrapping the
  * verb methods records the status the context got, which is the only place it exists.
@@ -107,7 +117,7 @@ async function waitUp(base: string) {
 /**
  * Fixture work through the app's own code: tests/visual/ci4-fixtures.php.
  *
- * Under E2E_APP=v4 it refuses rather than answering: ci4-fixtures.php writes the PHP app's `DATA_DIR`,
+ * Under v4 it refuses rather than answering: ci4-fixtures.php writes the PHP app's `DATA_DIR`,
  * which v4 never reads, so a silent success here would be a fixture that seeds nothing. v4's own
  * migrate+seed phase runs at boot (`/readyz`), which `startV4` awaits; the catalog fixtures the v3
  * suite uses per test are G1's next step and do not exist on v4 yet.
@@ -136,7 +146,7 @@ export class App {
   }
   /** A small deterministic JPEG/PNG on disk, for file inputs. */
   image(name: string, rgb: [number, number, number], png = false): string {
-    if (APP === 'v4') throw new Error('the visual harness\'s image() fixture shells `php` for GD; under E2E_APP=v4 '
+    if (APP === 'v4') throw new Error('the visual harness\'s image() fixture shells `php` for GD; under v4 '
       + 'no `php` process is started, so a spec that uploads a photo cannot run until the upload path has a v4 fixture.');
     const out = path.join(this.server.filesDir, name);
     if (fs.existsSync(out)) return out;
@@ -276,7 +286,7 @@ export const test = base.extend<TestOpts, WorkerOpts>({
   errors: [async ({ page, browserName }, use, info) => {
     const errors: string[] = [];
     /**
-     * E2E_APP=v4 only: the paths v4 answered 501 for. v4 serves /login and the sign-in chain and
+     * v4 only: the paths v4 answered 501 for. v4 serves /login and the sign-in chain and
      * answers 501 for every page no slice has ported, so a test that wandered into one fails on its
      * own assertion - this annotation is what names the page. v4/scripts/visual-v4-map.mjs turns it
      * into a CI4_UNPORTED entry, so the map comes from a run (D49) rather than from a red read by
@@ -300,7 +310,7 @@ export const test = base.extend<TestOpts, WorkerOpts>({
     expect(errors, 'no console errors').toEqual([]);
   }, { auto: true }],
   /**
-   * E2E_APP=v4 only: watch every context the spec opens, not just the fixture's `page`. The consent
+   * v4 only: watch every context the spec opens, not just the fixture's `page`. The consent
    * spec and the no-JavaScript tests call `browser.newContext()` themselves, so a listener on `page`
    * alone never sees the 501 their first navigation gets - and a red the harness cannot explain is a
    * red the map would have to absorb without a reason.

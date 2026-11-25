@@ -109,11 +109,15 @@ const SELFTEST = [
 			isoClock(undefined) === "2026-06-15T09:00:00Z",
 	},
 	{
-		name: "the harness imports this seam and gates it on E2E_APP=v4",
+		name: "the harness imports this seam, and v4 is the app an unset E2E_APP boots",
 		ok: () => {
 			if (!existsSync(HARNESS)) return false;
 			const text = readFileSync(HARNESS, "utf8");
-			return text.includes("from './v4-server.cjs'") && text.includes("process.env.E2E_APP === 'v4'");
+			// The flip pins the direction, not just the import: before it this line asserted the
+			// opposite, and either direction is one word away from a green suite that measured
+			// nothing. `php` is the opt-out; the Docker image means v3 by construction.
+			return text.includes("from './v4-server.cjs'")
+				&& text.includes("export const APP = REQUESTED_APP === 'php' || (!REQUESTED_APP && DOCKER_IMAGE) ? 'php' : 'v4';");
 		},
 	},
 	{

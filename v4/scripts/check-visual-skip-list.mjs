@@ -462,7 +462,7 @@ export function renderSkips(map) {
 	const lines = [
 		"## CI4 Playwright skips",
 		"",
-		`Under \`E2E_APP=v4\` these ${keys.length} tests skip: each names a page the v4 app answers 501 for, or`,
+		`Under the default harness (v4; \`E2E_APP=php\` boots v3) these ${keys.length} tests skip: each names a page the v4 app answers 501 for, or`,
 		"needs a fixture that runs PHP (`sql`, `settings`). This section is generated from",
 		"`tests/visual/ci4-unported.json` by `node scripts/check-visual-skip-list.mjs --write-handoff`;",
 		"`skip-list:check` fails while the two disagree, so a hand edit does not survive a check (plan D80).",

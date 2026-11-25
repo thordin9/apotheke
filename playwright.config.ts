@@ -19,7 +19,16 @@ export default defineConfig({
   timeout: 45_000,
   expect: {
     timeout: 7_000,
-    toHaveScreenshot: { animations: 'disabled', caret: 'hide', scale: 'css', maxDiffPixelRatio: 0.002, threshold: 0.2 },
+    toHaveScreenshot: {
+      animations: 'disabled', caret: 'hide', scale: 'css',
+      // The flip gate's change rule (D66, D67), in the path a run actually uses: a file has changed
+      // when more than 5,000 pixels differ, counted byte for byte (`threshold: 0` - any channel
+      // difference counts, which is the unit D67's measurements are in). 5,000 is 7.5x the worst
+      // noise measured across two unplanted renders of one commit (663 px) and 9.3x below the
+      // smallest material change measured (46,411 px). A count, not a ratio: noise is a pixel count,
+      // and 0.2% of a phone viewport (500 px) sits *below* that measured noise floor.
+      maxDiffPixels: 5_000, threshold: 0,
+    },
   },
   fullyParallel: false,          // tests in a file share one worker (and its server); files run in parallel
   forbidOnly: CI,

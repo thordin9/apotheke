@@ -4,7 +4,7 @@
   "description": "Dev-only: Playwright visual end-to-end tests for Apotheke (the app itself has no JS build step).",
   "scripts": {
     "test:e2e": "playwright test",
-    "test:e2e:smoke-pg": "playwright test --project=pgsql-smoke",
+    "test:e2e:smoke-pg": "E2E_APP=php playwright test --project=pgsql-smoke",
     "test:e2e:report": "playwright show-report tests/visual/report",
     "test:e2e:update": "scripts/update-snapshots.sh",
     "coverage:readme": "bash scripts/coverage.sh",

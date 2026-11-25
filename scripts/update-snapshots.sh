@@ -6,6 +6,9 @@
 #   scripts/update-snapshots.sh [...] -- ARGS   extra Playwright args, e.g. -- --project=desktop-chromium
 #
 # Never commit screenshots rendered on a different OS/browser build: fonts and anti-aliasing differ.
+#
+# E2E_APP=php is deliberate: v4 is the harness's default since G1's flip, and these baselines are the
+# PHP app's until phase 2 re-renders them page by page.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 IMAGE="mcr.microsoft.com/playwright:v$(node -p "require('./package.json').devDependencies['@playwright/test']")-noble"
@@ -26,6 +29,6 @@ docker network create apotheke-e2e >/dev/null 2>&1 || true
 docker rm -f apotheke-e2e-pg >/dev/null 2>&1 || true
 docker run -d --rm --name apotheke-e2e-pg --network apotheke-e2e -e POSTGRES_USER=apotheke -e POSTGRES_PASSWORD=apotheke -e POSTGRES_DB=apotheke postgres:17 >/dev/null
 trap 'docker rm -f apotheke-e2e-pg >/dev/null 2>&1 || true' EXIT
-docker run --rm --ipc=host --network apotheke-e2e -v "$PWD":/work -w /work -e CI=1 -e TEST_PG_HOST=apotheke-e2e-pg -e TEST_PG_PASSWORD=apotheke \
+docker run --rm --ipc=host --network apotheke-e2e -v "$PWD":/work -w /work -e CI=1 -e E2E_APP=php -e TEST_PG_HOST=apotheke-e2e-pg -e TEST_PG_PASSWORD=apotheke \
   "$IMAGE" bash -c 'scripts/e2e-container-setup.sh && for i in $(seq 30); do php -r "exit(@fsockopen(\"apotheke-e2e-pg\",5432)?0:1);" && break; sleep 1; done; npm ci --ignore-scripts --no-audit --no-fund && npx playwright test --update-snapshots=all --retries=0 "$@"' _ "$@"
 echo "Updated $DIR – review the changes, then commit them."

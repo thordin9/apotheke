@@ -55,7 +55,8 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   [Workers migration plan](future/workers-migration-plan.md) (a future option, not scheduled).
 - CI4 Playwright: the `CI4_UNPORTED` skip list (`tests/visual/ci4-unported.json`, read by
   `tests/visual/fixtures.ts`) holds one key per test whose page v4 does not serve, harvested from runs
-  under `E2E_APP=v4` by `v4/scripts/visual-v4-map.mjs` (plan §5 G1). Every key must name its page
+  against v4 - the harness's default since G1's flip; `E2E_APP=php` boots v3 - by
+  `v4/scripts/visual-v4-map.mjs` (plan §5 G1). Every key must name its page
   somewhere in this file — `v4: npm run skip-list:check` fails a key whose page is not named there, and
   fails this bullet if it still claims the list has no keys once one exists, so a skip cannot leave
   this sentence behind. The skipped tests, with their count, are listed under
@@ -66,7 +67,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## CI4 Playwright skips
 
-Under `E2E_APP=v4` these 112 tests skip: each names a page the v4 app answers 501 for, or
+Under the default harness (v4; `E2E_APP=php` boots v3) these 112 tests skip: each names a page the v4 app answers 501 for, or
 needs a fixture that runs PHP (`sql`, `settings`). This section is generated from
 `tests/visual/ci4-unported.json` by `node scripts/check-visual-skip-list.mjs --write-handoff`;
 `skip-list:check` fails while the two disagree, so a hand edit does not survive a check (plan D80).
