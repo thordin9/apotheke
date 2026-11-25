@@ -69,11 +69,12 @@ curl -s http://localhost:9091/readyz; echo
 `APP_PASSWORD`).
 
 **This is the surface so far.** `http://localhost:9091/` answers `501` `route.not_implemented`
-problem+json — the router and the filter chain landed in S0.5, and the remaining pages are phase 2 —
-and most other page routes answer either a refusal or the same 501. What answers today is `/login`
-(it renders the sign-in form, and `POST /login` signs the seeded `admin` in with the `APP_PASSWORD`
-set above), `/settings/security` and that page's users and roles POSTs. Item 6 below is the list of
-what answers and what does not.
+problem+json — the router and the filter chain landed in S0.5 — and the rest of the pages are
+phase 2. What answers today is `/login` (it renders the sign-in form, and `POST /login` signs the
+seeded `admin` in with the `APP_PASSWORD` set above), `/account` with its password change and
+"sign out everywhere" POSTs (S1.5), `/settings/security` and that page's users and roles POSTs
+(S1.3), and the JSON session API: `GET|POST|DELETE /api/v1/session` and `GET /api/v1/me` (S1.4).
+Item 6 below is the list of what answers and what does not.
 
 To set `APP_KEY` (encrypts stored credentials at rest), generate one and paste it in:
 
@@ -143,8 +144,9 @@ backup below matters more than the upgrade.
 ## Backup and restore
 
 The backup of record is the app's own ZIP export, from the UI. It is the same format v3 uses, and it
-is the only thing restore accepts. There is no UI until phase 2, so the ZIP export is not reachable
-from this stack yet — see item 6.
+is the only thing restore accepts. `/login` and `/account` render, but the export itself
+(`GET /backup.zip`, `BackupController::download`) is not ported to v4 yet — a signed-in role with
+`backup` gets `501` `route.not_implemented` — so it is not reachable from this stack. See item 6.
 
 For rqlite operators, a node-level extra (not a second product format):
 
@@ -193,13 +195,13 @@ Stated plainly, because a self-host promise that hides its edges is worse than n
    inside one data directory (`raft.db`, `raft/`, `db.sqlite`) and has no flag to split them, so this
    stack mounts one volume at `/rqlite/file` with `DATA_DIR=/rqlite/file/data`. Plan §11's two-volume
    row was **corrected to match** in revision 13 (**D17**): the plan and these files now agree.
-6. **A working sign-in, and a UI only as far as `/login` and `/claim`.** `/login` renders the page PHP
-   renders (S1.1) and `POST /login` signs in (S1.2); the app's own error pages are back for a
-   page-level 404/405. With a session cookie and the consent cookie, `POST /login` answers `303` back
-   to `/`, `GET /logout` answers `303` (to `/login`), and `POST /consent` records the notice's answer.
-   Without consent a write is refused `403` `consent_required` and no session cookie is set — that
-   gate is the contract (D20), not a bug to work around. Every other page route answers `501`, or
-   `303` to `/login` where the route needs a session.
+6. **A working sign-in, and a UI only as far as `/login`, `/account` and `/claim`.** `/login`
+   renders the page PHP renders (S1.1) and `POST /login` signs in (S1.2); the app's own error pages
+   are back for a page-level 404/405. With a session cookie and the consent cookie, `POST /login`
+   answers `303` back to `/`, `GET /logout` answers `303` (to `/login`), and `POST /consent` records
+   the notice's answer. Without consent a write is refused `403` `consent_required` and no session
+   cookie is set — that gate is the contract (D20), not a bug to work around. A page route that is
+   not implemented yet answers `501`, or `303` to `/login` where it needs a session.
    `/claim` is the hosted first-admin link: `404` unless `APOTHEKE_HOSTED` is on — this walkthrough
    does not set it, so expect the 404 — and with it a valid token creates the admin once (S1.2b).
    Since S1.3 the Control Panel's Users & sign-in page answers too: sign in as the seeded admin, then
@@ -213,16 +215,35 @@ Stated plainly, because a self-host promise that hides its edges is worse than n
    last-manager check included, so removing the last way to manage users is refused `409`. The
    settings form (`POST /settings/security`, `…/reset`, `POST /settings/password`) still answers
    `501`.
+   Since S1.5 the account page answers as well: `GET /account` is `200` for a signed-in account (the
+   route's permission is `self`), `303` to `/login` for a visitor or a guest-browsing one, and `403`
+   with v3's "your role does not allow this" sentence for the anonymous admin of a sign-in-off
+   install. `POST /account` changes the password — `303` to `/account?done=pw` on success, or the page
+   re-rendered with `#acct-err` and v3's status for a refusal: `403` for a wrong current password,
+   the four `422`s from `passwordValid()`, `419` without the page's CSRF token, and `429` when the
+   current-password check is throttled exactly as a sign-in attempt is. `POST /account/signout`
+   revokes every other session and answers `303` to `/account?done=out`, this device staying signed
+   in.
    What does answer: `/healthz`, `/readyz`, `/assets/…` (the bundle), `/login` (GET/HEAD `200`, POST
-   `303`), `/logout`, `/consent`, `/claim` (hosted), `/settings/security` (`200` for a role with
-   `users`, `303` to `/login` otherwise) with its users and roles POSTs, the page error pages, the `/api` 404
-   (`not_found`, problem+json) and 405s with `Allow`. `/readyz`'s `"seed":"done"` therefore means the
-   install is complete; the seeded `admin` can sign in with the `APP_PASSWORD` you set above.
+   `303`), `/logout`, `/consent`, `/claim` (hosted), `/account` (`200` for a signed-in account, `303`
+   to `/login` otherwise, `403` for the anonymous admin of a sign-in-off install) with `POST
+   /account` and `POST /account/signout`, `/settings/security` (`200` for a role with `users`, `303`
+   to `/login` otherwise) with its users and roles POSTs, the JSON session API — `GET
+   /api/v1/session` `200` with the state, `POST /api/v1/session` `200` with the same state on a
+   successful sign-in (`400`, `403`, `409`, `415`, `422`, `429` otherwise, problem+json with v3's
+   `code`), `DELETE /api/v1/session` `204` with no body at all, and `GET /api/v1/me` `200` for a
+   session, `401`/`403` otherwise; a non-safe API request without `X-CSRF-Token` is refused `403`
+   `csrf.invalid`, which is the API's gate and not the page's `419`; the page error pages, the
+   `/api` 404 (`not_found`, problem+json) and 405s with `Allow`. `/readyz`'s `"seed":"done"`
+   therefore means the install is complete; the seeded `admin` can sign in with the `APP_PASSWORD`
+   you set above.
 
 ## Where the automation lives
 
-`scripts/selfhost-smoke.sh` is the same walkthrough in assertions, run by CI against **both** compose
-files:
+`scripts/selfhost-smoke.sh` asserts the boot half of this page — `/healthz`, `/readyz`, the
+container healthchecks, and a second boot that changes no seeded row — run by CI against **both**
+compose files. The sign-in walkthrough above is not asserted there; the page and API answers are
+pinned by the suite's captures from v3 instead (S1.1–S1.5, `test/fixtures/php-*.json`).
 
 ```sh
 # from the repository root; the compose file is the argument

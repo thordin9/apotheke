@@ -32,9 +32,16 @@ anything   503 until boot succeeded, then the router (S0.5): 401/403/404/405/419
            since S1.3 (a fetch gets 401 JSON), a role without the permission gets 403;
            `/login` (GET/HEAD) as 200 text/html since S1.1, its
            POST as 303 to `/`, `/logout` as 303, `/consent` as 303, `/claim` as 200 with a
-           hosted install (404 without), and `/settings/security` as 200 for a role with `users`
-           since S1.3 — whose users and roles POSTs answer 303, or re-render that page with v3's
-           409/422 (a fetch gets `{ok, key}` from the roles POSTs).
+           hosted install (404 without), `/account` as 200 for a signed-in account since S1.5 —
+           whose POST answers 303 to `/account?done=pw` or re-renders the page with `#acct-err`
+           (403 for a wrong current password, the 422s, 419 for the page's token, 429 when the
+           check is throttled), and `POST /account/signout` as 303 to `/account?done=out` — and
+           `/settings/security` as 200 for a role with `users` since S1.3 — whose users and roles
+           POSTs answer 303, or re-render that page with v3's 409/422 (a fetch gets `{ok, key}`
+           from the roles POSTs). The API answers problem+json with a `code`: `/api/v1/session`
+           GET and a successful POST as 200, DELETE as 204, 400/403/409/415/422/429 otherwise;
+           `/api/v1/me` as 200 for a session and 401/403 otherwise. Its CSRF refusal is 403
+           `csrf.invalid`, not the pages' 419.
            With the CORS preflight (204) those are the 2xx answers here; `router.md` lists them
 ```
 
@@ -74,8 +81,9 @@ adopt, and why the gate above exists instead of a silent skip.
   fixture real libsodium produced (`test/fixtures/secretbox.json`), and — closed 2026-11-23 23:44 —
   against `sodium_crypto_secretbox` in both directions (a PHP-sealed `enc:v1:` value opens here, and
   a value sealed here opens in PHP 8.4.23). Plan §3's Crypto row records it.
-- **`/readyz` is answered before the router** (S0.5), and stays unauthenticated until phase 1 moves it
-  behind the session/permission filter; that is why the compose healthcheck above does not use it.
+- **`/readyz` is answered before the router** (`src/index.ts`, S0.5), so at HEAD it is
+  unauthenticated by construction: the boot gate's own answer does not go through the session and
+  permission filters. That is why the compose healthcheck above does not use it.
 - **CI proves the emulated D1 binding, not hosted D1.** The `v4.yml` `d1` job boots workerd on the
   Miniflare D1 binding — SQLite under workerd — and then reads the database it wrote: 36
   `schema_migrations` rows, 0019's seven `search_fts` objects against the PHP oracle (so a backend
