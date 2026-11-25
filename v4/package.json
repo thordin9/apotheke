@@ -23,7 +23,8 @@
     "ledger:check": "node scripts/check-php-ledger.mjs",
     "skip-list:check": "node scripts/check-visual-skip-list.mjs",
     "flip:check": "node scripts/check-visual-flip.mjs",
-    "visual-boot:check": "node scripts/check-visual-boot.mjs"
+    "visual-boot:check": "node scripts/check-visual-boot.mjs",
+    "cores:check": "node scripts/check-core-dumps.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",

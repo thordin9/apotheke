@@ -6,3 +6,8 @@ test.json
 test.log
 ready.json
 rqlited.log
+
+# A crashed workerd (or php) dumps a core into this directory: core_pattern is `core` and
+# core_uses_pid is 1 on this box, so the file arrives as core or core.<pid> (D105).
+core
+core.*
