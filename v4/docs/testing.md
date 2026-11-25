@@ -14,7 +14,8 @@ in the runner. Most of the suite is cheap and should stay on the default.
 not its assertions, is seconds of machine-dependent work: booting an installation (the 36-migration chain
 plus the seed), driving repeated bcrypt verifies at PHP's default cost, or sweeping the route table.
 Three tests were red on CI for exactly this in two hours, and each had passed locally first, which is
-why the rule is a rule rather than an opinion.
+why the rule is a rule rather than an opinion. A fourth, `test/http/api-session.spec.ts`'s eleventh-attempt
+replay, timed out here at 5078 ms on the first run that carried this ledger — same class, found off CI.
 
 A test in the class passes it as the third argument and puts the measured number in a comment:
 
@@ -25,9 +26,9 @@ it("…", async () => {
 ```
 
 Specs that carry it today: `test/readiness.spec.ts` (double `prepareInstallation`), `test/seed-parity.spec.ts`
-(install on the emulated D1 binding), `test/html/account.spec.ts` and `test/session/signin.spec.ts` (eleven
-bcrypt verifies plus two sign-ins), `test/http/probes.spec.ts` (a request per route in the table). Add
-yours here with the rest when you join the class.
+(install on the emulated D1 binding), `test/html/account.spec.ts`, `test/session/signin.spec.ts` and
+`test/http/api-session.spec.ts` (eleven bcrypt verifies plus two sign-ins), `test/http/probes.spec.ts`
+(a request per route in the table). Add yours here with the rest when you join the class.
 
 The line is a measurement, not a rule of thumb: the numbers above are from the runner itself, and the
 other specs that boot an installation were measured in the same run and stay on the default because they

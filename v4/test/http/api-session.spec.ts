@@ -29,6 +29,7 @@ import { openSession } from "../../src/session/request";
 import { DEFAULT_MS, deadlineMs, MAX_MS, MIN_MS, padSignIn } from "../../src/session/sign-in-pace";
 import { readPageData } from "../../src/settings";
 import fixtureJson from "../fixtures/php-api.json";
+import { SLOW_TEST_MS } from "../helpers/deadline";
 
 const NOW = 1_764_000_000;
 const LIFETIME = 30 * 86_400;
@@ -670,21 +671,27 @@ describe("the four /api/v1 session routes against v3's answers", () => {
 		expect(JSON.parse(answer.body).detail).toBe("Sign-in is turned off on this server.");
 	});
 
-	it("session_rateLimited: the eleventh wrong attempt is 429 with RateLimiter's window", async () => {
-		// The captured answer is the eleventh: sign-in is back on (the step's own setup), then the ten
-		// attempts the fixture made before it.
-		const step = byName("session_rateLimited");
-		await applySetup(step);
-		for (let attempt = 0; attempt < 10; attempt += 1) {
-			await send(sql, jar, { ...step, setup: [] });
-		}
-		const answer = await expectStep("session_rateLimited");
-		expect(answer.status).toBe(429);
-		expect(answer.headers["retry-after"]).toBe("900");
-		expect(JSON.parse(answer.body).detail).toBe(
-			"Too many attempts for this account from this address – please wait 15 minutes and try again.",
-		);
-	});
+	// D34: eleven sign-in attempts, each a bcrypt verify and a deadline wait — the class the 5 s
+	// default has killed four times on CI. Here it timed out at 5078 ms; see helpers/deadline.ts.
+	it(
+		"session_rateLimited: the eleventh wrong attempt is 429 with RateLimiter's window",
+		async () => {
+			// The captured answer is the eleventh: sign-in is back on (the step's own setup), then the ten
+			// attempts the fixture made before it.
+			const step = byName("session_rateLimited");
+			await applySetup(step);
+			for (let attempt = 0; attempt < 10; attempt += 1) {
+				await send(sql, jar, { ...step, setup: [] });
+			}
+			const answer = await expectStep("session_rateLimited");
+			expect(answer.status).toBe(429);
+			expect(answer.headers["retry-after"]).toBe("900");
+			expect(JSON.parse(answer.body).detail).toBe(
+				"Too many attempts for this account from this address – please wait 15 minutes and try again.",
+			);
+		},
+		SLOW_TEST_MS,
+	);
 
 	it("session_delete: 204, and the session is gone", async () => {
 		const answer = await expectStep("session_delete");
