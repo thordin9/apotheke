@@ -27,7 +27,8 @@ type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: Ap
 /**
  * Tests that need a page CI4 has not ported yet, skipped (docs/HANDOFF.md keeps this list).
  * Key: "<spec file>: <describe> › <test title>" (the title path); value: the missing page. A key that names no
- * test fails tests/Unit/Ci4E2eSkipListTest.php, so a stale entry cannot linger.
+ * test must fail a check: tests/Unit/Ci4E2eSkipListTest.php did that until D36 retired the PHP suite from
+ * this branch, and G1 owes the TypeScript replacement. The map is empty until then, so no entry can go stale.
  */
 export const CI4_UNPORTED: Record<string, string> = {
 };
