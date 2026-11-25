@@ -88,6 +88,23 @@ const SELFTEST = [
 			return text.includes("from './v4-server.cjs'") && text.includes("process.env.E2E_APP === 'v4'");
 		},
 	},
+	{
+		name: "the seam honours an explicit port, so a restart keeps the browser's origin",
+		ok: () => v4Args({ port: 8791, persist: "/tmp/x", env: {} }).join(" ").includes("--port 8791"),
+	},
+	{
+		name: "the harness reseeds v4 through the seam (reset calls restartV4 before the php seed)",
+		ok: () => {
+			if (!existsSync(HARNESS)) return false;
+			const text = readFileSync(HARNESS, "utf8");
+			const at = text.indexOf("reset: [");
+			if (at === -1) return false;
+			const body = text.slice(at, at + 400);
+			const restart = body.indexOf("server.restartV4");
+			const phpSeed = body.indexOf("fixture(server, 'seed'");
+			return restart !== -1 && phpSeed !== -1 && restart < phpSeed;
+		},
+	},
 ];
 
 const selfTest = () => {

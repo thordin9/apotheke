@@ -81,18 +81,20 @@ const v4Args = ({ port, persist, env }) => [
 ];
 
 /**
- * Start v4 on a free port. Resolves once `/readyz` answers 200 - i.e. once the app's own migration
+ * Start v4 on a free port (or `port`, for a restart). Resolves once `/readyz` answers 200 - i.e. once the app's own migration
  * and seed phases have run against `dataDir/v4` - and rejects with the tail of the process log
  * otherwise, because "it did not start" without the reason is the least useful failure there is.
  */
-const startV4 = async ({ dataDir, env = {}, log = () => {}, timeoutMs = 120_000 }) => {
+const startV4 = async ({ dataDir, env = {}, log = () => {}, timeoutMs = 120_000, port: fixedPort = null }) => {
 	const binary = path.join(V4_ROOT, 'node_modules', '.bin', 'wrangler');
 	if (!fs.existsSync(binary)) {
 		throw new Error(`${binary} is missing: run \`npm install\` in v4/ before the visual suite`);
 	}
 	const persist = path.join(dataDir, 'v4');
 	fs.mkdirSync(persist, { recursive: true });
-	const port = await freePort();
+	// A restart must land on the same origin: the Playwright `baseURL` and the browser's cookies are
+	// bound to the port the worker started on, so `reset` passes the port it already has.
+	const port = fixedPort ?? (await freePort());
 	const args = v4Args({ port, persist, env });
 	const proc = spawn(binary, args, {
 		cwd: V4_ROOT,

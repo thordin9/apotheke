@@ -49,6 +49,16 @@ jobs:
         run: node v4/scripts/visual-v4-instrument.mjs --self-test
       - name: Boot v4 through the harness's seam and locate the planted pixel
         run: node v4/scripts/visual-v4-instrument.mjs
+      # G1's seeding step, exercised by the one spec whose page v4 serves today: the harness's `reset`
+      # now reseeds v4 through v4 (a wiped persist directory and v4's own migrate+seed on /readyz), so
+      # this test boots, resets, renders /login and completes. `--update-snapshots=all` is deliberate:
+      # the committed login baseline predates 1f86dd66's palette (D53/D55), so a comparison here would
+      # report the re-baseline rather than whether the reset ran - the step above is what compares pixels.
+      # A php process here would fail the step by itself: the container has none.
+      - name: One real spec under E2E_APP=v4 (the reset path)
+        env:
+          E2E_APP: v4
+        run: npx playwright test visual-login.spec.ts --project=desktop-chromium --update-snapshots=all --reporter=list
       - uses: actions/upload-artifact@v7
         if: always()
         with:
