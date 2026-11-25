@@ -23,6 +23,8 @@ export interface ConfigVars {
 	readonly IMAGE_FULL_MAX?: string;
 	readonly IMAGE_THUMB_MAX?: string;
 	readonly EXPIRY_SOON_DAYS?: string;
+	/** `COOKIE_CONSENT`: `off` makes every request consented (v3's `Config\Consent::$required`). */
+	readonly COOKIE_CONSENT?: string;
 }
 
 /**

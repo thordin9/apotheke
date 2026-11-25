@@ -45,8 +45,33 @@ const flag = (value: SettingValue): boolean => value === true;
 const count = (value: SettingValue, fallback: number): number =>
 	typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
+/**
+ * `CookieConsent::request()`: the cookie by its exact name (`apotheke_consent`) holding an accepted
+ * value (`v1`). Attributes never reach the server, so a host-only cookie and one with a Domain both
+ * count. COOKIE_CONSENT=off (`required` false) makes every request consented, as in v3.
+ */
+export const consentGiven = (cookieHeader: string | null, required = true): boolean => {
+	if (!required) return true;
+	for (const part of (cookieHeader ?? "").split(";")) {
+		const at = part.indexOf("=");
+		if (at === -1) continue;
+		if (part.slice(0, at).trim() !== CONSENT_COOKIE) continue;
+		return part.slice(at + 1).trim() === CONSENT_CURRENT;
+	}
+	return false;
+};
+
+/** `Config\Consent::COOKIE` and `::CURRENT`: the first cookie the app ever has. */
+const CONSENT_COOKIE = "apotheke_consent";
+const CONSENT_CURRENT = "v1";
+
 /** One query for every settings row, then PHP's decisions over the decoded values. */
-export const readPageData = async (sql: Sql, config: AppConfig, requestUri: string): Promise<PageData> => {
+export const readPageData = async (
+	sql: Sql,
+	config: AppConfig,
+	requestUri: string,
+	consent = false,
+): Promise<PageData> => {
 	const rows = await sql.all({ sql: "SELECT name, value FROM settings" });
 	const values = new Map<string, SettingValue>();
 	for (const row of rows) {
@@ -86,8 +111,8 @@ export const readPageData = async (sql: Sql, config: AppConfig, requestUri: stri
 			// attribute v3 prints for a first visit, and the golden test normalises it either way.
 			csrf: "",
 			requestUri,
-			// No consent cookie until S1.2: the first-visit render, with the notice shown.
-			consent: false,
+			// `CookieConsent::request()`: false until the visitor accepts, and then the notice is gone.
+			consent,
 			// The menu's sign-out branch reads it (`Page::menu()`); same decision as `signInEnabled`.
 			signInEnabled,
 		},

@@ -87,6 +87,7 @@ const APP_CONFIG: AppConfig = {
 	timezone: "UTC",
 	pageSize: 60,
 	expirySoonDays: 30,
+	consentRequired: true,
 	uploads: { maxMb: 20, fullMax: 1600, thumbMax: 480 },
 };
 

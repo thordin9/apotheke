@@ -21,7 +21,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { durableObjectSql, type InstallationStub } from "../src/db/do-sql";
 import type { Sql } from "../src/db/sql";
 import { loadConfig } from "../src/platform/config";
-import { readPageData } from "../src/settings";
+import { consentGiven, readPageData } from "../src/settings";
 import { resetSchema } from "./helpers/schema";
 
 const NOW = "2026-01-01 00:00:00";
@@ -122,5 +122,36 @@ describe("the boot's sign-in decision (AuthStatusD1Test ported)", () => {
 		expect(asked).toEqual([]);
 		await expect(signIn("", false, counting)).rejects.toThrow("the account count was read");
 		expect(asked.length).toBe(1);
+	});
+});
+
+// `CookieConsent::request()` (modules/Core/Http/CookieConsent.php:49-64): the exact cookie name and
+// one of the accepted values, attributes ignored, and COOKIE_CONSENT=off makes every request consented.
+describe("consentGiven", () => {
+	it("reads the exact cookie with an accepted value", () => {
+		expect(consentGiven("apotheke_consent=v1")).toBe(true);
+		expect(consentGiven("theme=dark; apotheke_consent=v1; x=1")).toBe(true);
+		expect(consentGiven("apotheke_consent=v2")).toBe(false);
+		expect(consentGiven("apotheke_consent=")).toBe(false);
+		expect(consentGiven(null)).toBe(false);
+	});
+
+	it("does not accept another cookie that merely contains the name", () => {
+		expect(consentGiven("not_apotheke_consent=v1")).toBe(false);
+		expect(consentGiven("apotheke_consent_extra=v1")).toBe(false);
+	});
+
+	it("treats COOKIE_CONSENT=off as consent for every request", () => {
+		expect(consentGiven(null, false)).toBe(true);
+		expect(consentGiven("apotheke_consent=v2", false)).toBe(true);
+	});
+
+	it("is what readPageData prints into the page: the notice is gone once the cookie is there", async () => {
+		const sql = sqlite("s1.7-consent-page");
+		await resetSchema(sql);
+		await sql.batch([{ sql: SETTINGS_TABLE }]);
+		const config = loadConfig({ APP_PASSWORD: PASSWORD });
+		expect((await readPageData(sql, config, "/", false)).page.consent).toBe(false);
+		expect((await readPageData(sql, config, "/", true)).page.consent).toBe(true);
 	});
 });

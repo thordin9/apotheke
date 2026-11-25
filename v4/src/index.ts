@@ -27,7 +27,7 @@ import { loadConfig } from "./platform/config";
 import { problem, type ReadyResult, readinessResponse } from "./readiness";
 import { secureCookie } from "./session/cookie";
 import { openSession } from "./session/request";
-import { readPageData } from "./settings";
+import { consentGiven, readPageData } from "./settings";
 
 export { Installation } from "./installation";
 
@@ -96,7 +96,12 @@ export default {
 		let data: Awaited<ReturnType<typeof readPageData>>;
 		try {
 			const requestUri = `${pathname}${new URL(request.url).search}`;
-			data = await readPageData(requestSql(env, stub), config, requestUri);
+			data = await readPageData(
+				requestSql(env, stub),
+				config,
+				requestUri,
+				consentGiven(request.headers.get("cookie"), config.consentRequired),
+			);
 		} catch (error) {
 			// The settings row is as necessary as the schema: no page can be drawn without it.
 			return problem(503, "boot", error instanceof Error ? error.message : String(error));

@@ -8,8 +8,9 @@
 //
 // Not ported here, because phase 1 does not render it: the menu, the undo bar, the toast, the
 // header, and custom branding (`logo`/`app_icon` settings) — every page that needs them is P2.
-// `consent` is always false: no consent cookie exists until S1.2 stores one, and a request without
-// it is exactly the first-visit render the golden fixture was generated from.
+// `consent` is `CookieConsent::request()` for this request (`settings.ts`): false until the visitor
+// accepts, and a request without the cookie is exactly the first-visit render the golden fixture was
+// generated from.
 
 import { assetUrl } from "../assets/bundle";
 import { e } from "./escape";
@@ -32,7 +33,7 @@ export interface PageSettings {
 	readonly csrf: string;
 	/** The request's path and query, for the consent form's way back. */
 	readonly requestUri: string;
-	/** Whether the request carries consent. False until S1.2. */
+	/** Whether the request carries consent (`CookieConsent::request()`). */
 	readonly consent: boolean;
 	/** `SettingsService::signInEnabled()`: the menu offers "Sign out" when it is on and nobody is anon. */
 	readonly signInEnabled: boolean;

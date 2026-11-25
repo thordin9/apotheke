@@ -22,6 +22,8 @@ export interface AppConfig {
 	readonly timezone: string;
 	readonly pageSize: number;
 	readonly expirySoonDays: number;
+	/** `Config\Consent::$required`: false when COOKIE_CONSENT=off, and then every request carries consent. */
+	readonly consentRequired: boolean;
 	readonly uploads: {
 		readonly maxMb: number;
 		readonly fullMax: number;
@@ -38,6 +40,7 @@ export const CONFIG_DEFAULTS = {
 	timezone: "UTC",
 	pageSize: 60,
 	expirySoonDays: 30,
+	consentRequired: true,
 	uploads: { maxMb: 20, fullMax: 1600, thumbMax: 480 },
 } as const;
 
@@ -86,6 +89,8 @@ export const loadConfig = (env: ConfigVars): AppConfig => ({
 	pageSize: positiveInt(env.PAGE_SIZE, CONFIG_DEFAULTS.pageSize),
 	// `min(3650, max(1, (int)$v))`, the one config value PHP clamps in both directions.
 	expirySoonDays: Math.min(3650, positiveInt(env.EXPIRY_SOON_DAYS, CONFIG_DEFAULTS.expirySoonDays)),
+	// `Consent::requiredFrom()`: anything but `off` (case and space ignored) requires the cookie.
+	consentRequired: (given(env.COOKIE_CONSENT) ?? "").trim().toLowerCase() !== "off",
 	uploads: {
 		maxMb: positiveInt(env.MAX_UPLOAD_MB, CONFIG_DEFAULTS.uploads.maxMb),
 		fullMax: positiveInt(env.IMAGE_FULL_MAX, CONFIG_DEFAULTS.uploads.fullMax),
