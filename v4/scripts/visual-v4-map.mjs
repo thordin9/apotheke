@@ -88,10 +88,17 @@ export function harvest(report) {
 		const file = base(suite.file ?? "");
 		for (const spec of suite.specs ?? []) {
 			for (const test of spec.tests ?? []) {
+				const annotations = [
+					...(test.annotations ?? []),
+					...(test.results ?? []).flatMap((r) => r.annotations ?? []),
+				];
 				out.push({
 					key: keyOf(file === "" ? base(spec.file ?? "") : file, [...here, spec.title]),
 					project: test.projectName ?? "",
 					status: test.status ?? "",
+					// The boot record travels with the row, so the census counts every test that got a
+					// live app - a skipped test booted too, and leaving it out would understate the floor.
+					booted: annotations.some((a) => a?.type === "v4-booted"),
 					...classify(test),
 				});
 			}
@@ -118,12 +125,13 @@ export function propose(rows) {
 function summarise(rows) {
 	const count = (kind) => rows.filter((r) => r.kind === kind).length;
 	const projects = [...new Set(rows.map((r) => r.project))];
-	const ran = rows.filter((r) => r.kind !== "skipped");
-	const booted = ran.filter((r) => r.kind !== "dead").length;
+	// D81: the census is per test, from the report's own annotations - not an inference from a red.
+	const booted = rows.filter((r) => r.booted).length;
+	const noRecord = rows.filter((r) => !r.booted && r.kind !== "skipped").length;
 	console.log(
 		`map-v4: ${rows.length} test(s) in ${projects.length} project(s): ${count("unported")} unported, ` +
 			`${count("served")} served, ${count("skipped")} skipped, ${count("unexplained")} unexplained, ` +
-			`${count("dead")} dead; boot census ${booted} booted / ${count("dead")} dead of ${ran.length} that ran`,
+			`${count("dead")} dead; boot census ${booted} booted / ${count("dead")} dead / ${noRecord} ran with no boot record, of ${rows.length}`,
 	);
 	for (const r of rows.filter((r) => r.kind === "dead")) {
 		console.log(`map-v4: dead ${r.key} [${r.project}]: ${r.why}`);
