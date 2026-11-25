@@ -39,7 +39,8 @@ anything   503 until boot succeeded, then the router (S0.5): 401/403/404/405/419
            `/settings/security` as 200 for a role with `users` since S1.3 — whose users and roles
            POSTs answer 303, or re-render that page with v3's 409/422 (a fetch gets `{ok, key}`
            from the roles POSTs). The API answers problem+json with a `code`: `/api/v1/session`
-           GET and a successful POST as 200, DELETE as 204, 400/403/409/415/422/429 otherwise;
+           GET and a successful POST as 200, DELETE as 204, 400/401/403/409/415/422/429
+           otherwise — `401` is a wrong username or password, the commonest answer a client sees;
            `/api/v1/me` as 200 for a session and 401/403 otherwise. Its CSRF refusal is 403
            `csrf.invalid`, not the pages' 419.
            With the CORS preflight (204) those are the 2xx answers here; `router.md` lists them
@@ -50,10 +51,13 @@ Two rules follow, and both are in the code rather than in a habit:
 1. **`/healthz` must not consult readiness.** It answers "the process is up". A database still
    electing a rqlite leader, or an install whose seed was refused (a short `APP_PASSWORD`), would
    otherwise fail the healthcheck and the stack would restart-loop on its own gate — §11 rule 7.
-2. **The compose healthcheck probes `/healthz`, never `/readyz`.** In phase 1 `/readyz` moves behind
-   the session/permission filter, so an unauthenticated probe would get 401 — the same trap §11
-   already records for `rqlited -auth`. An operator who wants readiness in compose needs credentials
-   in the check; the default is the liveness probe.
+2. **The compose healthcheck probes `/healthz`, never `/readyz`.** At HEAD `/readyz` is answered
+   before the router (`src/index.ts`, S0.5), so an anonymous probe does get an answer; the reason the
+   default is the liveness probe is what a `503` means, not who may ask. A fresh rqlite node still
+   electing a leader, a boot in progress or a refused seed all make readiness false while the process
+   is working perfectly, and a healthcheck that fails for those reasons restart-loops a good container
+   — §11 rule 7. Curl `/readyz` yourself when you want to know (§1); it is the wrong thing to gate a
+   container on.
 
 ## The seed phase
 

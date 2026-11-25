@@ -104,9 +104,13 @@ driver and reads what it wrote (36 migrations, the seeded `admin`, 64 settings r
 
 ## Healthchecks, and why they are what they are
 
-- **The app is probed on `/healthz`, never `/readyz`.** `/readyz` moves behind sign-in in phase 1, and
-  a `401` read as "unhealthy" would restart-loop a perfectly good container. `/healthz` means "the
-  process is up", which is what a container healthcheck is for.
+- **The app is probed on `/healthz`, never `/readyz`.** `/readyz` is answered before the router
+  (`v4/src/index.ts`), so an anonymous probe gets an answer today; the reason it is the wrong gate is
+  what a `503` means. A fresh rqlite node still electing a leader, a boot in progress, or a seed
+  refused for a too-short `APP_PASSWORD` all make readiness false while the process is working
+  perfectly, and a healthcheck that fails for those reasons restart-loops a good container.
+  `/healthz` means "the process is up", which is what a container healthcheck is for. Curl `/readyz`
+  yourself when you want to know whether the install is up — that is what it is for.
 - **rqlite is probed on rqlite's own `/readyz`.** That endpoint needs credentials as soon as the node
   is started with `-auth`, so the healthcheck passes `RQLITE_AUTH` from `.env`; with `RQLITE_AUTH`
   empty it degrades to a TCP connect on 4001. A `401` is never treated as healthy.
@@ -230,13 +234,13 @@ Stated plainly, because a self-host promise that hides its edges is worse than n
    /account` and `POST /account/signout`, `/settings/security` (`200` for a role with `users`, `303`
    to `/login` otherwise) with its users and roles POSTs, the JSON session API — `GET
    /api/v1/session` `200` with the state, `POST /api/v1/session` `200` with the same state on a
-   successful sign-in (`400`, `403`, `409`, `415`, `422`, `429` otherwise, problem+json with v3's
-   `code`), `DELETE /api/v1/session` `204` with no body at all, and `GET /api/v1/me` `200` for a
-   session, `401`/`403` otherwise; a non-safe API request without `X-CSRF-Token` is refused `403`
-   `csrf.invalid`, which is the API's gate and not the page's `419`; the page error pages, the
-   `/api` 404 (`not_found`, problem+json) and 405s with `Allow`. `/readyz`'s `"seed":"done"`
-   therefore means the install is complete; the seeded `admin` can sign in with the `APP_PASSWORD`
-   you set above.
+   successful sign-in (`400`, `401`, `403`, `409`, `415`, `422`, `429` otherwise — `401` is a wrong
+   username or password — problem+json with v3's `code`), `DELETE /api/v1/session` `204` with no body
+   at all, and `GET /api/v1/me` `200` for a session, `401`/`403` otherwise; a non-safe API request
+   without `X-CSRF-Token` is refused `403` `csrf.invalid`, which is the API's gate and not the page's
+   `419`; the page error pages, the `/api` 404 (`not_found`, problem+json) and 405s with `Allow`.
+   `/readyz`'s `"seed":"done"` therefore means the install is complete; the seeded `admin` can sign
+   in with the `APP_PASSWORD` you set above.
 
 ## Where the automation lives
 
