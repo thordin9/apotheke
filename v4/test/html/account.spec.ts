@@ -491,7 +491,9 @@ describe("the /account page against v3's answers", () => {
 		expect(sent.answer.body).toContain(
 			'id="acct-err">Too many attempts for this account from this address – please wait 15 minutes and try again.</div>',
 		);
-	});
+		// Eleven password checks at bcrypt's default cost plus two sign-ins: 4 s on this box, and over
+		// the default 5 s on CI's runners, where the first landing of this spec timed out.
+	}, 60_000);
 
 	it("the fixture holds the sources and answers it was generated from", () => {
 		expect(Object.keys(fixture.sources)).toHaveLength(20);
