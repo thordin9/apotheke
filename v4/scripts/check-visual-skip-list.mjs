@@ -655,6 +655,17 @@ function main(argv) {
 	const corpus = specs.map((name) => ({ name, text: readFileSync(path.join(dir, name), "utf8") }));
 	const map = JSON.parse(readFileSync(mapPath, "utf8"));
 	const { errors, tests, keys } = verdict(map, corpus);
+	// The map is a v4 skip list. Under v3 the same tests own the rendered baselines, so an
+	// ungated lookup would silence every listed test in every v3 run - and nothing runs
+	// tests/visual in CI, so no workflow would report it. Pin the gate at its one site.
+	const fixturePath = path.join(dir, "fixtures.ts");
+	if (!existsSync(fixturePath)) {
+		errors.push("tests/visual/fixtures.ts is missing, so the map is applied to no run");
+	} else if (!/const why = APP === ['"]v4['"] \?/.test(readFileSync(fixturePath, "utf8"))) {
+		errors.push(
+			"tests/visual/fixtures.ts no longer gates the CI4_UNPORTED lookup on APP === 'v4': under v3 an ungated map skips the tests that own the baselines",
+		);
+	}
 	const handoffPath = path.join(root, "docs/HANDOFF.md");
 	if (!existsSync(handoffPath)) {
 		errors.push("docs/HANDOFF.md is missing, so no skipped page can be listed there");

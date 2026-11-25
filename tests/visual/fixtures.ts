@@ -287,7 +287,10 @@ export const test = base.extend<TestOpts, WorkerOpts>({
   },
   app: async ({ page, server }, use, info) => { await use(new App(page, server, info)); },
   ci4Unported: [async ({}, use, info) => {
-    const why = CI4_UNPORTED[`${path.basename(info.file)}: ${info.titlePath.slice(1).join(' › ')}`];
+    // Under v3 these same tests own the 512 rendered baselines, so the map must not skip them
+    // there: an ungated lookup silences 115 tests in every v3 run, and no workflow would notice
+    // (nothing runs tests/visual). v4/scripts/check-visual-skip-list.mjs pins the gate.
+    const why = APP === 'v4' ? CI4_UNPORTED[`${path.basename(info.file)}: ${info.titlePath.slice(1).join(' › ')}`] : undefined;
     info.skip(why !== undefined, `not ported to CI4 yet: ${why}`);
     await use();
   }, { auto: true }],
