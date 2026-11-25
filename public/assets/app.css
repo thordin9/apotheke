@@ -1072,3 +1072,6 @@ select.imp-ignored{color:var(--muted)}
 .af-photos ul{list-style:none;display:flex;flex-wrap:wrap;gap:8px 12px;margin:0;padding:0}
 .af-photo{display:flex;gap:8px;align-items:center}
 .af-photo img{width:44px;height:44px;object-fit:cover;border-radius:8px;background:var(--surface-3)}
+
+/* Control (d) for the D53 re-baseline: a change scoped to the login form only. */
+#login-form{background:#123456 !important;padding:12px}
