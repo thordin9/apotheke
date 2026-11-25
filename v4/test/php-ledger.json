@@ -125,7 +125,7 @@
    "dataProviders": 2,
    "state": "ported",
    "target": "v4/test/auth/roles.spec.ts",
-   "note": "built-in roles when the read is empty, and has(). Dropped with a reason: the DB-error catch (a failed read is an outage, not an old schema, so it fails loudly, pinned by the third case) and the no-connection case (no such state in v4)",
+   "note": "built-in roles when the read is empty, and has(). Two cases dropped, with a reason: the DB-error catch (a failed read is an outage, not an old schema, so it fails loudly, pinned by the third case) and the no-connection case (no such state in v4)",
    "kind": "retired"
   },
   {
@@ -1321,8 +1321,8 @@
    "methods": 10,
    "dataProviders": 0,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "the API surface outside session/users",
+   "target": "P2",
+   "note": "the API's P1 envelope: an unknown /api path is problem+json not_found with the API header set, an uncaught error under /api stays problem+json, HSTS only when PUBLIC_URL is https, and /api/v1/openapi.json is served. The 404, its headers, HSTS and the error path are asserted today (test/http/router.spec.ts, test/http/filters.spec.ts); openapi.json is not in HANDLERS and answers 501, and CORS with an allowed Origin is P2's, so the file is P2",
    "kind": "retired"
   },
   {
@@ -1375,8 +1375,8 @@
    "methods": 6,
    "dataProviders": 1,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "the settings API; settings values are P2",
+   "target": "P2",
+   "note": "GET /api/v1/settings and its ten sections: SettingsController::index is in the route table but not in HANDLERS, so it answers 501 route.not_implemented until P2. The pinned per-section key lists (L-1240), the ETag/If-None-Match cases and the never-read-back token are P2's spec",
    "kind": "retired"
   },
   {
@@ -1473,9 +1473,9 @@
    "path": "tests/Unit/Ci4ConnectFailureLeakTest.php",
    "methods": 3,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "a connect failure must not leak credentials",
+   "state": "dropped",
+   "target": "",
+   "note": "its subject is a forced PostgreSQL connect failure leaking through CI4's writable/logs and the PDO path; v4 has no PHP, no PDO and no CI4 logger, and PostgreSQL is not a driver on this line",
    "kind": "retired"
   },
   {
@@ -1510,8 +1510,8 @@
    "methods": 2,
    "dataProviders": 0,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "the CI4_UNPORTED guard: G1 owes a typed map that fails on a stale key",
+   "target": "G1",
+   "note": "the CI4_UNPORTED guard: G1 ports it as a typed map that fails on a stale key, with a planted entry to prove it (a G1 clause), since the map is empty until the harness boots v4",
    "kind": "retired"
   },
   {
@@ -1617,9 +1617,9 @@
    "path": "tests/Unit/Ci4PageHttpTest.php",
    "methods": 5,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "page routes that still answer 501",
+   "state": "dropped",
+   "target": "",
+   "note": "its subject is CodeIgniter's own session starting beside the native one (#76 L-1) on a test-only page; v4 has one session store and no CI4, so a second session cannot exist. The public_url-not-the-Host rule that L-2 also pins is a separate behaviour, tracked by the AppBaseUrlTest row",
    "kind": "retired"
   },
   {
@@ -1842,18 +1842,18 @@
    "path": "tests/Unit/DatabaseFactoryTest.php",
    "methods": 1,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "driver selection",
+   "state": "dropped",
+   "target": "",
+   "note": "v3's SQLite3 factory opens a local file and tunes it (WAL, foreign_keys, synchronous, busy_timeout); v4 opens no SQLite file of its own - the database is a D1 binding or rqlite over HTTP - so there is no factory and no pragma it sets",
    "kind": "retired"
   },
   {
    "path": "tests/Unit/DbConnectErrorTest.php",
    "methods": 8,
    "dataProviders": 4,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "a connect failure logs a line with no credentials",
+   "state": "dropped",
+   "target": "",
+   "note": "v3's refused PDO/pgsql connect on bin/migrate.php and bin/seed.php, its exit codes and one sanitised line; v4 has no PDO, no pgsql and no CLI, and a database that cannot be reached is /readyz's 503 problem (test/readiness.spec.ts)",
    "kind": "retired"
   },
   {
@@ -1968,9 +1968,9 @@
    "path": "tests/Unit/RoundTripBudgetTest.php",
    "methods": 2,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the per-request round-trip/statement budget",
+   "state": "dropped",
+   "target": "",
+   "note": "statement-count budgets measured through the PHP bridge's /query, /batch and /exec and CodeIgniter's DBQuery event; v4 has neither seam, and nothing counts statements today. The concern is real and unported: a budget would need a fresh measurement on v4's Sql wrapper, not this file's numbers",
    "kind": "retired"
   },
   {
@@ -1995,18 +1995,18 @@
    "path": "tests/Unit/SkipsOutsideCiTest.php",
    "methods": 2,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the skip guard G1 replaces with a typed map",
+   "state": "dropped",
+   "target": "",
+   "note": "it tests the v3 suite's own SkipsOutsideCi trait (fail in CI, skip elsewhere), which went with the suite D36 retired; v4 has no PHPUnit and no such trait",
    "kind": "retired"
   },
   {
    "path": "tests/Unit/StorageModeBootErrorTest.php",
    "methods": 4,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "storage-mode boot refusals (503, no SQLite fallback)",
+   "state": "dropped",
+   "target": "",
+   "note": "STORAGE_BACKEND=r2 with DB_DRIVER=d1 is the v3 container's switch: refuse to serve rather than fall back to SQLite on the container's disk. v4's Worker has no such fallback to disable - it is D1-only - and an install that cannot serve answers /readyz's 503",
    "kind": "retired"
   },
   {

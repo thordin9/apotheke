@@ -67,7 +67,12 @@ export class ClaimError extends Error {
 /** `Accounts::nameValid()`'s one message for a bad shape. */
 const SHAPE = `User names use letters, digits and . _ @ - (at most ${USERNAME_MAX} characters, no spaces).`;
 
-/** `Accounts::nameValid()`: NUL refused before trimming, then the shape, then the name being free. */
+/**
+ * `Accounts::nameValid()`: NUL refused before trimming, then the shape, then the name being free.
+ *
+ * As `users.ts` says of the same rule: the NUL line is PHP's, and cannot decide the answer here, because
+ * JavaScript's `trim()` keeps the NUL that PHP's strips, so the character class below refuses it first.
+ */
 const validName = async (sql: Sql, raw: string): Promise<string> => {
 	if (raw.includes("\0")) {
 		throw new ClaimError(SHAPE, 422);

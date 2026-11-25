@@ -51,7 +51,14 @@ export const cleanLine = (raw: string, max: number): string => {
 	return [...out].slice(0, max).join("");
 };
 
-/** `Accounts::nameValid()`: NUL refused before trimming, then the shape, then the name being free. */
+/**
+ * `Accounts::nameValid()`: NUL refused before trimming, then the shape, then the name being free.
+ *
+ * The NUL line states the PHP rule directly and cannot decide the answer in v4: PHP's `trim()` strips
+ * "\0", so the check must come before the trim, while JavaScript's `trim()` keeps it and the character
+ * class below refuses it either way. It stays because it is the rule, and decides the day that class
+ * loosens; `test/auth/users.spec.ts` records the control that showed it cannot fire today.
+ */
 export const validName = async (sql: Sql, raw: string, excludeId?: number): Promise<string> => {
 	if (raw.includes("\0")) {
 		throw new UserError(SHAPE, 422);
