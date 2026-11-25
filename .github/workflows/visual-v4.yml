@@ -148,7 +148,7 @@ jobs:
         run: npx playwright test --project=desktop-chromium --retries=0 --reporter=json
       - name: The run's shape, by name
         run: node v4/scripts/check-visual-flip.mjs --report tests/visual/flip-report.json
-      - name: The comparator is reachable: planted baselines go red, unplanted stays green
+      - name: The comparator is reachable - planted baselines go red, unplanted stays green
         run: node v4/scripts/check-visual-flip.mjs --control
       - uses: actions/upload-artifact@v7
         if: always()
