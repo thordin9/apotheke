@@ -119,7 +119,7 @@ jobs:
           test "$(jq -r .ok health.json)" = "true"
       # G1 (the boot seam): tests/visual/fixtures.ts is the visual harness, and its app under test was
       # `php -S` until G1 replaced it with v4. The harness itself cannot run here - no workflow runs
-      # Playwright on a push - so the seam's own module (tests/visual/v4-server.mjs) is booted instead:
+      # Playwright on a push - so the seam's own module (tests/visual/v4-server.cjs) is booted instead:
       # same code the harness calls, on its own port and its own --persist-to directory, asserting
       # /readyz, the sign-in POST, /account, and the honest 501 that names the controller no slice has
       # ported. A boot that stops working fails here rather than in a snapshot run nobody is watching.

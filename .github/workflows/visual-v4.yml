@@ -1,0 +1,58 @@
+name: Visual v4 instrument
+
+# The one-pixel control (D51): boots v4 through tests/visual/v4-server.cjs, renders /login in the
+# pinned Playwright build, compares the pixels against the committed v3 baseline, and proves the
+# comparison is alive and located by planting exactly one pixel at a known coordinate.
+#
+# It is an instrument, never a gate (D49): what it prints - how far v4's login is from the v3
+# baseline - is data for G1, not a required check. The step fails only when the instrument itself is
+# broken (no boot, no render, or a plant the comparison cannot locate).
+#
+# Why the push trigger on one branch, when D51 said dispatch-only: a new workflow file cannot be
+# dispatched until it exists on the default branch, and main is frozen at 4a187d0f. So the dispatch
+# I can actually fire, and read, on this branch is a push to `v4/visual-instrument`. It runs nowhere
+# else, gates nothing, and costs one run when someone wants an instrument reading.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [v4/visual-instrument]
+
+permissions:
+  contents: read
+
+jobs:
+  instrument:
+    name: Boot v4, render /login, locate a planted pixel
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    container:
+      # The container the baselines were rendered in (scripts/update-snapshots.sh, snapshots.yml):
+      # a different browser build renders different pixels, and the comparison would be noise.
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
+      options: --ipc=host
+    env:
+      CI: '1'
+      HOME: /root
+    steps:
+      - uses: actions/checkout@v7
+      - name: The container's Node is new enough for wrangler
+        run: |
+          node --version
+          node -e "const [a,b]=process.versions.node.split('.').map(Number); if (a < 22 || (a === 22 && b < 12)) { console.error('node ' + process.versions.node + ' is older than v4/package.json\'s engines (>=22.12.0)'); process.exit(1); }"
+      # The pinned @playwright/test for the comparison, and wrangler for the boot: two installs, one
+      # per package.json, because the visual harness belongs to the repo root and v4 to v4/.
+      - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+        working-directory: v4
+      - name: Self-test the instrument (no browser, no boot)
+        run: node v4/scripts/visual-v4-instrument.mjs --self-test
+      - name: Boot v4 through the harness's seam and locate the planted pixel
+        run: node v4/scripts/visual-v4-instrument.mjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: visual-v4-instrument
+          path: tests/visual/results/visual-v4-instrument/
+          if-no-files-found: warn
+          retention-days: 14
