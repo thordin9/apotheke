@@ -672,7 +672,8 @@ describe("the four /api/v1 session routes against v3's answers", () => {
 	});
 
 	// D34: eleven sign-in attempts, each a bcrypt verify and a deadline wait — the class the 5 s
-	// default has killed four times on CI. Here it timed out at 5078 ms; see helpers/deadline.ts.
+	// default has killed four CI job runs of three specs (the account replay, once in each of two
+	// jobs of one run). Here it timed out at 5078 ms; see helpers/deadline.ts.
 	it(
 		"session_rateLimited: the eleventh wrong attempt is 429 with RateLimiter's window",
 		async () => {

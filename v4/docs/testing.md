@@ -13,8 +13,9 @@ in the runner. Most of the suite is cheap and should stay on the default.
 `test/helpers/deadline.ts` exports `SLOW_TEST_MS` (60 s). A test belongs in that class when its *setup*,
 not its assertions, is seconds of machine-dependent work: booting an installation (the 36-migration chain
 plus the seed), driving repeated bcrypt verifies at PHP's default cost, or sweeping the route table.
-Three tests were red on CI for exactly this in two hours, and each had passed locally first, which is
-why the rule is a rule rather than an opinion. A fourth, `test/http/api-session.spec.ts`'s eleventh-attempt
+Three tests were red on CI for exactly this in two hours — four red job runs, since the account replay
+failed in two jobs of the same run — and each had passed locally first, which is why the rule is a rule
+rather than an opinion. A fourth, `test/http/api-session.spec.ts`'s eleventh-attempt
 replay, timed out here at 5078 ms on the first run that carried this ledger — same class, found off CI.
 
 A test in the class passes it as the third argument and puts the measured number in a comment:
