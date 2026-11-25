@@ -1322,7 +1322,7 @@
    "dataProviders": 0,
    "state": "scheduled",
    "target": "P2",
-   "note": "the API's P1 envelope: an unknown /api path is problem+json not_found with the API header set, an uncaught error under /api stays problem+json, HSTS only when PUBLIC_URL is https, and /api/v1/openapi.json is served. The 404, its headers, HSTS and the error path are asserted today (test/http/router.spec.ts, test/http/filters.spec.ts); openapi.json is not in HANDLERS and answers 501, and CORS with an allowed Origin is P2's, so the file is P2",
+   "note": "the API's P1 envelope: an unknown /api path is problem+json not_found with the API header set, an uncaught error under /api stays problem+json, HSTS only when PUBLIC_URL is https, and /api/v1/openapi.json is served. The 404, its headers, HSTS and the error path are asserted today (test/http/router.spec.ts, test/http/filters.spec.ts); openapi.json is not in HANDLERS and answers 501, and its CORS method has no v4 subject at all, since CORS_ALLOWED_ORIGINS is not in v4's environment contract (src/http/filters.ts:276); the file is P2 for the rest",
    "kind": "retired"
   },
   {
