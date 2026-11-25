@@ -233,8 +233,19 @@ export const test = base.extend<TestOpts, WorkerOpts>({
     await use();
   }, { auto: true }],
   /** Console errors and uncaught page errors fail the test. */
-  errors: [async ({ page, browserName }, use) => {
+  errors: [async ({ page, browserName }, use, info) => {
     const errors: string[] = [];
+    /**
+     * E2E_APP=v4 only: the paths v4 answered 501 for. v4 serves /login and the sign-in chain and
+     * answers 501 for every page no slice has ported, so a test that wandered into one fails on its
+     * own assertion - this annotation is what names the page. v4/scripts/visual-v4-map.mjs turns it
+     * into a CI4_UNPORTED entry, so the map comes from a run (D49) rather than from a red read by
+     * hand. Under v3 no listener is installed and the array stays empty.
+     */
+    const unported: string[] = [];
+    if (APP === 'v4') {
+      page.on('response', r => { if (r.status() === 501) unported.push(new URL(r.url()).pathname); });
+    }
     page.on('pageerror', e => errors.push('pageerror: ' + e.message));
     page.on('console', m => {
       if (m.type() !== 'error') return;
@@ -245,6 +256,7 @@ export const test = base.extend<TestOpts, WorkerOpts>({
       errors.push('console: ' + m.text());
     });
     await use(errors);
+    for (const p of [...new Set(unported)].sort()) info.annotations.push({ type: 'v4-unported', description: p });
     expect(errors, 'no console errors').toEqual([]);
   }, { auto: true }],
   app: async ({ page, server }, use, info) => { await use(new App(page, server, info)); },

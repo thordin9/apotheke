@@ -16,7 +16,7 @@ name: Visual v4 instrument
 on:
   workflow_dispatch:
   push:
-    branches: [v4/visual-instrument]
+    branches: [v4/visual-instrument, v4/g1-map]
 
 permissions:
   contents: read
@@ -64,5 +64,46 @@ jobs:
         with:
           name: visual-v4-instrument
           path: tests/visual/results/visual-v4-instrument/
+          if-no-files-found: warn
+          retention-days: 14
+
+  map:
+    # D49: the CI4_UNPORTED map comes from a run, never from a hand. This job boots v4 once per test,
+    # runs one device's copy of every spec against it, and lets v4/scripts/visual-v4-map.mjs turn each
+    # 501 (v4's answer for a page no slice has ported) and each refusing fixture into a map entry.
+    # One device is enough: the key is "<spec file>: <describe> > <title>", the same for every project.
+    #
+    # It never gates. The expected output of this run is a suite that is mostly skips and refusals, so
+    # a red here is a statement about the port, not about the change that triggered it.
+    name: Harvest the CI4_UNPORTED map under E2E_APP=v4
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
+      options: --ipc=host
+    env:
+      CI: '1'
+      HOME: /root
+      E2E_APP: v4
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+        working-directory: v4
+      - name: Run every spec against v4 and record what it answers
+        continue-on-error: true
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: tests/visual/v4-map-report.json
+        run: npx playwright test --project=desktop-chromium --retries=0 --reporter=json
+      - name: Harvest the map from the report
+        continue-on-error: true
+        run: node v4/scripts/visual-v4-map.mjs tests/visual/v4-map-report.json --write tests/visual/ci4-unported.proposed.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: visual-v4-map
+          path: |
+            tests/visual/v4-map-report.json
+            tests/visual/ci4-unported.proposed.json
           if-no-files-found: warn
           retention-days: 14
