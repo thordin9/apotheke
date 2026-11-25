@@ -28,11 +28,7 @@ it("…", async () => {
 Specs that carry it today: `test/readiness.spec.ts` (double `prepareInstallation`), `test/seed-parity.spec.ts`
 (install on the emulated D1 binding), `test/html/account.spec.ts`, `test/session/signin.spec.ts` and
 `test/http/api-session.spec.ts` (eleven bcrypt verifies plus two sign-ins), `test/http/probes.spec.ts`
-(a request per route in the table), and the three S1.7 ports, `test/settings.spec.ts`,
-`test/auth/roles.spec.ts` and `test/auth/users.spec.ts`, whose first case in each boots that spec's own
-installation — 1554 / 3221 / 1158 ms here alone, 4110 / 5846 / 2734 ms with the three booting together;
-the runner's numbers for them come with the run that lands them. Add yours here with the rest when you
-join the class.
+(a request per route in the table). Add yours here with the rest when you join the class.
 
 The line is a measurement, not a rule of thumb: the numbers above are from the runner itself, and the
 other specs that boot an installation were measured in the same run and stay on the default because they
@@ -40,6 +36,14 @@ are nowhere near it — `test/seed.spec.ts` 1221 ms for its heaviest test, `test
 2123 ms for six, `test/migrations.spec.ts` 940 ms. They are named so a later reader can see they were
 considered rather than missed, and so the next one to creep past ~2.5 s on the runner is an obvious edit
 rather than a red run.
+
+The three S1.7 ports joined that group, not the class, on measurement rather than on shape: each booted
+an installation, so each was given `SLOW_TEST_MS` first, and the run that landed them showed the
+assumption was wrong — `test/settings.spec.ts` 678 ms, `test/auth/users.spec.ts` 767 ms and
+`test/auth/roles.spec.ts` 756 ms for each one's first case (run 45604858171's unit job). 0.7 s against
+a 5 s default is not the class, and a 60 s deadline there would be slack; the declaration came off in
+the next commit. They were slow here (3.2 s, 1.6 s, 1.2 s), which is why the rule is the runner's
+number and not this box's.
 
 ## Where the seven oracles come from (D36)
 

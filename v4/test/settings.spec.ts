@@ -22,7 +22,6 @@ import { durableObjectSql, type InstallationStub } from "../src/db/do-sql";
 import type { Sql } from "../src/db/sql";
 import { loadConfig } from "../src/platform/config";
 import { readPageData } from "../src/settings";
-import { SLOW_TEST_MS } from "./helpers/deadline";
 import { resetSchema } from "./helpers/schema";
 
 const NOW = "2026-01-01 00:00:00";
@@ -76,18 +75,12 @@ describe("the boot's sign-in decision (AuthStatusD1Test ported)", () => {
 		return page.signInEnabled;
 	};
 
-	it(
-		"is off when the stored setting is off, whatever APP_PASSWORD says",
-		async () => {
-			await store("auth_enabled", "false");
-			await account("ada");
-			expect(await signIn(PASSWORD)).toBe(false);
-			expect(await signIn("")).toBe(false);
-			// 1554 ms alone here, 4110 ms when three new specs boot together: the first case boots this spec's
-			// installation (36 migrations plus the seed's bcrypt).
-		},
-		SLOW_TEST_MS,
-	);
+	it("is off when the stored setting is off, whatever APP_PASSWORD says", async () => {
+		await store("auth_enabled", "false");
+		await account("ada");
+		expect(await signIn(PASSWORD)).toBe(false);
+		expect(await signIn("")).toBe(false);
+	});
 
 	it("is on for a stored setting that is on, with APP_PASSWORD alone and no account", async () => {
 		await store("auth_enabled", "true");

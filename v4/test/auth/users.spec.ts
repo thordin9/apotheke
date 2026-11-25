@@ -20,7 +20,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { SHAPE, UserError, validName } from "../../src/auth/users";
 import { durableObjectSql, type InstallationStub } from "../../src/db/do-sql";
 import type { Sql } from "../../src/db/sql";
-import { SLOW_TEST_MS } from "../helpers/deadline";
 import { resetSchema } from "../helpers/schema";
 
 const NOW = "2026-01-01 00:00:00";
@@ -58,19 +57,13 @@ describe("Accounts::nameValid()'s null-character rule (RegisterFormTest ported)"
 		throw new Error(`validName accepted ${JSON.stringify(name)}`);
 	};
 
-	it(
-		"refuses a null character at either end rather than trimming it into a valid name",
-		async () => {
-			for (const name of ["\u0000rez", "rez\u0000"]) {
-				const error = await refusal(name);
-				expect(error.message).toBe(SHAPE);
-				expect(error.status).toBe(422);
-			}
-			// 1158 ms alone here, 2734 ms when three new specs boot together: the first case boots this spec's
-			// installation (36 migrations plus the seed's bcrypt).
-		},
-		SLOW_TEST_MS,
-	);
+	it("refuses a null character at either end rather than trimming it into a valid name", async () => {
+		for (const name of ["\u0000rez", "rez\u0000"]) {
+			const error = await refusal(name);
+			expect(error.message).toBe(SHAPE);
+			expect(error.status).toBe(422);
+		}
+	});
 
 	it("refuses a name that is only a null character as a shape, not as an empty name", async () => {
 		const error = await refusal("\u0000");

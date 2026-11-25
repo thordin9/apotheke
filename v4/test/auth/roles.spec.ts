@@ -17,7 +17,6 @@ import { ROLE_DEFAULTS } from "../../src/auth/permissions";
 import { has, listed } from "../../src/auth/roles";
 import { durableObjectSql, type InstallationStub } from "../../src/db/do-sql";
 import type { Sql } from "../../src/db/sql";
-import { SLOW_TEST_MS } from "../helpers/deadline";
 import { resetSchema } from "../helpers/schema";
 
 const USERS_TABLE = `CREATE TABLE IF NOT EXISTS users (
@@ -63,22 +62,16 @@ describe("RoleRepository::listed() with no rows (RoleRepositoryTest ported)", ()
 		await sql.batch([{ sql: USERS_TABLE }, { sql: ROLES_TABLE }]);
 	});
 
-	it(
-		"answers the built-in roles, in ROLE_DEFAULTS order, with v3's names and permissions",
-		async () => {
-			const roles = await listed(sql);
-			expect(roles.map((role) => [role.key, role.name, [...role.perms]])).toEqual(
-				ROLE_DEFAULTS.map(([key, name, perms]) => [key, name, [...perms]]),
-			);
-			for (const role of roles) {
-				expect(role.builtin).toBe(true);
-				expect(role.users).toBe(0);
-			}
-			// 3221 ms alone here, 5846 ms when three new specs boot together: the first case boots this spec's
-			// installation (36 migrations plus the seed's bcrypt).
-		},
-		SLOW_TEST_MS,
-	);
+	it("answers the built-in roles, in ROLE_DEFAULTS order, with v3's names and permissions", async () => {
+		const roles = await listed(sql);
+		expect(roles.map((role) => [role.key, role.name, [...role.perms]])).toEqual(
+			ROLE_DEFAULTS.map(([key, name, perms]) => [key, name, [...perms]]),
+		);
+		for (const role of roles) {
+			expect(role.builtin).toBe(true);
+			expect(role.users).toBe(0);
+		}
+	});
 
 	it("gives admin every permission, an unknown role none, and viewer view but not settings", async () => {
 		const roles = await listed(sql);
