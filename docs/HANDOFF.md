@@ -75,6 +75,7 @@ and a test whose v4 boot died is a defect, never a key.
   - add item › photo from the camera input, defaults, stepper, tags and custom fields @smoke
   - add item › validation errors are shown inline
 - `attachments.spec.ts`
+  - notes and attachments › Markdown notes render safely @smoke
   - notes and attachments › attach a PDF, download it, delete it
   - notes and attachments › wrong file type shows an error
 - `auth.spec.ts`
@@ -156,8 +157,6 @@ and a test whose v4 boot died is a defect, never a key.
 - `merge.spec.ts`
   - merge duplicates › cancel leaves both items
   - merge duplicates › pick a target, confirm, everything moves over @smoke
-- `originals.spec.ts`
-  - camera originals › a photo over the upload limit says the original is not kept
 - `photos.spec.ts`
   - photo editing › drag to reorder; first photo becomes the cover
   - photo editing › rotate + drag a crop on the canvas, save a new version @smoke
