@@ -18,6 +18,9 @@
 //     file declares - "<describe> › <test>", or just the title when the test sits at the top level;
 //   * a spec file the parser reads no title from is a finding rather than a quiet zero, so a parser
 //     that stopped reading cannot pass an empty map;
+//   * every key's page is named in docs/HANDOFF.md, and that line does not still say the list is
+//     empty while the map has keys - the retired test's second assertion
+//     (assertStringContainsString(end($parts), $handoff)), which had no successor until now;
 //   * a title the parser cannot resolve statically (a template literal with a substitution, an
 //     identifier) is a finding unless it is recorded in UNRESOLVABLE below with its own source text
 //     and a reason. Such a title has no key it could match, so skipping it silently is how this
@@ -363,6 +366,43 @@ export function verdict(map, corpus) {
 	return { errors, tests, keys: Object.keys(map).length };
 }
 
+/**
+ * The retired test's other assertion: docs/HANDOFF.md names every skipped page, and its CI4
+ * Playwright line stops claiming emptiness when the map gains a key. Without this the first key
+ * added makes docs/HANDOFF.md:56 false and nothing fails.
+ */
+export function handoffVerdict(map, handoff) {
+	const errors = [];
+	const keys = Object.keys(map);
+	// The bullet wraps over several lines, so read it as a paragraph: the line and every indented
+	// continuation under it. Reading only the first line would miss "is empty" on the second, which
+	// is the silent-pass failure this rule exists to prevent.
+	const lines = handoff.split("\n");
+	const start = lines.findIndex((l) => l.startsWith("- CI4 Playwright:"));
+	if (start === -1) {
+		errors.push('docs/HANDOFF.md: no "- CI4 Playwright:" line, so the skip list has no home there');
+		return errors;
+	}
+	let end = start + 1;
+	while (end < lines.length && /^[ \t]+\S/.test(lines[end])) end++;
+	const bullet = lines.slice(start, end).join("\n");
+	if (keys.length > 0 && /\bis empty\b/.test(bullet)) {
+		errors.push(
+			`docs/HANDOFF.md: the CI4 Playwright line still says the skip list is empty, but the map has ${keys.length} key(s)`,
+		);
+	}
+	for (const key of keys) {
+		// The title is the last segment of the key's path, after the "<file>: " prefix.
+		const at = key.indexOf(": ");
+		const parts = (at === -1 ? key : key.slice(at + 2)).split(SEP);
+		const title = parts[parts.length - 1];
+		if (!handoff.includes(title)) {
+			errors.push(`docs/HANDOFF.md: does not list the skipped "${title}" (${key})`);
+		}
+	}
+	return errors;
+}
+
 function selfTest() {
 	const corpus = [
 		{
@@ -396,6 +436,7 @@ function selfTest() {
 	const paths = [...titlesIn(corpus[0].text).titles.keys()];
 	const onlyOne = [...titlesIn(corpus[1].text).titles.keys()];
 	const findings = (map, files) => verdict(map, files ?? corpus).errors;
+	const handoffFindings = (map, doc) => handoffVerdict(map, doc);
 	const cases = [
 		["a top-level test is its own title path", paths.includes("top level"), true],
 		["a nested describe is part of the path", paths.includes(`outer${SEP}inner${SEP}two`), true],
@@ -464,6 +505,47 @@ function selfTest() {
 			),
 			true,
 		],
+		[
+			"an empty map and a hand-off that says so is not a finding",
+			handoffFindings({}, "- CI4 Playwright: the `CI4_UNPORTED` skip list is empty.\n").length === 0,
+			true,
+		],
+		[
+			"a key while the hand-off still says the list is empty is a finding",
+			handoffFindings({ "b.spec.ts: names a page": "the page answers 501" }, "- CI4 Playwright: the skip list is empty.\n").some(
+				(e) => e.includes("still says the skip list is empty"),
+			),
+			true,
+		],
+		[
+			"a key the hand-off names is not a finding",
+			handoffFindings(
+				{ "b.spec.ts: names a page": "the page answers 501" },
+				'- CI4 Playwright: the skip list:\n  - `b.spec.ts` "names a page": the page answers 501.\n',
+			).some((e) => e.includes("does not list")),
+			false,
+		],
+		[
+			"a key the hand-off does not name is a finding",
+			handoffFindings(
+				{ "b.spec.ts: names a page": "the page answers 501" },
+				"- CI4 Playwright: the skip list:\n  - something else.\n",
+			).some((e) => e.includes('does not list the skipped "names a page"')),
+			true,
+		],
+		[
+			"a wrapped bullet that says empty on its second line is still read",
+			handoffFindings(
+				{ "b.spec.ts: names a page": "the page answers 501" },
+				"- CI4 Playwright: the skip list (`tests/visual/ci4-unported.json`, read by\n  `fixtures.ts`) is empty.\n",
+			).some((e) => e.includes("still says the skip list is empty")),
+			true,
+		],
+		[
+			"a hand-off with no CI4 Playwright line is a finding",
+			handoffFindings({}, "no bullet here\n").some((e) => e.includes("no \"- CI4 Playwright:\" line")),
+			true,
+		],
 	];
 	let failed = 0;
 	for (const [what, got, want] of cases) {
@@ -503,6 +585,12 @@ function main(argv) {
 	const corpus = specs.map((name) => ({ name, text: readFileSync(path.join(dir, name), "utf8") }));
 	const map = JSON.parse(readFileSync(mapPath, "utf8"));
 	const { errors, tests, keys } = verdict(map, corpus);
+	const handoffPath = path.join(root, "docs/HANDOFF.md");
+	if (!existsSync(handoffPath)) {
+		errors.push("docs/HANDOFF.md is missing, so no skipped page can be listed there");
+	} else {
+		errors.push(...handoffVerdict(map, readFileSync(handoffPath, "utf8")));
+	}
 	for (const e of UNRESOLVABLE) {
 		if (!corpus.some((f) => f.name === e.file)) {
 			errors.push(`UNRESOLVABLE records "${e.at}" in ${e.file}, which is not a spec file under tests/visual/`);
@@ -517,7 +605,7 @@ function main(argv) {
 	}
 	const unresolvable = corpus.reduce((n, f) => n + titlesIn(f.text).unresolved.length, 0);
 	console.log(
-		`skip-list:check: ${corpus.length} spec(s), ${tests} test title(s); CI4_UNPORTED has ${keys} key(s), each naming a title that exists; ${unresolvable} unresolvable title site(s) recorded.`,
+		`skip-list:check: ${corpus.length} spec(s), ${tests} test title(s); CI4_UNPORTED has ${keys} key(s), each naming a title that exists and a page docs/HANDOFF.md lists; ${unresolvable} unresolvable title site(s) recorded.`,
 	);
 }
 

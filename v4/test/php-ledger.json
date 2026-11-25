@@ -1511,7 +1511,7 @@
    "dataProviders": 0,
    "state": "scheduled",
    "target": "G1",
-   "note": "the CI4_UNPORTED guard: G1 ports it as a typed map that fails on a stale key, with a planted entry to prove it (a G1 clause), since the map is empty until the harness boots v4",
+   "note": "the CI4_UNPORTED guard, two assertions: every key names a test that exists (policed by v4/scripts/check-visual-skip-list.mjs, 22 self-test cases), and docs/HANDOFF.md lists each skipped page (policed there too). The map is empty until the harness boots v4, so a key that actually skips a test is still owed by G1",
    "kind": "retired"
   },
   {
