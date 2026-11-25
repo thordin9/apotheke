@@ -48,6 +48,34 @@ const PASSWORD = "visual-boot-check";
 /** The harness's own consent cookie (playwright.config.ts `storageState`), so no banner is rendered. */
 const CONSENT = "apotheke_consent=v1";
 
+/**
+ * The `reset: [` fixture block, from its marker to the matching `]`. Strings and line comments are
+ * read as what they are, because both contain brackets: a comment carries `[` in prose and an
+ * annotation's `'v4-booted'` is a quote. Returns "" when the marker or its bracket is missing.
+ */
+function resetBlock(text) {
+	const at = text.indexOf("reset: [");
+	if (at === -1) return "";
+	let depth = 0;
+	for (let i = text.indexOf("[", at); i < text.length; i++) {
+		const ch = text[i];
+		if (ch === "/" && text[i + 1] === "/") {
+			while (i < text.length && text[i] !== "\n") i++;
+			continue;
+		}
+		if (ch === '"' || ch === "'" || ch === "`") {
+			for (i++; i < text.length; i++) {
+				if (text[i] === "\\") { i++; continue; }
+				if (text[i] === ch) break;
+			}
+			continue;
+		}
+		if (ch === "[") depth++;
+		else if (ch === "]" && --depth === 0) return text.slice(at, i + 1);
+	}
+	return "";
+}
+
 const SELFTEST = [
 	{
 		name: "the seam's argv starts wrangler's dev server and names no php",
@@ -107,18 +135,26 @@ const SELFTEST = [
 		name: "the harness reseeds v4 through the seam (reset calls restartV4 before the php seed)",
 		ok: () => {
 			if (!existsSync(HARNESS)) return false;
-			const text = readFileSync(HARNESS, "utf8");
-			const at = text.indexOf("reset: [");
-			if (at === -1) return false;
-			// The window has to hold the whole fixture including its comments: the reset block now records
-			// a boot annotation (D81) and wraps restartV4 in a try/catch, and a fixed 400-char slice cut the
-			// php seed off the end and failed a harness that was right. The order is the assertion; the
-			// window only has to be big enough to see both names.
-			const body = text.slice(at, at + 1600);
+			// The block ends at its own closing bracket, not at a fixed offset: a window is a claim about
+			// someone else's line count, and the 400-character one failed a correct harness the moment the
+			// census annotation and a try/catch were added above the php seed (run 45694333366).
+			const body = resetBlock(readFileSync(HARNESS, "utf8"));
 			const restart = body.indexOf("server.restartV4");
 			const phpSeed = body.indexOf("fixture(server, 'seed'");
-			return restart !== -1 && phpSeed !== -1 && restart < phpSeed;
+			return body !== "" && restart !== -1 && phpSeed !== -1 && restart < phpSeed;
 		},
+	},
+	{
+		name: "the reset block is found by its bracket, with comments and strings read as what they are",
+		ok: () => {
+			const text = "x src = { reset: [ // it's a comment with an unbalanced [ bracket\n"
+				+ "  a(']'), b(`[`), c(1) ]], after: 2 }; y";
+			return resetBlock(text) === "reset: [ // it's a comment with an unbalanced [ bracket\n  a(']'), b(`[`), c(1) ]";
+		},
+	},
+	{
+		name: "a reset block with no closing bracket is not a block, so the case above cannot pass on a fragment",
+		ok: () => resetBlock("reset: [ no closing bracket here") === "",
 	},
 ];
 
