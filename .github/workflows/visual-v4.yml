@@ -8,10 +8,12 @@ name: Visual v4 instrument
 # baseline - is data for G1, not a required check. The step fails only when the instrument itself is
 # broken (no boot, no render, or a plant the comparison cannot locate).
 #
-# Why the push trigger on one branch, when D51 said dispatch-only: a new workflow file cannot be
-# dispatched until it exists on the default branch, and main is frozen at 4a187d0f. So the dispatch
-# I can actually fire, and read, on this branch is a push to `v4/visual-instrument`. It runs nowhere
-# else, gates nothing, and costs one run when someone wants an instrument reading.
+# Why the push trigger on branches, when D51 said dispatch-only: a new workflow file cannot be
+# dispatched until it exists on the default branch, and main is frozen at 4a187d0f. So the trigger
+# that can actually be fired, and read, is a push to one of the branches listed below:
+# `v4/visual-instrument` for an instrument reading, `v4/g1-map` for the CI4_UNPORTED harvest (D49),
+# whose job can only fire where this file lives. Neither job gates anything; each costs one run when
+# someone asks for an instrument reading or a fresh map.
 
 on:
   workflow_dispatch:
