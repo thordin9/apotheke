@@ -12,8 +12,9 @@ in the runner. Most of the suite is cheap and should stay on the default.
 
 `test/helpers/deadline.ts` exports `SLOW_TEST_MS` (60 s). A test belongs in that class when its *setup*,
 not its assertions, is seconds of machine-dependent work: booting an installation (the 36-migration chain
-plus the seed), driving repeated bcrypt verifies at PHP's default cost, or sweeping the route table. Both
-in-class tests that were red on CI passed locally first, which is why the rule is a rule.
+plus the seed), driving repeated bcrypt verifies at PHP's default cost, or sweeping the route table.
+Three tests were red on CI for exactly this in two hours, and each had passed locally first, which is
+why the rule is a rule rather than an opinion.
 
 A test in the class passes it as the third argument and puts the measured number in a comment:
 

@@ -3,9 +3,11 @@
 // Vitest's default is 5 s, which is right for a cheap test: a hang still fails fast. It is wrong as a
 // budget for a test whose *setup* boots an installation (the 36-migration chain plus the seed), drives
 // repeated bcrypt verifies at PHP's default cost, or both — those are seconds of work that depend on the
-// machine, not on the code. Two tests were red on CI for exactly this within one hour, each having
-// passed locally: `html/account.spec.ts`'s eleven password checks (3601 ms on the runner, 3.9 s here) and
-// `readiness.spec.ts`'s double `prepareInstallation()` (5069 ms on the runner against a 5000 ms default).
+// machine, not on the code. Three tests were red on CI for exactly this within two hours, each having
+// passed locally: `html/account.spec.ts`'s eleven password checks (3601 ms on the runner), `readiness.spec.ts`'s
+// double `prepareInstallation()` (5069 ms against a 5000 ms default), and `session/signin.spec.ts`'s
+// throttle replay, which timed out in the sqlite leg (run 45579682071 attempt 1) where the same test
+// took 3284 ms in a unit leg.
 //
 // So: a spec in that class passes `SLOW_TEST_MS` as the test's third argument and says the measurement in
 // a comment beside it. The number is a deadline, not slack — 60 s is two orders of magnitude above the

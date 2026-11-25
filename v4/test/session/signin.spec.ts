@@ -345,8 +345,9 @@ describe("POST /login", () => {
 				}),
 			);
 			expect(again.status, again.body.slice(0, 200)).toBe(429);
-			// Eleven bcrypt verifies at PHP's default cost plus two sign-ins: 3284 ms on CI's
-			// runner, 3654 ms here.
+			// Eleven bcrypt verifies at PHP's default cost plus two sign-ins: 3284 ms in the unit job,
+			// over the default 5 s in the sqlite job (run 45579682071 attempt 1), where this test was
+			// the failure; 3654 ms here.
 		},
 		SLOW_TEST_MS,
 	);
