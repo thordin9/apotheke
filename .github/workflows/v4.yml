@@ -67,6 +67,10 @@ jobs:
       # files rather than rendering them: CI carries no PHP toolchain, and the script says so.
       - run: npm run assets:check
       - run: npm run fixtures:check
+      # S1.6 (D36): the gate may not need PHP. This fails if a workflow that can run for this branch
+      # gains a PHP setup step, a composer command or a PHP test runner - a check, not a promise. It runs
+      # its own self-test first, so a parser that stops reading a trigger fails here rather than passing.
+      - run: npm run workflows:check
       - run: npm test
 
   workerd-smoke:

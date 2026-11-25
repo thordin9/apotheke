@@ -1,5 +1,11 @@
 # Testing
 
+> **Scope.** This page describes `main`, which keeps the whole v3 PHP test system until cutover. On
+> `experimental-v4` the PHPUnit suite (`tests/Unit`, `tests/Modules`, `tests/run.sh`, `phpunit.xml`) is
+> gone — D36, plan revision 41 — and the port's proof is TypeScript end to end: `cd v4 && npm test`,
+> with `npm run fixtures:check` (hash-only, no PHP) as the gate and `npm run fixtures:capture` (PHP 8.4,
+> by hand, never in CI) as the only step that boots v3. See [v4/docs/testing.md](../v4/docs/testing.md).
+
 | Layer | Where | Runs on | Needs |
 |---|---|---|---|
 | Lint | `scripts/lint.sh` | `php -l` on every PHP file, `node --check` on the JS in `public/`, relative Markdown links (`scripts/check-links.mjs`: README, CONTRIBUTING, `AGENTS.md`, and every Markdown file under `docs/`), `shellcheck`, `actionlint` on `.github/workflows` | PHP, Node, shellcheck, actionlint (installed in CI) |

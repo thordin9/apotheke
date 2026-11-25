@@ -29,16 +29,9 @@
         ]
     },
     "autoload-dev": {
-        "classmap": [
-            "tests/Unit/"
-        ],
         "psr-4": {
             "Apotheke\\Tools\\PhpStan\\": "tools/PhpStan/"
         }
-    },
-    "scripts": {
-        "test": "phpunit",
-        "test:unit": "phpunit --testsuite unit"
     },
     "config": {
         "optimize-autoloader": true,

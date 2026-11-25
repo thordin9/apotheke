@@ -79,6 +79,13 @@ Password: `APP_PASSWORD` (the Docker image refuses to start with sign-in off unl
 
 ## Tests (run before claiming done)
 
+> **On `experimental-v4` this section does not apply.** The v3 PHP test system retired from the port
+> (D36, plan revision 41): `tests/Unit`, `tests/Modules`, `phpunit.xml` and `tests/run.sh` are not on
+> that branch. The commands below still describe `main`, which keeps the whole v3 suite until cutover.
+> On the port, `cd v4 && npm test` is the suite and `npm run fixtures:check` is the gate; see
+> [v4/docs/testing.md](v4/docs/testing.md).
+## Tests (run before claiming done)
+
 ```bash
 tests/run.sh                              # lint + module suite (needs composer install)
 composer install && vendor/bin/phpunit    # root suite (unit + HTTP) on SQLite

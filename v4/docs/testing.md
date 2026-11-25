@@ -35,3 +35,34 @@ are nowhere near it — `test/seed.spec.ts` 1221 ms for its heaviest test, `test
 2123 ms for six, `test/migrations.spec.ts` 940 ms. They are named so a later reader can see they were
 considered rather than missed, and so the next one to creep past ~2.5 s on the runner is an obvious edit
 rather than a red run.
+
+## Where the seven oracles come from (D36)
+
+The fixtures under `test/fixtures/` are v3's own answers, captured over HTTP. `npm run fixtures:check` is
+the gate: it recomputes the SHA-256 of every source each fixture recorded and never boots v3, so it needs
+no PHP and it runs in CI.
+
+Regenerating them is the one step that does need PHP:
+
+```bash
+cd v4 && npm run fixtures:capture
+```
+
+It needs **PHP 8.4 CLI with `intl` and `sqlite3`** (v3's own driver), **`curl`** and **`jq`**, and it runs
+**by hand, never in CI**: each generator starts v3 on a temp data dir and captures what it answers, which is
+reproducible only against the PHP major the captures were taken with, and a runner would need a PHP
+toolchain for a step whose output is committed. The script refuses to run when `CI` or `GITHUB_ACTIONS` is
+set, and it ends by running `fixtures:check` — a capture that cannot reproduce its own source hashes is not
+a capture. Point `PHP` at the binary when `php` is not on PATH.
+
+The v3 PHPUnit suite is not on this branch: `tests/Unit`, `tests/Modules`, `phpunit.xml` and `tests/run.sh`
+stay on `main` until cutover, and nothing in this gate ever depended on them.
+
+## The gate is PHP-free, and stays that way (D36)
+
+`npm run workflows:check` fails if any workflow that can gate `experimental-v4` gains
+`actions/setup-php`, a `composer` command, `phpunit` or a `php` step. It is a step of `v4.yml`'s unit job
+and it reads each workflow's own `on:` block rather than a hand-kept list. It runs its own self-test first,
+so a parser change that stops reading a trigger fails there rather than passing quietly. Path-filtered
+pull-request workflows — the v3 edge and frontend deploys — are not gates for this branch and are named in
+the output on every run, so the exclusion is visible rather than silent.

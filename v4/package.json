@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Apotheke v4: the app on workerd. Not deployed from this branch (plan \u00a75 S0.2).",
+  "description": "Apotheke v4: the app on workerd. Not deployed from this branch (plan §5 S0.2).",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -15,9 +15,11 @@
     "assets": "node scripts/gen-assets.mjs",
     "assets:check": "node scripts/gen-assets.mjs --check",
     "fixtures:check": "bash scripts/gen-html-fixtures.sh --check && bash scripts/gen-session-fixture.sh --check && bash scripts/gen-claim-fixture.sh --check && bash scripts/gen-security-fixture.sh --check && bash scripts/gen-permissions-fixture.sh --check && bash scripts/gen-api-fixture.sh --check && bash scripts/gen-account-fixture.sh --check",
+    "fixtures:capture": "bash scripts/fixtures-capture.sh",
     "typecheck": "tsc --noEmit",
     "lint": "biome check . && depcruise src",
-    "format": "biome check --write ."
+    "format": "biome check --write .",
+    "workflows:check": "node scripts/check-workflows-php-free.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",

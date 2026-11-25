@@ -29,6 +29,10 @@ ground rules and walks through adding a feature end to end. AI agents should als
 
 ## Workflow
 
+> On `experimental-v4` the test commands below do not run: that branch carries no PHPUnit suite (D36).
+> `main` keeps it until cutover. The port's own gate is `cd v4 && npm test` plus `npm run fixtures:check`.
+## Workflow
+
 ```bash
 git checkout -b feat/my-change origin/main
 # … code, tests, docs …
