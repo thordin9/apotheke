@@ -109,5 +109,6 @@
  "visual.spec.ts: visual › manage, labels, backup, activity": "v4 answers 501 for /locations [run 45671253354]",
  "visual.spec.ts: visual › stock, bulk, lending, nested locations": "the `sql` fixture has no v4 equivalent [run 45671253354]",
  "visual.spec.ts: visual: empty › empty catalog": "v4 answers 501 for / [run 45671253354]",
- "attachments.spec.ts: notes and attachments › Markdown notes render safely @smoke": "v4 answers 501 for /item/1/edit [run 45691829738]"
+ "attachments.spec.ts: notes and attachments › Markdown notes render safely @smoke": "v4 answers 501 for /item/1/edit [run 45691829738]",
+ "qa-fixes.spec.ts: QA fixes › /new has one field per name; the no-JS \"new location\" field is saved": "v4 answers 501 for /new [run 45694324988]"
 }
