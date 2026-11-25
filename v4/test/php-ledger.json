@@ -573,9 +573,9 @@
    "path": "tests/Modules/Core/DatabaseSessionHandlerTest.php",
    "methods": 26,
    "dataProviders": 23,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the PHP session handler; v4's store has the row shape, not the handler's gc/locking",
+   "state": "dropped",
+   "target": "",
+   "note": "v4's store has no lock: 16 of the 26 methods assert v3's stale-lock takeover, claim protocol or lock_token/locked_until, and v4 loads the row once and writes one batch instead (v4/src/session/store.ts:7-9); the 10 asserting row read/write/expiry/epoch are re-homed as v4-native assertions in v4/test/session/store.spec.ts (D109)",
    "kind": "retired"
   },
   {
@@ -861,9 +861,9 @@
    "path": "tests/Modules/Core/UnitOfWorkLockTest.php",
    "methods": 9,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the write lock",
+   "state": "dropped",
+   "target": "",
+   "note": "v3's write lock inside the unit of work: v4 has neither - no UnitOfWork in v4/src, and the session store drops the lock deliberately (v4/src/session/store.ts:7-9) - so all 9 methods go with the mechanism (D109)",
    "kind": "retired"
   },
   {
@@ -906,9 +906,9 @@
    "path": "tests/Modules/Core/UnitOfWorkTest.php",
    "methods": 26,
    "dataProviders": 22,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the unit-of-work contract",
+   "state": "dropped",
+   "target": "",
+   "note": "v3's callback-scoped unit of work: grep -E 'UnitOfWork|savepoint' over v4/src matches 0 files, because v4's write unit is a flat batch (v4/src/db/sql.ts:5-7), so all 26 methods assert a mechanism v4 replaced by design (D109)",
    "kind": "retired"
   },
   {

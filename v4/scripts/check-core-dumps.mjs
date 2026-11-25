@@ -7,7 +7,7 @@
 // only the filesystem knows, and only if something looks. This looks.
 //
 //     node scripts/check-core-dumps.mjs                       # every core under v4/ and the repo root
-//     node scripts/check-core-dumps.mjs --since 1795559260    # 2026-11-25T22:27:40Z, the run above
+//     node scripts/check-core-dumps.mjs --since 2026-11-25T21:28:58Z    # the gate run above, 23:28:58 EET
 //     node scripts/check-core-dumps.mjs --self-test           # only the cases
 //
 // `--since` is the gate run's start, in epoch seconds or an ISO instant: a core older than the run is
@@ -23,7 +23,7 @@
 // The self-test runs first on every invocation: a check that has never failed is a promise with a
 // filename.
 
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -156,11 +156,25 @@ function selfTest() {
 			threw = true;
 		}
 		case_("a non-time is an error", threw, "accepted nonsense");
+
+		// D108/D110: the usage example is an anchor, so its instant and its local clock are checked
+		// against each other. One epoch with a wrong day beside it is exactly what got copied before.
+		const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
+		const example = /--since (\S+)\s+#[^\n]*?(\d\d:\d\d:\d\d) EET/.exec(source);
+		const consistent =
+			example !== null &&
+			!Number.isNaN(sinceMs(example[1])) &&
+			sinceMs(example[1]) === Date.parse(`${example[1].slice(0, 10)}T${example[2]}+02:00`);
+		case_(
+			"the usage example's instant and local clock agree",
+			consistent,
+			example === null ? "no example carrying a local clock" : `${example[1]} vs ${example[2]} EET`,
+		);
 	} finally {
 		rmSync(box, { recursive: true, force: true });
 	}
 
-	console.log(`self-test: 13 cases, ${failed} failed`);
+	console.log(`self-test: 14 cases, ${failed} failed`);
 	return failed === 0;
 }
 

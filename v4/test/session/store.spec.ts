@@ -1,10 +1,13 @@
 // The session store (plan §5 S1.2): the row v3 would have written, the expiry rules, and the epoch
-// check that makes "sign out everywhere" mean something.
+// check that makes "sign out everywhere" mean something. This is also the re-homed half of
+// `tests/Modules/Core/DatabaseSessionHandlerTest.php` (D109): the 10 of its 26 methods that assert
+// row read/write/expiry/epoch live here now, in v4's own terms; the other 16 assert the lock and the
+// claim protocol, which v4 replaced with one optimistic write (`src/session/store.ts:7-9`).
 
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { durableObjectSql, type InstallationStub } from "../../src/db/do-sql";
-import type { Sql } from "../../src/db/sql";
+import type { Sql, Statement } from "../../src/db/sql";
 import { sessionEpoch } from "../../src/session/epoch";
 import { encodeSession } from "../../src/session/php-session";
 import {
@@ -13,6 +16,7 @@ import {
 	loadSession,
 	sessionExpired,
 	sessionKey,
+	touchSession,
 	writeSession,
 } from "../../src/session/store";
 
@@ -126,6 +130,53 @@ describe("the session store", () => {
 		expect(Number(rows[0]?.n)).toBe(0);
 	});
 
+	it("extends the lifetime on a touch, and a session past it is gone", async () => {
+		// `DatabaseSessionHandlerTest::testUpdateTimestampExtendsExpiry`, in the store's own terms: a
+		// write at NOW with a 60 s lifetime is alive at +80 once touched at +30, and gone at +91.
+		await writeSession(sql, { id: ID, values: VALUES, now: NOW, lifetimeSeconds: 60 });
+		const touched = await touchSession(sql, {
+			key: await sessionKey(ID),
+			values: VALUES,
+			now: NOW + 30,
+			lifetimeSeconds: 60,
+		});
+		expect(touched).toBe(NOW + 90);
+		expect(await loadSession(sql, ID, NOW + 80)).not.toBeNull();
+		expect(await loadSession(sql, ID, NOW + 91)).toBeNull();
+	});
+
+	it("sends the digest and a plain statement, never the cookie value or a comment", async () => {
+		// The half of `testErrorsNeverContainTheSessionIdOrData` and `testHandlerSqlNeverStartsWithAComment`
+		// that survives v4's design: v4 does not reword a driver's error, so what it can guarantee is that
+		// the driver is never given the cookie value to repeat, and that no statement it sends is one
+		// whose first token is a comment.
+		const seen: Statement[] = [];
+		const recording: Sql = {
+			all: (one) => {
+				seen.push(one);
+				return sql.all(one);
+			},
+			batch: (many) => {
+				seen.push(...many);
+				return sql.batch(many);
+			},
+		};
+		const key = await sessionKey(ID);
+		await writeSession(recording, { id: ID, values: VALUES, now: NOW, lifetimeSeconds: LIFETIME });
+		await loadSession(recording, ID, NOW);
+		await touchSession(recording, { key, values: VALUES, now: NOW, lifetimeSeconds: LIFETIME });
+		await destroySession(recording, ID);
+		expect(seen.length).toBeGreaterThanOrEqual(4);
+		for (const one of seen) {
+			const head = one.sql.trimStart();
+			expect(head, one.sql).toMatch(/^(SELECT|INSERT|UPDATE|DELETE)\b/i);
+			expect(head, one.sql).not.toMatch(/^(--|#|\/\*)/);
+			for (const param of one.params ?? []) expect(String(param), one.sql).not.toBe(ID);
+		}
+		// The keying itself: the row it reads, writes and deletes is named by the digest.
+		expect(seen.some((one) => (one.params ?? []).includes(key))).toBe(true);
+	});
+
 	it("applies v3's idle and absolute limits", () => {
 		const limits = { now: NOW, idleSeconds: 3600, absoluteSeconds: 86_400 };
 		expect(sessionExpired({ ...VALUES, lastActivity: NOW - 3599 }, limits)).toBe(false);
@@ -178,5 +229,7 @@ describe("the session store", () => {
 		expect(await loadSession(sql, ID, NOW)).not.toBeNull();
 		await destroySession(sql, ID);
 		expect(await loadSession(sql, ID, NOW)).toBeNull();
+		const left = await sql.all({ sql: "SELECT COUNT(*) AS n FROM sessions" });
+		expect(Number(left[0]?.n)).toBe(0);
 	});
 });
