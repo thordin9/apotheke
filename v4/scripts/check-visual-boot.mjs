@@ -110,7 +110,11 @@ const SELFTEST = [
 			const text = readFileSync(HARNESS, "utf8");
 			const at = text.indexOf("reset: [");
 			if (at === -1) return false;
-			const body = text.slice(at, at + 400);
+			// The window has to hold the whole fixture including its comments: the reset block now records
+			// a boot annotation (D81) and wraps restartV4 in a try/catch, and a fixed 400-char slice cut the
+			// php seed off the end and failed a harness that was right. The order is the assertion; the
+			// window only has to be big enough to see both names.
+			const body = text.slice(at, at + 1600);
 			const restart = body.indexOf("server.restartV4");
 			const phpSeed = body.indexOf("fixture(server, 'seed'");
 			return restart !== -1 && phpSeed !== -1 && restart < phpSeed;
