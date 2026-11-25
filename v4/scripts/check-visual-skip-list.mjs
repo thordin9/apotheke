@@ -26,6 +26,10 @@
 //     and a reason. Such a title has no key it could match, so skipping it silently is how this
 //     guard would rot. The record is checked in both directions: an entry that matches nothing is
 //     stale, and fails exactly as a stale key does.
+//   * a key whose title the spec builds at run time is accepted only when DYNAMIC_KEYS below records
+//     the site and the exact title it can produce - the loop in manage.spec.ts is named rather than
+//     ignored. That record is checked in both directions too: a key it does not cover is still a
+//     finding, and a recorded title no key uses is stale.
 //
 //     node scripts/check-visual-skip-list.mjs              # the real tree
 //     node scripts/check-visual-skip-list.mjs --self-test  # only the cases
@@ -59,6 +63,25 @@ const UNRESOLVABLE = [
 		file: "autofill-suggest.spec.ts",
 		at: "test(`fails soft: ${c.name}`",
 		why: "one test per suggest case, named from the case table",
+	},
+];
+
+/**
+ * Keys a spec builds at run time, which no static parser can check against source. Each entry names
+ * the unresolved site that builds the title and the exact titles it can produce; a key is accepted
+ * only when one of these covers it, so this is a record and not a hole. Checked in both directions,
+ * like UNRESOLVABLE: a key these do not cover is still a finding, and a recorded title no key uses
+ * is stale.
+ */
+const DYNAMIC_KEYS = [
+	{
+		file: "manage.spec.ts",
+		at: "test(`add, rename, default, delete-with-move${",
+		titles: [
+			"manage categories \u203a add, rename, default, delete-with-move",
+			"manage locations \u203a add, rename, default, delete-with-move @smoke",
+		],
+		why: "one describe per managed kind, and only the locations case carries @smoke",
 	},
 ];
 
@@ -311,7 +334,7 @@ function closest(paths, want) {
  * Judge a map against a set of spec files. `corpus` is [{name, text}], names relative to
  * tests/visual/; `map` is the CI4_UNPORTED object. Returns the findings as printable lines.
  */
-export function verdict(map, corpus) {
+export function verdict(map, corpus, dynamic = DYNAMIC_KEYS) {
 	const errors = [];
 	const index = new Map();
 	let tests = 0;
@@ -339,6 +362,7 @@ export function verdict(map, corpus) {
 			}
 		}
 	}
+	const usedDynamic = new Set();
 	for (const [key, why] of Object.entries(map)) {
 		const at = key.indexOf(": ");
 		if (at === -1) {
@@ -353,14 +377,31 @@ export function verdict(map, corpus) {
 			continue;
 		}
 		if (!titles.has(titlePath)) {
-			const near = closest([...titles.keys()], titlePath);
-			errors.push(
-				`"${key}": ${file} declares no test titled that (${titles.size} title(s)${near ? `; closest: "${near}"` : ""})`,
-			);
-			continue;
+			const covered = dynamic.some((e) => e.file === file && e.titles.includes(titlePath));
+			if (!covered) {
+				const near = closest([...titles.keys()], titlePath);
+				errors.push(
+					`"${key}": ${file} declares no test titled that (${titles.size} title(s)${near ? `; closest: "${near}"` : ""})`,
+				);
+				continue;
+			}
+			usedDynamic.add(`${file}\u0000${titlePath}`);
 		}
 		if (typeof why !== "string" || why.trim() === "") {
 			errors.push(`"${key}": says why the page is missing, and says nothing`);
+		}
+	}
+	for (const e of dynamic) {
+		if (!corpus.some((f) => f.name === e.file)) {
+			errors.push(`DYNAMIC_KEYS records \"${e.at}\" in ${e.file}, which is not a spec file under tests/visual/`);
+			continue;
+		}
+		for (const t of e.titles) {
+			if (!usedDynamic.has(`${e.file}\u0000${t}`)) {
+				errors.push(
+					`DYNAMIC_KEYS records \"${t}\" in ${e.file} (${e.why}), which no key uses - the record is stale`,
+				);
+			}
 		}
 	}
 	return { errors, tests, keys: Object.keys(map).length };
@@ -435,7 +476,9 @@ function selfTest() {
 	];
 	const paths = [...titlesIn(corpus[0].text).titles.keys()];
 	const onlyOne = [...titlesIn(corpus[1].text).titles.keys()];
-	const findings = (map, files) => verdict(map, files ?? corpus).errors;
+	// The real tree supplies DYNAMIC_KEYS; the self-test cases pass their own or none, so a record
+	// about a file this corpus does not hold cannot colour them.
+	const findings = (map, files) => verdict(map, files ?? corpus, []).errors;
 	const handoffFindings = (map, doc) => handoffVerdict(map, doc);
 	const cases = [
 		["a top-level test is its own title path", paths.includes("top level"), true],
@@ -544,6 +587,33 @@ function selfTest() {
 		[
 			"a hand-off with no CI4 Playwright line is a finding",
 			handoffFindings({}, "no bullet here\n").some((e) => e.includes("no \"- CI4 Playwright:\" line")),
+			true,
+		],
+		[
+			"a key a recorded dynamic title covers is not a finding",
+			verdict(
+				{ "a.spec.ts: outer \u203a later thing": "the page answers 501" },
+				[{ name: "a.spec.ts", text: "test('one', async () => {});" }],
+				[{ file: "a.spec.ts", at: "test(`later ${k}`", titles: ["outer \u203a later thing"], why: "built in a loop" }],
+			).errors.length === 0,
+			true,
+		],
+		[
+			"a dynamic record does not cover a neighbouring title",
+			verdict(
+				{ "a.spec.ts: outer \u203a later thing @smoke": "the page answers 501" },
+				corpus,
+				[{ file: "a.spec.ts", at: "test(`later ${k}`", titles: ["outer \u203a later thing"], why: "built in a loop" }],
+			).errors.some((e) => e.includes("no test titled that")),
+			true,
+		],
+		[
+			"a recorded dynamic title no key uses is stale",
+			verdict(
+				{},
+				corpus,
+				[{ file: "a.spec.ts", at: "test(`later ${k}`", titles: ["outer \u203a later thing"], why: "built in a loop" }],
+			).errors.some((e) => e.includes("which no key uses")),
 			true,
 		],
 	];
