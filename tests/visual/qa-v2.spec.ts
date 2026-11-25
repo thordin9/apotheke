@@ -57,6 +57,10 @@ test.describe('QA v2.0.0 follow-ups', () => {
     await app.go('/locations');
     await page.locator('#addloc input[name=name]').fill('Empty drawer');
     await page.locator('#addloc button.btn-primary').click();
+    // The add is a POST + 303. Navigate away before the redirect lands and the POST is
+    // aborted, so 'Empty drawer' is never created and #stk-loc has no such option - the
+    // failure this test was red for under load (D69: load-sensitive, not broken).
+    await expect(page.locator('.toast')).toContainText('Location added');
     await app.go('/stocktake');
     await page.locator('#stk-loc').selectOption({ label: 'Empty drawer (0)' });
     await page.locator('#stk-go').click();
