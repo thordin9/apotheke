@@ -48,7 +48,12 @@ jobs:
       run:
         working-directory: v4
     steps:
+      # D37's ledger reconciles its retired rows against the commit that deleted them, which needs
+      # history. Full depth here only: every other job keeps the default shallow checkout, and 110 MB
+      # is a fair price for the rule that matters most in this file.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
