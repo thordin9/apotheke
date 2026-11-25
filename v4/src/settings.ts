@@ -62,6 +62,12 @@ export const consentGiven = (cookieHeader: string | null, required = true): bool
 };
 
 /** `Config\Consent::COOKIE` and `::CURRENT`: the first cookie the app ever has. */
+/*
+ * v3 keeps `ACCEPTED` as an array (`['v1']`) beside `CURRENT`, so a later banner version is a change
+ * to that array — code, not a settings row. This port compares against one accepted value, so bumping
+ * the banner means teaching `consentGiven` a set here, not editing a config key; nothing in the
+ * settings schema carries the accepted versions.
+ */
 const CONSENT_COOKIE = "apotheke_consent";
 const CONSENT_CURRENT = "v1";
 
