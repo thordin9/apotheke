@@ -46,6 +46,15 @@ export const CI4_UNPORTED: Record<string, string> = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'ci4-unported.json'), 'utf8'),
 );
 
+/**
+ * E2E_APP=v4 only: the paths v4 answered 501 for during the current test, from any context.
+ * v4 serves /login and the sign-in chain and answers 501 for every page no slice has ported; the
+ * `errors` fixture turns this set into a `v4-unported` annotation, and v4/scripts/visual-v4-map.mjs
+ * turns that into a CI4_UNPORTED entry, so the map comes from a run (D49) rather than a red read by
+ * hand. Under v3 nothing writes to it.
+ */
+const UNPORTED = new Set<string>();
+
 const freePort = () => new Promise<number>((res, rej) => {
   const s = net.createServer();
   s.listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => res(p)); });
@@ -240,11 +249,11 @@ export const test = base.extend<TestOpts, WorkerOpts>({
      * answers 501 for every page no slice has ported, so a test that wandered into one fails on its
      * own assertion - this annotation is what names the page. v4/scripts/visual-v4-map.mjs turns it
      * into a CI4_UNPORTED entry, so the map comes from a run (D49) rather than from a red read by
-     * hand. Under v3 no listener is installed and the array stays empty.
+     * hand. Under v3 no listener is installed and the set stays empty.
      */
-    const unported: string[] = [];
+    UNPORTED.clear();
     if (APP === 'v4') {
-      page.on('response', r => { if (r.status() === 501) unported.push(new URL(r.url()).pathname); });
+      page.on('response', r => { if (r.status() === 501) UNPORTED.add(new URL(r.url()).pathname); });
     }
     page.on('pageerror', e => errors.push('pageerror: ' + e.message));
     page.on('console', m => {
@@ -256,9 +265,26 @@ export const test = base.extend<TestOpts, WorkerOpts>({
       errors.push('console: ' + m.text());
     });
     await use(errors);
-    for (const p of [...new Set(unported)].sort()) info.annotations.push({ type: 'v4-unported', description: p });
+    for (const p of [...UNPORTED].sort()) info.annotations.push({ type: 'v4-unported', description: p });
     expect(errors, 'no console errors').toEqual([]);
   }, { auto: true }],
+  /**
+   * E2E_APP=v4 only: watch every context the spec opens, not just the fixture's `page`. The consent
+   * spec and the no-JavaScript tests call `browser.newContext()` themselves, so a listener on `page`
+   * alone never sees the 501 their first navigation gets - and a red the harness cannot explain is a
+   * red the map would have to absorb without a reason.
+   */
+  browser: async ({ browser }, use) => {
+    if (APP === 'v4') {
+      const open = browser.newContext.bind(browser);
+      browser.newContext = async (...args: Parameters<typeof open>) => {
+        const ctx = await open(...args);
+        ctx.on('response', r => { if (r.status() === 501) UNPORTED.add(new URL(r.url()).pathname); });
+        return ctx;
+      };
+    }
+    await use(browser);
+  },
   app: async ({ page, server }, use, info) => { await use(new App(page, server, info)); },
   ci4Unported: [async ({}, use, info) => {
     const why = CI4_UNPORTED[`${path.basename(info.file)}: ${info.titlePath.slice(1).join(' › ')}`];

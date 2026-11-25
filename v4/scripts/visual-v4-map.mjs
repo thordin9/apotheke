@@ -59,6 +59,9 @@ export function classify(test) {
 	if (/shells `php` for GD/.test(message)) {
 		return { kind: "unported", why: "image() shells `php` for GD; no v4 equivalent" };
 	}
+	if (/Error: spawn(Sync)? php ENOENT/.test(message)) {
+		return { kind: "unported", why: "the spec shells `php` itself, and a v4 run starts none" };
+	}
 	const first = message.split("\n").find((l) => l.trim() !== "") ?? "(no error text)";
 	return { kind: "unexplained", why: first.trim() };
 }
@@ -143,6 +146,14 @@ function selfTest() {
 				],
 			}).why,
 			"the `sql` fixture has no v4 equivalent",
+		],
+		[
+			"a spec that shells php itself is unported, not a mystery",
+			classify({
+				status: "unexpected",
+				results: [{ status: "failed", errors: [{ message: "Error: spawn php ENOENT" }] }],
+			}).kind,
+			"unported",
 		],
 		[
 			"an unattributable failure is not absorbed",
