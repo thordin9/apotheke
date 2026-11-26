@@ -1014,9 +1014,9 @@
    "path": "tests/Modules/Layout/LayoutTest.php",
    "methods": 6,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the page shell: menu, layout, error pages",
+   "state": "ported",
+   "target": "v4/test/html/layout.spec.ts",
+   "note": "S1.7: five of the six methods' subjects are v4's, asserted in v4/test/html/layout.spec.ts. `testEveryValueIsEscapedAndNoSessionIsStartedForAnErrorPage`: every shell value escaped from hostile settings, the message escaped, no inline script or style, and the 404 error page answers no Set-Cookie. `testABrokenUserReadGivesNoRoleClass`: nobody and an admin get no role class, a real role gets role-<key> plus a no- for each permission it lacks plus is-guest. `testTheMenuShowsTheLinksTheRoleMayUseAndReadsTheUserOnce`: the link table for an admin and for a users-only manager, whose Settings link is /settings/security. `testSafeBackRefusesControlCharacters`: six control characters refused, four paths kept, //host and /\\\\host refused. The icon half of `testThemeCookie` (an unknown name is an empty icon) too; its theme half is v4/test/settings.spec.ts (theme_default auto|light|dark, anything else auto). Dropped as v3 mechanism, subject named: `testTheErrorPageFallsBackToThePlainPageAndLogsOnlyTheClass` guarded a lazy page closure that could throw while the shell was drawn (modules/Layout/ErrorPage.php:37-51); v4's error page is a pure function of the settings read before routing (src/html/views.ts:104), so the guarded failure cannot occur inside it. Also dropped: the throwing-read half of the role class (Viewer.php:66-69 catches a closure's throw; v4 passes a resolved viewer or null, src/html/menu.ts:43) and 'the user is read once' (v3's closure cache, no v4 shape). NOT asserted, reported to PM: the server-side theme cookie \u2014 Theme::cookie() has no v4 writer (POST /theme is unported: no ThemeController::save in HANDLERS) and nothing in v4/src reads the theme cookie, so a visitor's choice is answered with theme_default on the next request while public/assets/theme.js:2 assumes the server rendered it; and v4's 503 for an unreadable settings row carries the exception's message in its detail (src/index.ts:107) where v3 logged only the class (ErrorPage.php:45).",
    "kind": "retired"
   },
   {

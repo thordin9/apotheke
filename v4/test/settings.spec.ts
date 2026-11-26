@@ -155,3 +155,34 @@ describe("consentGiven", () => {
 		expect((await readPageData(sql, config, "/", true)).page.consent).toBe(true);
 	});
 });
+
+// `Theme::valid()` (modules/Layout/Theme.php:33-36), at the value v4 uses it on: the `theme_default`
+// row. v3 validated the cookie; v4's shell takes its theme from the setting (and never reads the
+// cookie — the ledger row for `LayoutTest` says so), so the same three-valued rule is asserted here:
+// `auto` | `light` | `dark`, case-sensitively, and anything else is `auto`.
+describe("the theme_default setting, as Theme::valid()", () => {
+	const theme = async (stored: string): Promise<string> => {
+		const sql = sqlite(`s1.7-theme-${stored}`);
+		await resetSchema(sql);
+		await sql.batch([
+			{ sql: SETTINGS_TABLE },
+			{
+				sql: "INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)",
+				params: ["theme_default", JSON.stringify(stored), NOW],
+			},
+		]);
+		return (await readPageData(sql, loadConfig({ APP_PASSWORD: PASSWORD }), "/")).page.theme;
+	};
+
+	it("takes the three valid values", async () => {
+		expect(await theme("auto")).toBe("auto");
+		expect(await theme("light")).toBe("light");
+		expect(await theme("dark")).toBe("dark");
+	});
+
+	it("answers auto for anything else, case included", async () => {
+		expect(await theme("Dark")).toBe("auto");
+		expect(await theme("solarized")).toBe("auto");
+		expect(await theme("")).toBe("auto");
+	});
+});
