@@ -391,7 +391,7 @@ jobs:
 
       # The count rule, stated so a quiet skip fails: only the six rqlite live specs may be pending
       # (there is no rqlited here) and all six must still be present, nothing else may be skipped or
-      # failed, and the five contract specs `test/sqlite.spec.ts` adds must all have run. A file that
+      # failed, and the six contract specs `test/sqlite.spec.ts` adds must all have run. A file that
       # stopped being collected moves this count, which is the one thing a green step would hide.
       - name: Assert the sqlite run is complete
         run: |
@@ -405,7 +405,7 @@ jobs:
               and ([.testResults[] | select(.name | test("rqlite-live")) | .assertionResults[]] | length) == 6
               and ([.testResults[] | select(.name | test("rqlite-live")) | .assertionResults[]]
                     | map(.status) | unique) == ["skipped"]
-              and ([.testResults[] | select(.name | test("sqlite")) | .assertionResults[]] | length) == 6
+              and ([.testResults[] | select(.name | test("sqlite")) | .assertionResults[]] | length) == 7
               and .numFailedTests == 0
           ' test.json
           jq -r '"files=\(.testResults | length) tests=\(.numTotalTests) failed=\(.numFailedTests) pending=\(.numPendingTests)"' test.json

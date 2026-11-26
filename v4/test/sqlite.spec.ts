@@ -27,7 +27,8 @@
 //      from SQL, and `adapters.md`'s "measured, not inferred" has this spec behind it. The last test
 //      below is the only guard on that sentence.
 //
-// `v4.yml`'s `sqlite` job is the leg that runs these six specs by name.
+// `v4.yml`'s `sqlite` job is the leg that runs these seven specs by name, and its jq assertion pins
+// the count: adding a test here without bumping it turns the next run red on a step nobody reads.
 //
 // Expected throws in this leg's log. Four lines in every job's output are deliberate refusals, not
 // damage — the suite prints them because workerd logs an uncaught exception even when a spec catches
