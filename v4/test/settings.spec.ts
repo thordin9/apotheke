@@ -162,52 +162,64 @@ describe("consentGiven", () => {
 // `theme_default` row, which v4 clamps to the same three. `POST /theme` is P2, so nothing in v4 writes
 // the cookie — the cases below set the header the client would send (D152).
 describe("the theme: Theme::pref() over Theme::valid()", () => {
-	/** One database per setting (a `resetSchema` is the cost), then as many reads as a case needs. */
-	const withSetting = async (stored: string, name = stored) => {
+	/**
+	 * One database per test, and as many settings rows as a case needs. A fresh install is 36
+	 * migrations: three of those per test put `takes the three valid values` at 5053 ms against the
+	 * 5000 ms default on the D1 leg (run 45775453850, 2026-11-26), where one install is ~1.2 s and a
+	 * settings write is ~40 ms. The work is the install, not the assertion, so the assertion keeps a
+	 * five-second budget by not paying for installs it does not need.
+	 */
+	const withSetting = async (name: string) => {
 		const sql = sqlite(`s1.7-theme-${name}`);
 		await resetSchema(sql);
-		await sql.batch([
-			{ sql: SETTINGS_TABLE },
-			{
-				sql: "INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)",
-				params: ["theme_default", JSON.stringify(stored), NOW],
-			},
-		]);
+		await sql.batch([{ sql: SETTINGS_TABLE }]);
 		const config = loadConfig({ APP_PASSWORD: PASSWORD });
-		return async (cookies: string | null = null): Promise<string> =>
-			(await readPageData(sql, config, "/", false, cookies)).page.theme;
+		return async (stored: string, cookies: string | null = null): Promise<string> => {
+			await sql.batch([
+				{ sql: "DELETE FROM settings WHERE name = ?", params: ["theme_default"] },
+				{
+					sql: "INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)",
+					params: ["theme_default", JSON.stringify(stored), NOW],
+				},
+			]);
+			return (await readPageData(sql, config, "/", false, cookies)).page.theme;
+		};
 	};
 
 	it("takes the three valid values", async () => {
-		expect(await (await withSetting("auto"))()).toBe("auto");
-		expect(await (await withSetting("light"))()).toBe("light");
-		expect(await (await withSetting("dark"))()).toBe("dark");
+		const theme = await withSetting("values");
+		expect(await theme("auto")).toBe("auto");
+		expect(await theme("light")).toBe("light");
+		expect(await theme("dark")).toBe("dark");
 	});
 
 	it("answers auto for anything else, case included", async () => {
-		expect(await (await withSetting("Dark"))()).toBe("auto");
-		expect(await (await withSetting("solarized"))()).toBe("auto");
-		expect(await (await withSetting(""))()).toBe("auto");
+		const theme = await withSetting("invalid");
+		expect(await theme("Dark")).toBe("auto");
+		expect(await theme("solarized")).toBe("auto");
+		expect(await theme("")).toBe("auto");
 	});
 
 	it("takes the cookie over the setting, and the setting when the cookie is no better", async () => {
 		// `auto` as the setting on purpose: a cookie matched case-insensitively or by prefix would answer
 		// `light`/`dark` and be caught here, where a `dark` setting would let `Dark` pass as its own
 		// fallback.
-		const theme = await withSetting("auto", "auto-cookie");
-		expect(await theme("theme=light")).toBe("light");
-		expect(await theme("theme=dark")).toBe("dark");
-		expect(await theme("theme=auto")).toBe("auto");
+		const theme = await withSetting("cookie");
+		expect(await theme("auto", "theme=light")).toBe("light");
+		expect(await theme("auto", "theme=dark")).toBe("dark");
+		expect(await theme("auto", "theme=auto")).toBe("auto");
 		// Not one of the three, so the setting answers: `Theme::pref()` returns its default for every
 		// other string, and v3 compared with `in_array(..., true)`.
-		expect(await theme("theme=Dark")).toBe("auto");
-		expect(await theme("theme=solarized")).toBe("auto");
-		expect(await theme("theme=")).toBe("auto");
-		expect(await theme("theme=lightx")).toBe("auto");
-		expect(await theme("themes=light")).toBe("auto");
+		expect(await theme("auto", "theme=Dark")).toBe("auto");
+		expect(await theme("auto", "theme=solarized")).toBe("auto");
+		expect(await theme("auto", "theme=")).toBe("auto");
+		expect(await theme("auto", "theme=lightx")).toBe("auto");
+		expect(await theme("auto", "themes=light")).toBe("auto");
 		// Among other cookies, in either position.
-		expect(await theme("apotheke_consent=v1; theme=light")).toBe("light");
-		expect(await theme("theme=light; apotheke_consent=v1")).toBe("light");
+		expect(await theme("auto", "apotheke_consent=v1; theme=light")).toBe("light");
+		expect(await theme("auto", "theme=light; apotheke_consent=v1")).toBe("light");
+		// And the setting still answers when the cookie is absent.
+		expect(await theme("dark", null)).toBe("dark");
 	});
 
 	it("reaches the shell through the Worker, so the entrypoint passes the header on", async () => {
