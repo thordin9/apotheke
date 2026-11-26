@@ -16,6 +16,7 @@
 // the real `Sql`, answers the "FROM users" read with a failure, and shows the answer still stands when
 // APP_PASSWORD is set — and that the read does happen when it is not.
 
+import { SELF } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { durableObjectSql, type InstallationStub } from "../src/db/do-sql";
@@ -156,13 +157,14 @@ describe("consentGiven", () => {
 	});
 });
 
-// `Theme::valid()` (modules/Layout/Theme.php:33-36), at the value v4 uses it on: the `theme_default`
-// row. v3 validated the cookie; v4's shell takes its theme from the setting (and never reads the
-// cookie — the ledger row for `LayoutTest` says so), so the same three-valued rule is asserted here:
-// `auto` | `light` | `dark`, case-sensitively, and anything else is `auto`.
-describe("the theme_default setting, as Theme::valid()", () => {
-	const theme = async (stored: string): Promise<string> => {
-		const sql = sqlite(`s1.7-theme-${stored}`);
+// `Theme::pref()` (modules/Layout/Theme.php:19-22, called from `Page::theme()`, `Page.php:57-60`) and
+// `Theme::valid()` (`:25-28`): the cookie's value when it is one of `auto` | `light` | `dark`, else the
+// `theme_default` row, which v4 clamps to the same three. `POST /theme` is P2, so nothing in v4 writes
+// the cookie — the cases below set the header the client would send (D152).
+describe("the theme: Theme::pref() over Theme::valid()", () => {
+	/** One database per setting (a `resetSchema` is the cost), then as many reads as a case needs. */
+	const withSetting = async (stored: string, name = stored) => {
+		const sql = sqlite(`s1.7-theme-${name}`);
 		await resetSchema(sql);
 		await sql.batch([
 			{ sql: SETTINGS_TABLE },
@@ -171,18 +173,56 @@ describe("the theme_default setting, as Theme::valid()", () => {
 				params: ["theme_default", JSON.stringify(stored), NOW],
 			},
 		]);
-		return (await readPageData(sql, loadConfig({ APP_PASSWORD: PASSWORD }), "/")).page.theme;
+		const config = loadConfig({ APP_PASSWORD: PASSWORD });
+		return async (cookies: string | null = null): Promise<string> =>
+			(await readPageData(sql, config, "/", false, cookies)).page.theme;
 	};
 
 	it("takes the three valid values", async () => {
-		expect(await theme("auto")).toBe("auto");
-		expect(await theme("light")).toBe("light");
-		expect(await theme("dark")).toBe("dark");
+		expect(await (await withSetting("auto"))()).toBe("auto");
+		expect(await (await withSetting("light"))()).toBe("light");
+		expect(await (await withSetting("dark"))()).toBe("dark");
 	});
 
 	it("answers auto for anything else, case included", async () => {
-		expect(await theme("Dark")).toBe("auto");
-		expect(await theme("solarized")).toBe("auto");
-		expect(await theme("")).toBe("auto");
+		expect(await (await withSetting("Dark"))()).toBe("auto");
+		expect(await (await withSetting("solarized"))()).toBe("auto");
+		expect(await (await withSetting(""))()).toBe("auto");
+	});
+
+	it("takes the cookie over the setting, and the setting when the cookie is no better", async () => {
+		// `auto` as the setting on purpose: a cookie matched case-insensitively or by prefix would answer
+		// `light`/`dark` and be caught here, where a `dark` setting would let `Dark` pass as its own
+		// fallback.
+		const theme = await withSetting("auto", "auto-cookie");
+		expect(await theme("theme=light")).toBe("light");
+		expect(await theme("theme=dark")).toBe("dark");
+		expect(await theme("theme=auto")).toBe("auto");
+		// Not one of the three, so the setting answers: `Theme::pref()` returns its default for every
+		// other string, and v3 compared with `in_array(..., true)`.
+		expect(await theme("theme=Dark")).toBe("auto");
+		expect(await theme("theme=solarized")).toBe("auto");
+		expect(await theme("theme=")).toBe("auto");
+		expect(await theme("theme=lightx")).toBe("auto");
+		expect(await theme("themes=light")).toBe("auto");
+		// Among other cookies, in either position.
+		expect(await theme("apotheke_consent=v1; theme=light")).toBe("light");
+		expect(await theme("theme=light; apotheke_consent=v1")).toBe("light");
+	});
+
+	it("reaches the shell through the Worker, so the entrypoint passes the header on", async () => {
+		// The unit cases above call `readPageData`; this one goes through `src/index.ts`, which is where
+		// the cookie header is handed over — the wiring a unit test cannot see (D152).
+		const plain = await SELF.fetch("http://localhost/login");
+		expect(plain.status).toBe(200);
+		expect(await plain.text()).toContain('<html lang="en" data-theme="auto"');
+
+		const dark = await SELF.fetch("http://localhost/login", { headers: { cookie: "theme=dark" } });
+		expect(dark.status).toBe(200);
+		expect(await dark.text()).toContain('<html lang="en" data-theme="dark"');
+
+		// An invalid value is not a theme: the setting answers, as `Theme::pref()` says.
+		const bad = await SELF.fetch("http://localhost/login", { headers: { cookie: "theme=solarized" } });
+		expect(await bad.text()).toContain('<html lang="en" data-theme="auto"');
 	});
 });

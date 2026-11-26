@@ -111,12 +111,16 @@ export default {
 		// differ; P2 can skip the read for `/api` when there is an API to skip for.
 		let data: Awaited<ReturnType<typeof readPageData>>;
 		try {
-			const requestUri = `${pathname}${new URL(request.url).search}`;
+			const requestUri = `${pathname}${url.search}`;
+			// One cookie header, read twice: consent decides whether a session starts, the theme what the
+			// shell renders before first paint (`Theme::pref()`, D152).
+			const cookies = request.headers.get("cookie");
 			data = await readPageData(
 				requestSql(env, stub),
 				config,
 				requestUri,
-				consentGiven(request.headers.get("cookie"), config.consentRequired),
+				consentGiven(cookies, config.consentRequired),
+				cookies,
 			);
 		} catch (error) {
 			// The settings row is as necessary as the schema: no page can be drawn without it, so this
