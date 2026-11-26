@@ -21,15 +21,18 @@ import {
 	sessionCookieLine,
 } from "./cookie";
 import { newToken } from "./csrf";
-import { type DecodedSession, encodeSession, type SessionValues } from "./php-session";
+import type { DecodedSession, SessionValues } from "./php-session";
 import {
 	authenticate,
 	destroySession,
 	type Identity,
 	loadSession,
 	SESSION_ID,
+	sessionDelete,
 	sessionExpired,
+	sessionInsert,
 	sessionKey,
+	sessionTouch,
 } from "./store";
 
 /** `SessionGate::TOUCH_SECONDS`: the activity stamp moves at most once a minute. */
@@ -241,7 +244,7 @@ export class SessionRequest {
 			expiresAt: this.now + this.limits.lifetimeSeconds,
 		};
 		if (previous !== null) {
-			this.push({ sql: "DELETE FROM sessions WHERE id = ?", params: [await sessionKey(previous)] });
+			this.push(sessionDelete(await sessionKey(previous)));
 		}
 		this.push(await this.insert(id, this.values));
 		this.lines.push(this.cookieLine(id));
@@ -250,7 +253,7 @@ export class SessionRequest {
 	/** `SessionGate::signOut()`: the row goes, so a copied cookie names nothing, and the cookie expires. */
 	async signOut(): Promise<void> {
 		if (this.id !== null) {
-			this.push({ sql: "DELETE FROM sessions WHERE id = ?", params: [await sessionKey(this.id)] });
+			this.push(sessionDelete(await sessionKey(this.id)));
 		}
 		for (const name of this.namesToExpire()) {
 			this.lines.push(expiryCookieLine({ name, now: this.now }));
@@ -316,10 +319,7 @@ export class SessionRequest {
 		if (!changed || this.id === null) {
 			return;
 		}
-		this.push({
-			sql: "UPDATE sessions SET data = ?, expires_at = ? WHERE id = ?",
-			params: [encodeSession(next), this.now + this.limits.lifetimeSeconds, await sessionKey(this.id)],
-		});
+		this.push(sessionTouch(await sessionKey(this.id), next, this.now + this.limits.lifetimeSeconds));
 	}
 
 	/** No consent and a cookie was carried: end that session instead of loading it. */
@@ -345,13 +345,17 @@ export class SessionRequest {
 		return [...names];
 	}
 
+	// D123: the request batches the store's own insert rather than a copy of it, so one statement
+	// text serves both writers and the session still goes out in the single batch this request sends.
 	private async insert(id: string, values: SessionValues): Promise<Statement> {
-		return {
-			sql: `INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, '', 0)
-				ON CONFLICT(id) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at,
-				  lock_token = '', locked_until = 0`,
-			params: [await sessionKey(id), encodeSession(values), this.now + this.limits.lifetimeSeconds],
-		};
+		const write = await sessionInsert({
+			id,
+			values,
+			now: this.now,
+			lifetimeSeconds: this.limits.lifetimeSeconds,
+		});
+
+		return write.statement;
 	}
 
 	private push(entry: Statement): void {

@@ -8,7 +8,7 @@
 // session open across a request; a v4 request loads the row once, decides, and writes one batch, and
 // an optimistic write is the same guarantee for a single-request lifetime.
 
-import { type Sql, statement } from "../db/sql";
+import { type Sql, type Statement, statement } from "../db/sql";
 import { sha256Hex } from "./digest";
 import { epochHolds, sessionEpoch } from "./epoch";
 import { type DecodedSession, decodeSession, encodeSession, type SessionValues } from "./php-session";
@@ -28,6 +28,63 @@ export interface StoredSession {
 export const sessionKey = (id: string): Promise<string> => sha256Hex(id);
 
 const expiredRowCondition = "expires_at <= ?";
+
+/**
+ * D123: each statement a session write uses is built in exactly one place. `request.ts` writes the
+ * same rows into its own `writes` and sends one batch, so a copy of the text there would drift from
+ * this one — and D114's gate would guard whichever copy the traffic does not reach.
+ */
+
+/** What one session insert needs and produced, so a caller can batch it or report it. */
+export interface SessionInsert {
+	readonly key: string;
+	readonly data: string;
+	readonly expiresAt: number;
+	readonly statement: Statement;
+}
+
+/**
+ * The `INSERT … ON CONFLICT` a session row is created or replaced with. D114's gate lives here, so a
+ * malformed id is refused by every writer rather than by the one the tests happen to call; it throws
+ * before the digest is computed and before any batch is sent.
+ */
+export const sessionInsert = async (input: {
+	readonly id: string;
+	readonly values: SessionValues;
+	readonly now: number;
+	readonly lifetimeSeconds: number;
+}): Promise<SessionInsert> => {
+	if (!SESSION_ID.test(input.id)) {
+		throw new TypeError("a session whose id does not match SESSION_ID can never be loaded");
+	}
+	const key = await sessionKey(input.id);
+	const data = encodeSession(input.values);
+	const expiresAt = input.now + input.lifetimeSeconds;
+
+	return {
+		key,
+		data,
+		expiresAt,
+		statement: statement(
+			`INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, '', 0)
+			 ON CONFLICT(id) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at,
+			   lock_token = '', locked_until = 0`,
+			[key, data, expiresAt],
+		),
+	};
+};
+
+/** The touch `UPDATE` a loaded session is written back with — what `session_write_close()` ends with. */
+export const sessionTouch = (key: string, values: SessionValues, expiresAt: number): Statement =>
+	statement("UPDATE sessions SET data = ?, expires_at = ? WHERE id = ?", [
+		encodeSession(values),
+		expiresAt,
+		key,
+	]);
+
+/** The row a sign-out removes, by key: a copied cookie then names nothing. */
+export const sessionDelete = (key: string): Statement =>
+	statement("DELETE FROM sessions WHERE id = ?", [key]);
 
 /** The row a cookie names, or null when there is none — or when it has expired, in which case it is removed. */
 export const loadSession = async (sql: Sql, id: string, now: number): Promise<StoredSession | null> => {
@@ -58,24 +115,15 @@ export const writeSession = async (
 		readonly lifetimeSeconds: number;
 	},
 ): Promise<StoredSession> => {
-	// D114: the same gate `loadSession` and `destroySession` apply, in the same file, so a write cannot
-	// store a row no later reader would return. Thrown before the digest is computed and before any
-	// batch is sent; the caller is told, because a silent no-op is a caller bug nobody ever sees.
-	if (!SESSION_ID.test(input.id)) {
-		throw new TypeError("a session whose id does not match SESSION_ID can never be loaded");
-	}
-	const key = await sessionKey(input.id);
-	const data = encodeSession(input.values);
-	const expiresAt = input.now + input.lifetimeSeconds;
-	await sql.batch([
-		statement(
-			`INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, '', 0)
-			 ON CONFLICT(id) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at,
-			   lock_token = '', locked_until = 0`,
-			[key, data, expiresAt],
-		),
-	]);
-	return { key, data, expiresAt, values: decodeSession(data) };
+	const write = await sessionInsert(input);
+	await sql.batch([write.statement]);
+
+	return {
+		key: write.key,
+		data: write.data,
+		expiresAt: write.expiresAt,
+		values: decodeSession(write.data),
+	};
 };
 
 /** Extend a session's lifetime and store its data — the write `session_write_close()` ends a request with. */
@@ -89,13 +137,8 @@ export const touchSession = async (
 	},
 ): Promise<number> => {
 	const expiresAt = input.now + input.lifetimeSeconds;
-	await sql.batch([
-		statement("UPDATE sessions SET data = ?, expires_at = ? WHERE id = ?", [
-			encodeSession(input.values),
-			expiresAt,
-			input.key,
-		]),
-	]);
+	await sql.batch([sessionTouch(input.key, input.values, expiresAt)]);
+
 	return expiresAt;
 };
 
@@ -104,7 +147,7 @@ export const destroySession = async (sql: Sql, id: string): Promise<void> => {
 	if (!SESSION_ID.test(id)) {
 		return;
 	}
-	await sql.batch([statement("DELETE FROM sessions WHERE id = ?", [await sessionKey(id)])]);
+	await sql.batch([sessionDelete(await sessionKey(id))]);
 };
 
 /**

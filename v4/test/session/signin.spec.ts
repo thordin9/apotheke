@@ -15,7 +15,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { durableObjectSql, type InstallationStub } from "../../src/db/do-sql";
-import type { Sql } from "../../src/db/sql";
+import type { Sql, Statement } from "../../src/db/sql";
 import { type RouterConfig, routeRequest } from "../../src/http/router";
 import { hashPassword } from "../../src/platform/passwords";
 import { CONSENT_COOKIE } from "../../src/session/consent";
@@ -252,6 +252,58 @@ describe("POST /login", () => {
 
 	const submit = (fields: Readonly<Record<string, string>>) =>
 		send(sql, "/login", post(`${CONSENTED}; apothekesid=${session.id}`, { ...fields, csrf: session.token }));
+
+	it("writes the sign-in in one batch, even when it also removes the id it was served with", async () => {
+		// D123: `request.ts` builds its session statements with the store's own builders and pushes them
+		// into the batch `flush()` sends once. Routing the live write through `writeSession` — which
+		// calls `sql.batch` itself — would split that into two batches, and two batches are two units
+		// of work: the delete could commit without the insert.
+		const batches: (readonly Statement[])[] = [];
+		const recording: Sql = {
+			all: (one) => sql.all(one),
+			batch: (many) => {
+				batches.push(many);
+				return sql.batch(many);
+			},
+		};
+		const init = post(`${CONSENTED}; apothekesid=${session.id}`, {
+			username: "Ada",
+			password: PASSWORD,
+			csrf: session.token,
+		});
+		const headers = new Headers(init.headers ?? {});
+		headers.set("cookie", init.cookie);
+		const request = new Request("http://localhost/login", { ...init, headers });
+		const live = await openSession({
+			sql: recording,
+			request,
+			now: NOW,
+			secure: false,
+			limits: { lifetimeSeconds: LIFETIME, idleSeconds: IDLE },
+		});
+		const routed = await routeRequest(request, CONFIG, live);
+		expect(routed.response.status).toBe(303);
+		await live.flush();
+
+		// The request writes other rows too (the throttle counts the attempt), so the claim is about the
+		// session's own writes: they went out together, and the delete did not go out alone.
+		const sessionWrites = batches.filter((many) =>
+			many.some((one) => one.sql.trim().startsWith("INSERT INTO sessions")),
+		);
+		expect(sessionWrites).toHaveLength(1);
+		const statements = sessionWrites[0] ?? [];
+		// `session_regenerate_id(true)`: the served id's row goes, and the new row arrives with it.
+		expect(statements.map((one) => one.sql.trim().split("\n")[0])).toEqual([
+			"DELETE FROM sessions WHERE id = ?",
+			"INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, '', 0)",
+		]);
+		const deletes = batches.filter((many) =>
+			many.some((one) => one.sql.trim().startsWith("DELETE FROM sessions")),
+		);
+		expect(deletes).toHaveLength(1);
+		// The key on the delete is the digest of the cookie value, not the value (D19).
+		expect(statements[0]?.params).toEqual([await sessionKey(session.id)]);
+	});
 
 	it("signs in: 303 to /, a row with the account and the epoch, and a new id", async () => {
 		const answer = await submit({ username: "Ada", password: PASSWORD });

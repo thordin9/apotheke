@@ -6,7 +6,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { durableObjectSql, type InstallationStub } from "../src/db/do-sql";
-import { runMigrations, SEED_PENDING, seedState } from "../src/db/migration-runner";
+import { runMigrations, SEED_PENDING, SEED_STAMP, seedState } from "../src/db/migration-runner";
 import { DEFERRED_SEEDS, MIGRATIONS } from "../src/db/migrations";
 import { type Sql, statement } from "../src/db/sql";
 import { resetSchema } from "./helpers/schema";
@@ -91,6 +91,20 @@ describe("the migration chain", () => {
 		await sql.batch([statement("UPDATE app_settings SET value = 'done' WHERE name = 'v4_seed'")]);
 		await runMigrations(sql);
 		expect(await seedState(sql)).toBe("done");
+	});
+
+	it("applies the seed stamp's guarded insert 35 times in one fresh run and leaves one row", async () => {
+		// D116: the runner pushes `INSERT INTO app_settings … ON CONFLICT(name) DO NOTHING`
+		// (migration-runner.ts:176) into every write unit from 0002 on, so a fresh install runs it once per
+		// migration — 35 times against a primary key. Without the guard the second one fails the run; with
+		// `DO UPDATE` it would be a rewrite. What a change would alter, then, is the row count and the value
+		// the first attempt wrote — which is what this asserts, because no backend here reports a per-statement
+		// count a caller may read (D26: `changes` is null on the DO driver by design).
+		await runMigrations(sql);
+
+		const rows = await sql.all(statement("SELECT value FROM app_settings WHERE name = ?", [SEED_STAMP]));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.value).toBe(SEED_PENDING);
 	});
 
 	it("is atomic per migration: a failing step leaves no row and no schema", async () => {
