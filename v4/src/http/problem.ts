@@ -56,7 +56,9 @@ export type ProblemCode =
 	| "method_not_allowed"
 	| "not_found"
 	| "upload.too_large"
-	| "route.not_implemented";
+	| "route.not_implemented"
+	/* The 5xx the entrypoint answers outside the chain (`server-error.ts`): `PlainHandler`'s code. */
+	| "server_error";
 
 /** `SecurityPolicy::headers()`: what every page answer carries. */
 export const PAGE_HEADERS: Readonly<Record<string, string>> = {

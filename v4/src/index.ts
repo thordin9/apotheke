@@ -8,7 +8,9 @@
 // electing a leader — or an install whose seed was refused — must not restart-loop the app.
 //
 // Everything else goes through the installation's boot gate (D12): if migrations or the seed phase
-// have not completed, the answer is 503 problem+json with the reason and nothing else is served.
+// have not completed, the answer is a 503 and nothing else is served — the error page on a page path,
+// RFC 9457 problem+json under /api, with one fixed sentence and never the exception's text (D151).
+// The reason goes to the log; `src/http/server-error.ts` says which page each site may draw (D157).
 // Handler code never talks to a driver directly; the DO owns that decision.
 //
 // `/healthz` and `/readyz` are answered *before* the router on purpose. `/healthz` is the container
@@ -23,8 +25,9 @@ import type { Env } from "./env";
 import { serveAsset } from "./http/assets";
 import { HEALTHZ_PATH, READYZ_PATH } from "./http/probe-paths";
 import { handleRoute } from "./http/router";
+import { logServerError, serverError } from "./http/server-error";
 import { loadConfig } from "./platform/config";
-import { problem, type ReadyResult, readinessResponse } from "./readiness";
+import { type ReadyResult, readinessResponse } from "./readiness";
 import { secureCookie } from "./session/cookie";
 import { openSession } from "./session/request";
 import { consentGiven, readPageData } from "./settings";
@@ -54,9 +57,18 @@ type InstallationHandle = InstallationRpc & InstallationStub;
 const installationStub = (env: Env): InstallationHandle =>
 	env.INSTALLATION.get(env.INSTALLATION.idFromName(INSTALLATION)) as unknown as InstallationHandle;
 
+/**
+ * `PlainHandler::problem()`'s HSTS input: a direct HTTPS connection counts, and so does a `PUBLIC_URL`
+ * that is https. The three sites that answer before `loadConfig()` runs have no config to ask, so they
+ * pass the request alone rather than a guess.
+ */
+const httpsOf = (url: URL, publicUrl = ""): boolean =>
+	url.protocol === "https:" || publicUrl.toLowerCase().startsWith("https://");
+
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const { pathname } = new URL(request.url);
+		const url = new URL(request.url);
+		const { pathname } = url;
 
 		if (pathname === HEALTHZ_PATH) {
 			// The driver name is reported but not probed: `/healthz` says "the process is up".
@@ -75,14 +87,18 @@ export default {
 		try {
 			readiness = await stub.ready();
 		} catch (error) {
-			return problem(503, "boot", error instanceof Error ? error.message : String(error));
+			// v3's `BootError`: one public sentence, the detail only in the error log (D151).
+			logServerError("boot", error);
+			return serverError(pathname, httpsOf(url));
 		}
 
 		if (pathname === READYZ_PATH) {
 			return readinessResponse(readiness, env.DB_DRIVER);
 		}
 		if (!readiness.ok) {
-			return problem(503, readiness.code, readiness.detail);
+			// Not an exception, so there is no class to name: the reason code is what the log keeps.
+			console.error(`[apotheke] 5xx readiness: ${readiness.code}`);
+			return serverError(pathname, httpsOf(url));
 		}
 
 		// S0.5: the route table and the filter chain. S1.1 adds one live handler (`/login`) and the
@@ -103,8 +119,10 @@ export default {
 				consentGiven(request.headers.get("cookie"), config.consentRequired),
 			);
 		} catch (error) {
-			// The settings row is as necessary as the schema: no page can be drawn without it.
-			return problem(503, "boot", error instanceof Error ? error.message : String(error));
+			// The settings row is as necessary as the schema: no page can be drawn without it, so this
+			// site has no shell to draw and answers the plain page (D157).
+			logServerError("settings", error);
+			return serverError(pathname, httpsOf(url));
 		}
 
 		const sql = requestSql(env, stub);
@@ -152,7 +170,9 @@ export default {
 			// not answer 303, which is why a failure here becomes a 503 rather than a lost session.
 			await session.flush();
 		} catch (error) {
-			return problem(503, "session", error instanceof Error ? error.message : String(error));
+			// The one site with the settings row in hand, so the one that can draw the app's own page.
+			logServerError("handler", error);
+			return serverError(pathname, httpsOf(url, config.publicUrl), data.page);
 		}
 
 		const lines = session.cookieLines();

@@ -66,11 +66,17 @@ export const problem = (status: number, title: string, detail: string): Response
 		},
 	});
 
-/** `/readyz`: 200 when the installation may serve, 503 with the reason when it may not. */
+/**
+ * `/readyz`: 200 when the installation may serve, 503 with the reason when it may not.
+ *
+ * The 200 is `no-store` as well (D156): a cached `{"ok":true}` would route traffic past the outage
+ * this endpoint exists to detect. Neither shape carries a `code` — this is a v4-only probe (§5 S0.3),
+ * and `title` is the reason.
+ */
 export const readinessResponse = (result: ReadyResult, driver: string): Response =>
 	result.ok
 		? new Response(JSON.stringify({ ok: true, schema: result.schema, seed: result.seed, driver }), {
 				status: 200,
-				headers: { "content-type": "application/json; charset=utf-8" },
+				headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
 			})
 		: problem(503, result.code, result.detail);
