@@ -25,7 +25,7 @@ export interface PageSettings {
 	readonly appName: string;
 	/** `app_tagline`, lower case as stored; the login page upper-cases its first letter. */
 	readonly tagline: string;
-	/** `auto` | `light` | `dark`: the `theme` cookie or `theme_default` (no cookie until S1.2). */
+	/** `auto` | `light` | `dark`: `theme_default` (v3 let a valid `theme` cookie win; v4 does not read it). */
 	readonly theme: string;
 	/** `accent`; only `#5b3b8e` (the default) suppresses the generated `/theme.css` link. */
 	readonly accent: string;

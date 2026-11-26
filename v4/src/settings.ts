@@ -9,8 +9,11 @@
 //   guestBrowsing    signInEnabled && !auth_guest_disabled
 //
 // and the shell's own values (`app_name`, `app_tagline`, `accent`, `theme_default`). The theme is
-// the `theme` cookie when it holds a valid preference, else `theme_default`; there is no cookie until
-// S1.2 stores one, so this reads the setting — the same value a first visit gets from v3.
+// `theme_default` alone: v3 preferred a valid `theme` cookie to it (`Theme::pref()`), and v4 never
+// reads that cookie — the client writes it (`public/assets/app.js`), and `theme.js` restores it only
+// when it is absent, so once the cookie is set a visitor who picked Light or Dark is served
+// `theme_default` on the next request. That gap is named in the `LayoutTest` ledger row; until it
+// closes, this reads the setting.
 
 import { decodeSetting, type SettingValue } from "./db/settings-schema";
 import type { Sql } from "./db/sql";
