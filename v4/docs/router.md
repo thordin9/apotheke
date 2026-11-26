@@ -76,7 +76,7 @@ Two consequences worth knowing:
 | Role lacks the route's permission | 403, v3's error page (fetch: 403 JSON); `/api`: 403 problem+json | `permission.denied` |
 | Route with no permission recorded | 403 problem+json | `permission.denied` |
 | Unsafe write without the session's token (S1.3) | 419: v3's error page, or `{"ok":false,…}` for a fetch | — (`CsrfCheck`) |
-| Unsafe write from another site | 403 problem+json | `origin.refused` |
+| Unsafe write from another site (page) | 403, v3's error page (fetch: 403 JSON) | — (`SameOrigin`) |
 | Unsafe `/api` write without the session's token, or from another origin, or with `Sec-Fetch-Site` naming one (S1.4) | 403 problem+json, `The request was refused: reload and try again.` | `csrf.invalid` (`ApiCsrf`) |
 | Unsafe `/api` write whose body is not JSON or multipart | 415 problem+json | `unsupported_media_type` |
 | Unknown Host | 421 `text/plain`, legacy's text | — |
@@ -84,7 +84,9 @@ Two consequences worth knowing:
 | Path no route serves (under `/api`) | 404 problem+json | `not_found` |
 | Wrong method (page) | 405, the app's error page + `Allow` | — |
 | Wrong method (under `/api`, or a fetch) | 405 problem+json + `Allow` | `method_not_allowed` |
-| Body past `MAX_UPLOAD_MB` | 413 problem+json | `upload.too_large` |
+| Body past `MAX_UPLOAD_MB` (page) | 413, v3's error page (fetch: 413 JSON) | — (`PostTooLarge`) |
+| Body past `MAX_UPLOAD_MB` (under `/api`) | 413 problem+json | `upload.too_large` |
+| A failure answering before a route runs (boot, readiness, the session flush) | 503 problem+json, `no-store` | — (`/readyz` names the reason in `title`) |
 | Controller not ported yet | 501 problem+json | `route.not_implemented` |
 | Page answer (S1.1) | 200 `text/html`, `no-store` | — |
 | Sign-in accepted, a sign-out, a consent answer (S1.2) | 303, `Location`, `no-store` | — |

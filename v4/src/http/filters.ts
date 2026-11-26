@@ -315,6 +315,24 @@ const pageError = (
 	cache: Readonly<Record<string, string>>,
 ): Response => html(errorPage(ctx.config.page, message), status, { ...cache, ...extra });
 
+/**
+ * `json_out()`: v3's refusal for a client that wants JSON (`WantsJson`) — `{"ok":false,"error":…}`
+ * at the refusal's status, `application/json; charset=utf-8` and exactly `no-store`. Not
+ * problem+json: problem+json is `/api`'s shape (`ApiResponse::problem()`), and a page-path fetch
+ * gets this legacy body from `CsrfFilter`, `SameOriginFilter`, `PostTooLargeFilter` and
+ * `PermissionCheck`, each of which sets the page headers itself because a before-filter refusal
+ * skips the globals.
+ */
+const refusalJson = (status: number, error: string): Response =>
+	new Response(JSON.stringify({ ok: false, error }), {
+		status,
+		headers: {
+			...PAGE_HEADERS,
+			"Content-Type": "application/json; charset=utf-8",
+			"Cache-Control": "no-store",
+		},
+	});
+
 const routemethod: Filter = {
 	before: (ctx) => {
 		if (ctx.route !== null) {
@@ -371,13 +389,17 @@ const posttoolarge: Filter = {
 		if (contentLength(ctx.request) <= limit) {
 			return null;
 		}
-		return problem(
-			ctx.path,
-			ctx.config.https,
-			413,
-			"upload.too_large",
-			`Upload too large (max ${ctx.config.maxUploadMb} MB).`,
-		);
+		const message = `Upload too large (max ${ctx.config.maxUploadMb} MB).`;
+		// `/api` reads a JSON body and goes by the declared length (API plan §2.3): problem+json.
+		if (isApi(ctx.path)) {
+			return problem(ctx.path, ctx.config.https, 413, "upload.too_large", message);
+		}
+		// A page path answers as v3 does (`PostTooLargeFilter::before()`): legacy JSON for a fetch,
+		// the app's error page otherwise (D136).
+		if (wantsJson(ctx.request)) {
+			return refusalJson(413, message);
+		}
+		return pageError(ctx, 413, message, {}, ERROR_PAGE_CACHE);
 	},
 };
 
@@ -434,6 +456,10 @@ const refererOrigin = (referer: string): string => {
 	}
 };
 
+/** `SameOrigin::MESSAGE`: the 403's text in both of its shapes. */
+const ORIGIN_REFUSED =
+	"This request came from another site and was refused. Open the app directly and try again.";
+
 const sameorigin: Filter = {
 	before: (ctx) => {
 		if (isSafe(ctx.method) || isApi(ctx.path)) {
@@ -456,13 +482,13 @@ const sameorigin: Filter = {
 				return null;
 			}
 		}
-		return problem(
-			ctx.path,
-			ctx.config.https,
-			403,
-			"origin.refused",
-			"This request came from another site and was refused. Open the app directly and try again.",
-		);
+		// A page path answers as v3 does (`SameOriginFilter::before()`): legacy JSON for a fetch,
+		// the app's error page otherwise (D136). `/api` never reaches here — the filter passes it, as
+		// v3's does, and `apicsrf` owns the Origin check on that side.
+		if (wantsJson(ctx.request)) {
+			return refusalJson(403, ORIGIN_REFUSED);
+		}
+		return pageError(ctx, 403, ORIGIN_REFUSED, {}, ERROR_PAGE_CACHE);
 	},
 };
 
@@ -502,14 +528,7 @@ const permissionRefused = (ctx: Ctx, verdict: string): Response => {
 		});
 	}
 	if (json) {
-		return new Response(JSON.stringify({ ok: false, error: verdict }), {
-			status: 403,
-			headers: {
-				...PAGE_HEADERS,
-				"Content-Type": "application/json; charset=utf-8",
-				"Cache-Control": "no-store",
-			},
-		});
+		return refusalJson(403, verdict);
 	}
 	return pageError(ctx, 403, verdict, {}, ERROR_PAGE_CACHE);
 };
@@ -555,14 +574,7 @@ const sessioncsrf: Filter = {
 			return null;
 		}
 		if (wantsJson(ctx.request)) {
-			return new Response('{"ok":false,"error":"Your session expired."}', {
-				status: CSRF_STATUS,
-				headers: {
-					...PAGE_HEADERS,
-					"Content-Type": "application/json; charset=utf-8",
-					"Cache-Control": "no-store",
-				},
-			});
+			return refusalJson(CSRF_STATUS, "Your session expired.");
 		}
 		return html(
 			errorPage(
@@ -592,14 +604,7 @@ const formfields: Filter = {
 		}
 		const message = listFieldMessage(field);
 		if (wantsJson(ctx.request)) {
-			return new Response(JSON.stringify({ ok: false, error: message }), {
-				status: FORM_FIELDS_STATUS,
-				headers: {
-					...PAGE_HEADERS,
-					"Content-Type": "application/json; charset=utf-8",
-					"Cache-Control": "no-store",
-				},
-			});
+			return refusalJson(FORM_FIELDS_STATUS, message);
 		}
 		return html(
 			errorPage(

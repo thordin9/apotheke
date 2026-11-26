@@ -52,11 +52,18 @@ export const prepareInstallation = async (sql: Sql, config: AppConfig, now: stri
 	}
 };
 
-/** problem+json (plan §4 rule 3, §5 S0.5), with the same shape the router will use. */
+/**
+ * problem+json (plan §4 rule 3, §5 S0.5), with the same shape the router will use. Never cached:
+ * v3's `PlainHandler` sent `no-store` on every answer it rendered, and a boot failure that a cache
+ * keeps is worse than a wrong content type (D136).
+ */
 export const problem = (status: number, title: string, detail: string): Response =>
 	new Response(JSON.stringify({ type: "about:blank", title, status, detail }), {
 		status,
-		headers: { "content-type": "application/problem+json; charset=utf-8" },
+		headers: {
+			"content-type": "application/problem+json; charset=utf-8",
+			"cache-control": "no-store",
+		},
 	});
 
 /** `/readyz`: 200 when the installation may serve, 503 with the reason when it may not. */

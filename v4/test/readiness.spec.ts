@@ -107,5 +107,8 @@ describe("the readiness answer", () => {
 		const res = problem(503, "database", "no such table: settings");
 		expect(res.status).toBe(503);
 		expect(res.headers.get("content-type")).toContain("application/problem+json");
+		// A failure answer is never cached: v3's `PlainHandler` sent `no-store` on every answer it
+		// rendered, and v4's boot, readiness and session-flush failures all come through here (D136).
+		expect(res.headers.get("cache-control")).toBe("no-store");
 	});
 });

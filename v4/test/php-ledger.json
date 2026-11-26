@@ -737,7 +737,7 @@
    "dataProviders": 0,
    "state": "ported",
    "target": "v4/test/http/refusal-cache.spec.ts",
-   "note": "S1.7: all four methods ported to v4/test/http/refusal-cache.spec.ts. `testCsrf419` keeps both v3 shapes (the error page, then `{\"ok\":false,\"error\":\"Your session expired.\"}` with exactly `no-store`); `testSameOrigin403`, `testPostTooLarge413` and `testErrorPages`' page half assert no-store on the refusal. Two shapes differ from v3 and are reported rather than pinned: v4 answers `application/problem+json` for the 403 and the 413 on a page path where v3 rendered the error page (`src/http/filters.ts` `sameorigin` and `posttoolarge` return `problem()` with no wants-JSON branch), and S1.5's named narrowing means a handler answer says exactly `no-store` where v3's filter refusal said `no-store, max-age=0, no-cache` (the 404 page still sends CI4's spelling, `ERROR_PAGE_CACHE`). `testErrorPages`' JSON 500 half is dropped: `src/http/` has no top-level exception renderer, so an unhandled throw is the runtime's own 500.",
+   "note": "S1.7: all four methods ported to v4/test/http/refusal-cache.spec.ts, in v3's own split after D136. `testCsrf419` keeps both v3 shapes (the error page, then `{\"ok\":false,\"error\":\"Your session expired.\"}` with exactly `no-store`); `testSameOrigin403` and `testPostTooLarge413` render the app's error page on a page path (cache-control containing `no-store`, as v3's own assertion read it) and legacy JSON for a fetch (exactly `no-store`), with `posttoolarge` keeping problem+json under `/api`; `testErrorPages`' page half is the 404 error page with CI4's spelling, `no-store, max-age=0, no-cache`. S1.5's narrowing still holds for handler answers (exactly `no-store`). `testErrorPages`' JSON 500 half is dropped: `src/http/` has no top-level exception renderer, so an unhandled throw is the runtime's own 500; the 503 that v4 does answer carries `no-store` since D136, asserted in v4/test/readiness.spec.ts.",
    "kind": "retired"
   },
   {
@@ -746,7 +746,7 @@
    "dataProviders": 0,
    "state": "dropped",
    "target": "",
-   "note": "Dropped with the replaced code cited: `Writes::rowsMany` was the D1 bridge's read batch. v4's `Sql` has one read (`v4/src/db/sql.ts:31`) and one unit of work whose result carries counts, not rows (`sql.ts:36`); `v4/src/db/d1.ts:41` is `all()`, `d1.ts:50` is `batch()`, and `grep -rn rowsMany v4/src v4/test` returns nothing. `testTheD1DriverSendsTheReadsAsOneBatch` (:46) and `testTheD1DriverReadsOneByOneWhenABatchWouldNotDo` (:64) assert the `/batch` vs `/query` call shape of a v3 transport (D115's class), and `testSqliteAndPostgresqlReadOneAfterAnother` (:100) is a cross-backend loop with no v4 counterpart — three drivers behind one interface, each with its own spec. The surviving subject is `testAFailingStatementFailsAsRowsDoes` (:90): a failing statement in a unit surfaces as the single read does and the unit keeps nothing — asserted at `v4/test/sqlite.spec.ts:120` (\"leaves nothing behind when a statement in the unit fails, DDL included\") and `v4/test/rqlite.spec.ts:143`. v4 has no `WriteFailed` class, so what surfaces is the driver's own message, not a typed one.",
+   "note": "Dropped with the replaced code cited: `Writes::rowsMany` was the D1 bridge's read batch. v4's `Sql` has one read (`v4/src/db/sql.ts:31`) and one unit of work whose result carries counts, not rows (`sql.ts:36`); `v4/src/db/d1.ts:41` is `all()`, `d1.ts:50` is `batch()`, and `grep -rn rowsMany v4/src` returns nothing (scoped to the source tree, D138: an unscoped `v4/src v4/test` search matches this note itself, at v4/test/php-ledger.json). `testTheD1DriverSendsTheReadsAsOneBatch` (:46) and `testTheD1DriverReadsOneByOneWhenABatchWouldNotDo` (:64) assert the `/batch` vs `/query` call shape of a v3 transport (D115's class), and `testSqliteAndPostgresqlReadOneAfterAnother` (:100) is a cross-backend loop with no v4 counterpart — three drivers behind one interface, each with its own spec. The surviving subject is `testAFailingStatementFailsAsRowsDoes` (:90): a failing statement in a unit surfaces as the single read does and the unit keeps nothing — asserted at `v4/test/sqlite.spec.ts:120` (\"leaves nothing behind when a statement in the unit fails, DDL included\") and `v4/test/rqlite.spec.ts:143`. v4 has no `WriteFailed` class, so what surfaces is the driver's own message, not a typed one.",
    "kind": "retired"
   },
   {
@@ -853,8 +853,8 @@
    "methods": 8,
    "dataProviders": 6,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "per-site batching (history)",
+   "target": "P3",
+   "note": "D135: re-targeted to P3 — history rows are written once by one unit of work, and v4 has no history site yet. Subjects: `testDeletingADeletedItemWritesOneHistoryRow` and `testABatchDeleteRacingAnotherWritesOneHistoryRow` (one row, not two, when two deletes race), `testTheAttachmentLimitIsCheckedInTheUnit` (the limit is a unit decision), and `testQueuedHistoryTakesARefAndFailsWithItsUnit` (a queued row belongs to its unit). The two Postgres race cases (`testParallelBatchAddsOnPostgres…`, `testParallelBatchDeletesOnPostgres…`) and `testTheHistorySitesInEachMode`'s mode half are v3-only and drop with the port.",
    "kind": "retired"
   },
   {
@@ -871,8 +871,8 @@
    "methods": 6,
    "dataProviders": 6,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "per-site batching",
+   "target": "P3",
+   "note": "D135: re-targeted to P3 — the second half of the same family: `testPhotoAddReorderAndDeleteInEachMode`, `testPhotoLimitIsCheckedInTheUnit`, `testTaxonomyDefaultDeleteAndMoveInEachMode`, `testStocktakeTickAndFinishInEachMode`, `testSettingsRewriteInEachMode` and `testMergeInEachMode`. Every subject is a write site v4 has not built; the 'in each mode' halves are v3-only and drop with the port.",
    "kind": "retired"
   },
   {
@@ -880,8 +880,8 @@
    "methods": 21,
    "dataProviders": 20,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "the 20-row race table across remaining sites",
+   "target": "P3",
+   "note": "D135: re-targeted to P3 — the race table across those same sites: one default left after parallel `setDefault`, one admin left after parallel demotions and deletes, no cycle and a depth cap on parallel `setParent`, one history row when a delete races a delete, a merge that conserves quantity against parallel adjusts, distinct photo positions for parallel adds, and stocktake ticks that succeed unexpectedly. Each asserts a property of a site v4 has not built (router.ts:79, 18 handlers at 31d4777b), so the race table moves with the sites rather than being dropped: D109 drops mechanisms, never subjects.",
    "kind": "retired"
   },
   {
@@ -889,8 +889,8 @@
    "methods": 5,
    "dataProviders": 5,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "per-site batching",
+   "target": "P3",
+   "note": "D135: re-targeted to P3 — the four remaining write sites, each asserted to be one unit: `testItemSaveWithTagsInEachMode`, `testTaxonomyCreateInEachMode`, `testQuantityAdjustInEachMode` and `testLendingInEachMode`, plus `testItemSaveBothModesLeaveTheSameRows`. P3 is the phase §5 gives taxonomy writes, lending and stocktake, so the subject lands there; v4 serves none of those routes at 31d4777b (router.ts:79, 18 handlers).",
    "kind": "retired"
   },
   {
@@ -898,8 +898,8 @@
    "methods": 8,
    "dataProviders": 6,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "per-site batching",
+   "target": "P3",
+   "note": "D135: re-targeted to P3 — a subject v4 has not built, so neither a port nor a drop. The file's subject is `testTheConvertedSitesInEachMode` / `testBothModesLeaveTheSameRowsAndIds`: each converted site's write is one unit, and the app leaves the same rows whichever way the unit runs. Measured at 31d4777b: `v4/src/http/router.ts:79` holds 18 handler entries and none serves items, taxonomy, quantity or lending, and v4 has one unit mode, so 'each mode' has no v4 counterpart yet. The wiring cases in the file (`testASiteRefusesUnitsOfWorkOnAnotherConnection`, the recent-views lock and prune cases) are D115's class and drop when P3 ports the subjects; `testTheSavedFilterGuardsCatchAConcurrentSave` and `testConcurrentSavesOnAConnectionGetTheSameAnswers` go with the guard mechanisms they assert.",
    "kind": "retired"
   },
   {

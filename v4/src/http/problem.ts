@@ -48,7 +48,6 @@ export type ProblemCode =
 	| "auth.throttled"
 	| "csrf.invalid"
 	| "csrf.unavailable"
-	| "origin.refused"
 	| "permission.denied"
 	| "rate_limited"
 	| "unsupported_media_type"
