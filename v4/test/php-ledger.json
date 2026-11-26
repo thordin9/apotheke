@@ -492,18 +492,18 @@
    "path": "tests/Modules/Core/D1DriverBridgeTest.php",
    "methods": 6,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the v3 D1 bridge",
+   "state": "dropped",
+   "target": "",
+   "note": "the v3 bridge against a real D1 object: a refused statement keeping its SQLite class as the cause, exact ids and counts through the real handler, and compare-and-swap races. v4 has no bridge (v4/src/db/d1.ts is the binding) and exposes no per-statement count a caller may read (D26). Two subjects survive: `testACommittedTransactionIsAllOrNothingOnTheObject` (:81) as the unit-of-work property at v4/test/sqlite.spec.ts:97, and `testACommentedWriteIsQueuedAndCountedOnTheObject` (:144) as the v4-native 'no handler statement starts with a comment' in v4/test/session/store.spec.ts.",
    "kind": "retired"
   },
   {
    "path": "tests/Modules/Core/D1DriverTest.php",
    "methods": 19,
    "dataProviders": 2,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the v3 D1 driver",
+   "state": "dropped",
+   "target": "",
+   "note": "v3's query builder and HTTP bridge: `$db->table()->insert()`, `insertID()`, `affectedRows()`, `transBegin`/`transRollback`/`transDepth`, and a `Writes::transaction` that queues until commit (`assertSame([], $this->bridge->calls)`), plus the bridge's host allowlist and comment classifier. v4 has none of it: callers compose `statement()` SQL (v4/src/db/sql.ts:5-7) and v4/src/db/d1.ts hands it to the binding in-process, so there is no bridge and no transaction to queue. Two subjects survive in v4's terms: `testAFailingStatementInTheBatchKeepsNothing` is v4/test/sqlite.spec.ts:97, and `testRacingGuardedWritesOnlyOneWins` survives only as D116's once-only guard, because v4's unit of work is one batch.",
    "kind": "retired"
   },
   {
@@ -511,8 +511,8 @@
    "methods": 7,
    "dataProviders": 0,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "D1 hosted bulk paths",
+   "target": "P3",
+   "note": "bulk actions on the hosted database: one batch per action, a failed bulk writes nothing and the same request resumes, racing deletes log each item once, the bulk page and its undo, and the oversized/near-limit refusals. App behaviour, so it moves to the slice that builds catalog writes (D115), not a drop.",
    "kind": "retired"
   },
   {
@@ -520,8 +520,8 @@
    "methods": 7,
    "dataProviders": 0,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "D1 hosted import paths",
+   "target": "P5",
+   "note": "import on the hosted database: a failed commit resumes without importing a line twice, preview writes nothing, skip-vs-refuse, a line another run imported is skipped untouched, a line lends in its batch, racing commits import each line once, and the page and API stop answering 501. App behaviour for the import slice (D115).",
    "kind": "retired"
   },
   {
@@ -529,8 +529,8 @@
    "methods": 2,
    "dataProviders": 0,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "D1 hosted refusals",
+   "target": "P7",
+   "note": "the default install keeps its hosted actions, and the hosted pages keep theirs — a parity assertion for the cutover, not a driver mechanism (D115).",
    "kind": "retired"
   },
   {
@@ -538,26 +538,26 @@
    "methods": 17,
    "dataProviders": 0,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "D1 hosted writes",
+   "target": "P3",
+   "note": "app behaviour on the hosted database: 9 of the 17 methods — one batch each (:191), an account in one atomic step (:224), the form refusing an inline location (:239), a duplicate with photos (:267), undo of a delete (:300) and of an edit (:317), concurrent undos (:331), prune (:358), search-index rebuild (:402). P3 owes those 9; the 6 unit-of-work/wiring methods (:105, :121, :145, :177, :183, :209) and the 2 transitional ones (:434, :451) are v3-only and are dropped when it is ported (D115).",
    "kind": "retired"
   },
   {
    "path": "tests/Modules/Core/D1HttpExecutorTest.php",
    "methods": 13,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the D1 HTTP executor (hosted bridge)",
+   "state": "dropped",
+   "target": "",
+   "note": "the hosted bridge's HTTP executor: `/query`, `/exec`, `/batch` over `fetch`, a 100 KB body cap, guard-marker mapping and the comment classifier. v4's binding is in-process (v4/src/db/d1.ts), so there is no transport to assert. One method outlives its row and is why D117 is a guard rather than a port: `testRefuseBeforeTransportOnTooManyParams` (:26), now v4/test/d1.spec.ts. Two more name subjects with no v4 home: `testRefuseStatementLongerThan100kb` (:43) caps an HTTP body v4 never sends, and `testPlainFailureDoesNotLeakDatabaseText` (:83) is a property v4 has no test for yet, recorded here so it is not assumed covered.",
    "kind": "retired"
   },
   {
    "path": "tests/Modules/Core/D1IntegrationTest.php",
    "methods": 3,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "D1 integration",
+   "state": "dropped",
+   "target": "",
+   "note": "workerd's guard mapping, the single-statement refusal before transport, and a seven-step replay cost: three properties of the HTTP path v4 does not have. `testRefusalsForTheSingleStatementD1AndDOShapeAreBeforeTransport` (:47) is the one whose subject survives, as D117's refusal before `prepare` in v4/test/d1.spec.ts.",
    "kind": "retired"
   },
   {

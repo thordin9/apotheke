@@ -296,16 +296,38 @@ if (errors.length > 0) {
 	for (const e of errors) console.log("  - " + e);
 	process.exit(1);
 }
+const methodsIn = (list) => list.reduce((n, r) => n + r.methods, 0);
+// D34: a count is rows *and* methods, and a slice's line says both — "S1.7 22" was read once as 22
+// methods, which is how a slice five times that size looked finished.
 const bySlice = new Map();
-for (const r of count("scheduled")) bySlice.set(r.target, (bySlice.get(r.target) ?? 0) + 1);
+for (const r of count("scheduled")) {
+	const at = bySlice.get(r.target) ?? { rows: 0, methods: 0 };
+	bySlice.set(r.target, { rows: at.rows + 1, methods: at.methods + r.methods });
+}
+const ported = count("ported");
+const scheduled = count("scheduled");
+const dropped = count("dropped");
 console.log(
 	`ledger: ${rows.length} rows (${rows.filter((r) => r.kind === "retired").length} retired, ${rows.filter((r) => r.kind === "surviving").length} surviving), ` +
-		`${count("ported").length} ported (${count("ported").reduce((n, r) => n + r.methods, 0)} methods), ` +
-		`${count("scheduled").length} scheduled, ${count("dropped").length} dropped; ` +
+		`${ported.length} ported (${methodsIn(ported)} methods) / ${scheduled.length} scheduled (${methodsIn(scheduled)} methods) / ` +
+		`${dropped.length} dropped (${methodsIn(dropped)} methods); ` +
 		`${rows.reduce((n, r) => n + r.methods, 0)} methods, ${rows.reduce((n, r) => n + r.dataProviders, 0)} data providers; ` +
 		`${ledger.exceptions.length} named exceptions (capture side)`,
 );
-console.log("  scheduled: " + [...bySlice].sort((a, b) => a[0].localeCompare(b[0])).map(([s, n]) => `${s} ${n}`).join(", "));
+if (ported.length + scheduled.length + dropped.length !== rows.length) {
+	// D112: a row that moves between states moves both counters, and the three must still be the whole.
+	console.log(
+		`ledger: ${ported.length} + ${scheduled.length} + ${dropped.length} = ${ported.length + scheduled.length + dropped.length}, but there are ${rows.length} rows`,
+	);
+	process.exit(1);
+}
+console.log(
+	"  scheduled: " +
+		[...bySlice]
+			.sort((a, b) => a[0].localeCompare(b[0]))
+			.map(([s, n]) => `${s} ${n.rows} rows / ${n.methods} methods`)
+			.join(", "),
+);
 console.log(
 	deleted
 		? `  reconciled against ${DELETING_COMMIT} (${deleted.size} deleted .php paths)`
