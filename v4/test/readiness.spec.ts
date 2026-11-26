@@ -3,13 +3,16 @@
 
 import { SELF } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { durableObjectSql, type InstallationStub } from "../src/db/do-sql";
 import { runMigrations, seedState } from "../src/db/migration-runner";
 import { type Sql, statement } from "../src/db/sql";
+import { PAGE_HEADERS } from "../src/http/problem";
+import { logServerError, plainErrorPage, SERVER_ERROR, serverError } from "../src/http/server-error";
 import { loadConfig } from "../src/platform/config";
 import { prepareInstallation, problem, readinessResponse } from "../src/readiness";
 import { SLOW_TEST_MS } from "./helpers/deadline";
+import { TEST_PAGE } from "./helpers/page";
 import { resetSchema } from "./helpers/schema";
 
 const sqlite = (name: string): Sql =>
@@ -21,6 +24,8 @@ describe("/readyz and /healthz", () => {
 	it("/readyz reports the schema and a completed seed once boot has run", async () => {
 		const res = await SELF.fetch("http://apotheke-v4.test/readyz");
 		expect(res.status).toBe(200);
+		// Through the Worker, not the helper: a proxy must not keep a ready answer (D156).
+		expect(res.headers.get("cache-control")).toBe("no-store");
 		expect(await res.json()).toEqual({ ok: true, schema: "0036", seed: "done", driver: "sqlite" });
 	});
 
@@ -110,5 +115,84 @@ describe("the readiness answer", () => {
 		// A failure answer is never cached: v3's `PlainHandler` sent `no-store` on every answer it
 		// rendered, and v4's boot, readiness and session-flush failures all come through here (D136).
 		expect(res.headers.get("cache-control")).toBe("no-store");
+	});
+});
+
+// A 5xx (plan §5 S1.7, D151): v3 states the rule twice — `BootError`, "one public sentence, the detail
+// only in the error log" (modules/Core/Boot/BootError.php:7), and `PlainHandler`, "a 5xx detail is
+// generic, never the exception's text", its `problem()` answering `server_error` with "Something went
+// wrong on the server." (modules/Core/Exceptions/PlainHandler.php:23, :133, :163). The path decides the
+// body, the four page headers are set by hand because no after-filter runs (SEC-N8), and which page a
+// site may draw is decided by what it has in hand (D157): only `index.ts`'s handler catch has the
+// settings row, because it is read at `index.ts:99` — every earlier site answers the plain page.
+describe("a 5xx answer (D151)", () => {
+	const PLAIN = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Error</title></head><body><p>${SERVER_ERROR}</p></body></html>`;
+
+	it("answers a page path before the settings read with the plain page and the four headers", async () => {
+		const res = serverError("/login", false);
+		expect(res.status).toBe(503);
+		expect(res.headers.get("content-type")).toBe("text/html; charset=UTF-8");
+		expect(res.headers.get("cache-control")).toBe("no-store");
+		// By hand, because `securityheaders` never runs for this answer: the same four the filter sets.
+		for (const [name, value] of Object.entries(PAGE_HEADERS)) {
+			expect(res.headers.get(name), name).toBe(value);
+		}
+		expect(await res.text()).toBe(PLAIN);
+	});
+
+	it("escapes the sentence it is given, even though the constant carries none", () => {
+		expect(plainErrorPage("<x> & y")).toBe(
+			'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Error</title></head><body><p>&lt;x&gt; &amp; y</p></body></html>',
+		);
+	});
+
+	it("draws the app's own page where the settings row is in hand, and nowhere else", async () => {
+		const res = serverError("/login", false, TEST_PAGE);
+		expect(res.status).toBe(503);
+		expect(res.headers.get("content-type")).toBe("text/html; charset=UTF-8");
+		const body = await res.text();
+		// The shell (views.ts:104), not the fallback: its own title, and the sentence inside its body.
+		expect(body).toContain("<title>Error \u00b7 Apotheke</title>");
+		expect(body).toContain(`<div class="empty">`);
+		expect(body).toContain(`<p>${SERVER_ERROR}</p>`);
+		expect(body).toContain('<a class="btn btn-primary" href="/">Back to catalog</a>');
+		expect(body).not.toBe(PLAIN);
+	});
+
+	it("answers /api with RFC 9457 server_error, and HSTS only over https", async () => {
+		const res = serverError("/api/v1/medicines", false, TEST_PAGE);
+		expect(res.status).toBe(503);
+		expect(res.headers.get("content-type")).toBe("application/problem+json");
+		expect(res.headers.get("cache-control")).toBe("no-store");
+		expect(res.headers.get("strict-transport-security")).toBeNull();
+		// `/api` wins over the page settings: passing them cannot make an API answer an HTML page.
+		expect(await res.text()).toBe(
+			'{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"Something went wrong on the server.","code":"server_error"}',
+		);
+		expect(serverError("/api/v1/medicines", true).headers.get("strict-transport-security")).toBe(
+			"max-age=31536000",
+		);
+	});
+
+	it("logs the class and never the exception's text", () => {
+		const lines: string[] = [];
+		const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+			lines.push(String(line));
+		});
+		try {
+			logServerError("boot", new TypeError("connect ECONNREFUSED postgres://apotheke:hunter2@db:5432"));
+			logServerError("handler", "not an Error");
+		} finally {
+			spy.mockRestore();
+		}
+		expect(lines).toEqual(["[apotheke] 5xx boot: TypeError", "[apotheke] 5xx handler: string"]);
+	});
+
+	it("answers /readyz's 200 no-store too, so a cache cannot outlive the outage (D156)", async () => {
+		const res = readinessResponse({ ok: true, schema: "0036", seed: "done" }, "sqlite");
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toBe("application/json; charset=utf-8");
+		expect(res.headers.get("cache-control")).toBe("no-store");
+		expect(await res.text()).toBe('{"ok":true,"schema":"0036","seed":"done","driver":"sqlite"}');
 	});
 });
