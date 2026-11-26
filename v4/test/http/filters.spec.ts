@@ -58,7 +58,6 @@ describe("the registry", () => {
 	it("declares the deferred filters by name, and only the ones phase 0 cannot carry yet", () => {
 		expect(Object.keys(DEFERRED).sort()).toEqual([
 			"api",
-			"formfields",
 			"harness",
 			"opsaccounts",
 			"opsbackup",

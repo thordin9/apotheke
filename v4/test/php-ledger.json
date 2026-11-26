@@ -420,9 +420,9 @@
    "path": "tests/Modules/Core/AppBaseUrlTest.php",
    "methods": 2,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "PUBLIC_URL vs allowed host",
+   "state": "ported",
+   "target": "v4/test/http/filters.spec.ts",
+   "note": "SEC-M3: the base URL never uses a host outside the allow-list. Both methods' subjects are asserted in filters.spec.ts — \"accepts PUBLIC_URL's host, and only that host\" and \"derives the base URL from PUBLIC_URL, or from the request when it is not set\". `testBaseUrlUsesOnlyAnAllowedHost`'s `ALLOWED_HOSTS` half and the `allowedHostnames` assertion are dropped with the replaced code: `ALLOWED_HOSTS` is not in v4's sixteen-name contract (D18), so the list is IP literals, localhost, `*.localhost` and PUBLIC_URL's host, and `Config\\App::allowedHostnames` has no v4 home.",
    "kind": "retired"
   },
   {
@@ -600,9 +600,9 @@
    "path": "tests/Modules/Core/FormFieldsTest.php",
    "methods": 2,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "form field list rules",
+   "state": "ported",
+   "target": "v4/test/http/formfields.spec.ts",
+   "note": "Both methods ported: the rule (`invalidListField` / `listFieldMessage`, src/http/form.ts, with v3's `LISTS` = ids, perms, col, photos, files and its 422) and the filter that applies it to writes only. The filter was DEFERRED until S1.7 and decides for real now, and `routeRequest` parses the body for it — the spec's last case proves that through the chain on /consent, which nothing else reads the body of.",
    "kind": "retired"
   },
   {
@@ -843,9 +843,9 @@
    "path": "tests/Modules/Core/TrustProxyOnceTest.php",
    "methods": 2,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the Secure flag follows the request settings",
+   "state": "ported",
+   "target": "v4/test/session/cookie.spec.ts",
+   "note": "`testTheSecureFlagFollowsTheRequestSettings` is asserted there, driven by the 8 `secureCookie` rows php-session.json captures out of `RequestScheme::secureCookie()`. `testNothingOpensASeparateSettingsConnection` is dropped as v3 mechanism — a source scan for `pg_connect` / `new PDO` / `TrustProxyReader` — with no v4 counterpart: one `Sql` interface, and no per-request settings connection to open. Not covered by the fixture, and recorded rather than hand-typed: a trusted proxy whose X-Forwarded-Proto is `http` (v3 answers not-Secure; the fixture has trusted+https, untrusted+https and untrusted+none).",
    "kind": "retired"
   },
   {
@@ -942,9 +942,9 @@
    "path": "tests/Modules/Core/WritesTypedRowsTest.php",
    "methods": 1,
    "dataProviders": 1,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "typed row mapping",
+   "state": "ported",
+   "target": "v4/test/sqlite.spec.ts",
+   "note": "`testRowsAreTypedAsLegacyPdoReturnsThem`: a row stored as JSON (an undo snapshot) reads back as it was written. The mechanism has no v4 counterpart and is dropped — `Writes::typedRows` normalised PDO's answers (pgsql types integers, floats and booleans, `numeric` stays a string; mysqli answers `1`) and v4 has no PDO and one storage family. The property is asserted at v4/test/sqlite.spec.ts, \"returns typed values, so a row survives a JSON round trip unchanged\".",
    "kind": "retired"
   },
   {

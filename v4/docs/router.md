@@ -113,11 +113,11 @@ on `/api` (CSP `default-src 'none'`, `no-store`, HSTS only when `PUBLIC_URL` is 
 ## What is deferred, and why it is still closed
 
 `DEFERRED` in `filters.ts`, asserted by name in the tests. `session`, `consent` and `apicsrf` left
-this table in S1.2 and S1.4 (they decide for real now; this paragraph said otherwise until then):
+this table in S1.2 and S1.4, and `formfields` in S1.7 (they decide for real now; this paragraph said
+otherwise until then):
 
 | Filter | Why not yet | What keeps it closed |
 |---|---|---|
-| `formfields` | a validation rule, not an access decision | the writes it would 422 are refused before it |
 | `harness` | marks a PHPUnit request in the PHP process | nothing to read in a Worker, and nothing to allow |
 | `opsbackup`, `opsaccounts` | the hosted operator console is C2 | the `/internal` paths they own answer 501 rather than pass |
 | `requestcleanup` | frees an unfinished PHP upload's files | there are no uploads in phase 0 |

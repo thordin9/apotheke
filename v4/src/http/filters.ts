@@ -15,7 +15,8 @@
 //                body type, and the token in X-CSRF-Token — real since S1.4.
 //   consent      the cookie contract arrives with sessions (P1); the writes it would refuse are
 //                 refused by `permission` (401) and `sessioncsrf` (419) or `apicsrf` (403) first.
-//   formfields   a validation rule, not an access decision; the writes it would 422 are refused first.
+//   formfields   real since S1.7: a write that sends a field as a list it does not take answers v3's
+//                 422 (`FormFields`), for pages and for a client that wants JSON.
 //   harness      an environment mark in the PHP process; there is nothing to read in a Worker.
 //   requestcleanup, opsbackup, opsaccounts  nothing of theirs exists in phase 0 (no uploads, no hosted
 //                 operator console), and the /internal paths they own answer 501 rather than pass.
@@ -29,7 +30,7 @@ import { CONSENT_CODE, CONSENT_MESSAGE, CONSENT_STATUS, consentNeeded } from "..
 import { CSRF_MESSAGE, CSRF_STATUS, csrfApplies, csrfPasses } from "../session/csrf";
 import type { SessionRequest } from "../session/request";
 import type { Identity } from "../session/store";
-import type { FormPost } from "./form";
+import { FORM_FIELDS_STATUS, type FormPost, invalidListField, listFieldMessage } from "./form";
 import { apiHeaders, html, isApi, PAGE_HEADERS, problem } from "./problem";
 import type { RouteRow } from "./route-table";
 
@@ -573,10 +574,41 @@ const sessioncsrf: Filter = {
 	},
 };
 
+/**
+ * `FormFieldsFilter`: a write that sends a field as a list the app's forms never send as one is a 422
+ * — the error page, or `{"ok":false,"error":…}` for a client that wants JSON. It is a validation
+ * rule, not an access decision: `permission` and `sessioncsrf` have already refused the writes they
+ * own, which is the order `$globals['before']` runs in. Safe methods take lists (`GET` filters do),
+ * and `/api` is excepted because it reads JSON and validates it itself.
+ */
 const formfields: Filter = {
-	before: () => null,
-	deferred:
-		"a validation rule, not an access decision; the writes it would 422 are refused before it (P1/P2)",
+	before: (ctx) => {
+		if (isSafe(ctx.request.method)) {
+			return null;
+		}
+		const field = invalidListField(ctx.post);
+		if (field === null) {
+			return null;
+		}
+		const message = listFieldMessage(field);
+		if (wantsJson(ctx.request)) {
+			return new Response(JSON.stringify({ ok: false, error: message }), {
+				status: FORM_FIELDS_STATUS,
+				headers: {
+					...PAGE_HEADERS,
+					"Content-Type": "application/json; charset=utf-8",
+					"Cache-Control": "no-store",
+				},
+			});
+		}
+		return html(
+			errorPage(
+				{ ...ctx.config.page, csrf: ctx.session.csrf, consent: ctx.session.consent, requestUri: ctx.path },
+				message,
+			),
+			FORM_FIELDS_STATUS,
+		);
+	},
 };
 
 /**

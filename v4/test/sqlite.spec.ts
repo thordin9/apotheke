@@ -63,6 +63,28 @@ describe("the sqlite driver (DO storage)", () => {
 		]);
 	});
 
+	// `WritesTypedRowsTest`'s subject (retired at 5d65939e): a row stored as JSON — an undo snapshot —
+	// reads back as it was written. v4 has no PDO and one storage family, so what survives is the
+	// property itself: the values a read returns are typed (an INTEGER is a number, a REAL is a number
+	// and not "1.5", a NULL is null), which is what makes the payload round-trip lossless.
+	it("returns typed values, so a row survives a JSON round trip unchanged", async () => {
+		const sql = sqlite("sqlite-driver");
+		await sql.batch([
+			statement(
+				"CREATE TABLE IF NOT EXISTS driver_typed (id INTEGER PRIMARY KEY, price REAL, note TEXT, gone TEXT)",
+			),
+		]);
+		await sql.batch([statement("DELETE FROM driver_typed")]);
+		await sql.batch([
+			statement("INSERT INTO driver_typed (id, price, note, gone) VALUES (?,?,?,?)", [7, 1.5, "x", null]),
+		]);
+
+		const [row] = await sql.all({ sql: "SELECT id, price, note, gone FROM driver_typed" });
+
+		expect(row).toStrictEqual({ id: 7, price: 1.5, note: "x", gone: null });
+		expect(JSON.parse(JSON.stringify(row))).toStrictEqual(row);
+	});
+
 	it("binds 100 variables and refuses the 101st", async () => {
 		const sql = sqlite("sqlite-driver");
 		// Distinct aliases: SQLite names every expression column "?" and the row would carry one key.

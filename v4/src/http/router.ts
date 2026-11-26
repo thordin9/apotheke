@@ -160,15 +160,17 @@ export const routeRequest = async (
 		}
 	}
 
-	// `sessioncsrf` is a decision a filter must take, and a filter cannot await: the body is parsed
-	// here, once, only for the unsafe requests whose chain checks the token.
+	// `sessioncsrf` and `formfields` are decisions a filter must take, and a filter cannot await: the
+	// body is parsed here, once, for the unsafe requests whose chain reads it — the token, and the
+	// fields a write sent as lists (a list where a value belongs is a 422, not a value).
+	const chain = beforeChain(path);
 	if (ctx.post.size === 0 && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
-		if (beforeChain(path).includes("sessioncsrf")) {
+		if (chain.includes("sessioncsrf") || chain.includes("formfields")) {
 			ctx.post = await formFields(request.clone());
 		}
 	}
 
-	for (const name of beforeChain(path)) {
+	for (const name of chain) {
 		const filter = FILTERS[name];
 		if (filter === undefined) {
 			throw new Error(`unknown before filter: ${name}`);
