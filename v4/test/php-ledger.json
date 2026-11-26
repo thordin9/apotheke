@@ -447,9 +447,9 @@
    "path": "tests/Modules/Core/ClientAddressTest.php",
    "methods": 6,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "trusted-proxy address derivation; v4 parses the headers but the proxy rules are untested",
+   "state": "dropped",
+   "target": "",
+   "note": "S1.7: dropped with the replaced code cited (D141). `ClientAddress` (modules/Core/Http/ClientAddress.php:44-69) was a trust layer, and five of the six methods are its machinery: the `APOTHEKE_EDGE_CLIENT_IP` flag (`:25-33`, which `testTheWorkerClientIpHeaderNeedsTheEdgeFlag` :45 and `testEdgeClientIpFlagIsTheProcessEnvironment` :60 both read), `X-Apotheke-Client-IP` behind a shared secret (`:54-59`, `testTheEdgeHeaderNeedsTheSharedSecret` :32), `REAL_IP_HEADER` from a listed proxy (`:60-66`, `testTheRealIpHeaderNeedsATrustedPeer` :93), and `ProxyList` CIDR matching over the forwarded hops (`:72-95`, `testForwardedForCountsOnlyFromConfiguredProxies` :14). v4 replaces that by running on the platform: one address, read from headers the edge sets. The sixth, `testBlocksAndAddresses` (:106), is a subject rather than a mechanism — on a self-host box those rules decide whose throttle bucket an attempt spends — and v4 has not built it: it is P6 in plan §5. The surviving subject was an ABSENT test, not a moved one (D119): `clientAddress` (v4/src/auth/sign-in.ts:53-61) is what keys the sign-in and registration throttles (sign-in.ts:129, throttle.ts), and nothing in v4/test exercised it. Paid, three tests in v4/test/session/signin.spec.ts (the file that exists, D142), one per outcome: \"takes Cloudflare's header, even when a forwarded value disagrees\", \"takes the first forwarded hop when the edge header is absent\", \"gives an empty string when neither header is sent\". Two deltas recorded, not changed: v3's `from()` picks the rightmost hop that is not a listed proxy (`:89-94`) while v4 takes the first, the edge header being authoritative on the platform; and v3 answers `cli` for an empty address (`:75-77`) where v4 answers `\"\"` — the same property, one bucket for \"no address\".",
    "kind": "retired"
   },
   {

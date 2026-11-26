@@ -7,6 +7,8 @@
 //   * a sign-in writes the row v3 would have written, and regenerates the id it was served with;
 //   * the throttle counts by address *and* account, so a fresh cookie does not reset it (D21);
 //   * a pre-rotation session stops authenticating once the epoch moves, and its row is destroyed.
+//   * the address the throttle keys on is Cloudflare's header, then the first forwarded hop, then
+//     nothing — `ClientAddress`'s surviving subject, which had no test in v4 until D141.
 //
 // The rows a browser would already have are written with the store's own `writeSession()`, so a test
 // states its starting point instead of depending on the request before it. The one test that does go
@@ -14,9 +16,10 @@
 
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
+import { clientAddress } from "../../src/auth/sign-in";
 import { durableObjectSql, type InstallationStub } from "../../src/db/do-sql";
 import type { Sql, Statement } from "../../src/db/sql";
-import { type RouterConfig, routeRequest } from "../../src/http/router";
+import { createContext, type RouterConfig, routeRequest } from "../../src/http/router";
 import { hashPassword } from "../../src/platform/passwords";
 import { CONSENT_COOKIE } from "../../src/session/consent";
 import { newToken } from "../../src/session/csrf";
@@ -421,5 +424,26 @@ describe("POST /login", () => {
 			params: [await sessionKey(id)],
 		});
 		expect(Number(gone[0]?.n)).toBe(0);
+	});
+});
+
+// `ClientAddress`'s surviving subject (plan D141): the throttle keys on this address
+// (`src/auth/sign-in.ts:129`), so what it reads decides whose budget an attempt spends.
+describe("the address the throttle keys on (D141)", () => {
+	const address = (headers: Record<string, string>): string =>
+		clientAddress(createContext(new Request("http://localhost/login", { headers }), CONFIG));
+
+	it("takes Cloudflare's header, even when a forwarded value disagrees", () => {
+		expect(address({ "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.4, 10.0.0.1" })).toBe(
+			"203.0.113.7",
+		);
+	});
+
+	it("takes the first forwarded hop when the edge header is absent", () => {
+		expect(address({ "x-forwarded-for": "198.51.100.4, 10.0.0.1" })).toBe("198.51.100.4");
+	});
+
+	it("gives an empty string when neither header is sent", () => {
+		expect(address({})).toBe("");
 	});
 });
