@@ -107,8 +107,10 @@ export type ThrottleResult = Allowed | Throttled;
 
 /**
  * `RateLimiter::hit()`: refuse when `kind` was tried too often, otherwise record the attempt.
- * Callers pass the client address v3 would see (`ClientAddress`: `CF-Connecting-IP`, then the first
- * forwarded value, then the peer address).
+ * Callers pass `clientAddress()`'s answer: the edge's `CF-Connecting-IP`, else the first forwarded
+ * hop, else an empty string. That is v4's reading, not v3's: v3's `ClientAddress` consulted
+ * `X-Forwarded-For` only behind `trust_proxy` and a listed peer, and then took the rightmost hop
+ * that was not a proxy (D141, and the note on `ClientAddressTest` in `test/php-ledger.json`).
  */
 export const hit = async (
 	sql: Sql,
