@@ -422,7 +422,7 @@
    "dataProviders": 0,
    "state": "ported",
    "target": "v4/test/http/filters.spec.ts",
-   "note": "SEC-M3: the base URL never uses a host outside the allow-list. Both methods' subjects are asserted in filters.spec.ts — \"accepts PUBLIC_URL's host, and only that host\" and \"derives the base URL from PUBLIC_URL, or from the request when it is not set\". `testBaseUrlUsesOnlyAnAllowedHost`'s `ALLOWED_HOSTS` half and the `allowedHostnames` assertion are dropped with the replaced code: `ALLOWED_HOSTS` is not in v4's sixteen-name contract (D18), so the list is IP literals, localhost, `*.localhost` and PUBLIC_URL's host, and `Config\\App::allowedHostnames` has no v4 home.",
+   "note": "S1.7: SEC-M3: the base URL never uses a host outside the allow-list. Both methods' subjects are asserted in filters.spec.ts — \"accepts PUBLIC_URL's host, and only that host\" and \"derives the base URL from PUBLIC_URL, or from the request when it is not set\". `testBaseUrlUsesOnlyAnAllowedHost`'s `ALLOWED_HOSTS` half and the `allowedHostnames` assertion are dropped with the replaced code: `ALLOWED_HOSTS` is not in v4's sixteen-name contract (D18), so the list is IP literals, localhost, `*.localhost` and PUBLIC_URL's host, and `Config\\App::allowedHostnames` has no v4 home.",
    "kind": "retired"
   },
   {
@@ -735,18 +735,18 @@
    "path": "tests/Modules/Core/RefusalCacheControlTest.php",
    "methods": 4,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "no-store on refusals; S1.5 records a deliberate narrowing (`no-cache` dropped)",
+   "state": "ported",
+   "target": "v4/test/http/refusal-cache.spec.ts",
+   "note": "S1.7: all four methods ported to v4/test/http/refusal-cache.spec.ts. `testCsrf419` keeps both v3 shapes (the error page, then `{\"ok\":false,\"error\":\"Your session expired.\"}` with exactly `no-store`); `testSameOrigin403`, `testPostTooLarge413` and `testErrorPages`' page half assert no-store on the refusal. Two shapes differ from v3 and are reported rather than pinned: v4 answers `application/problem+json` for the 403 and the 413 on a page path where v3 rendered the error page (`src/http/filters.ts` `sameorigin` and `posttoolarge` return `problem()` with no wants-JSON branch), and S1.5's named narrowing means a handler answer says exactly `no-store` where v3's filter refusal said `no-store, max-age=0, no-cache` (the 404 page still sends CI4's spelling, `ERROR_PAGE_CACHE`). `testErrorPages`' JSON 500 half is dropped: `src/http/` has no top-level exception renderer, so an unhandled throw is the runtime's own 500.",
    "kind": "retired"
   },
   {
    "path": "tests/Modules/Core/RowsManyTest.php",
    "methods": 4,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "batched reads over the D1 driver",
+   "state": "dropped",
+   "target": "",
+   "note": "Dropped with the replaced code cited: `Writes::rowsMany` was the D1 bridge's read batch. v4's `Sql` has one read (`v4/src/db/sql.ts:31`) and one unit of work whose result carries counts, not rows (`sql.ts:36`); `v4/src/db/d1.ts:41` is `all()`, `d1.ts:50` is `batch()`, and `grep -rn rowsMany v4/src v4/test` returns nothing. `testTheD1DriverSendsTheReadsAsOneBatch` (:46) and `testTheD1DriverReadsOneByOneWhenABatchWouldNotDo` (:64) assert the `/batch` vs `/query` call shape of a v3 transport (D115's class), and `testSqliteAndPostgresqlReadOneAfterAnother` (:100) is a cross-backend loop with no v4 counterpart — three drivers behind one interface, each with its own spec. The surviving subject is `testAFailingStatementFailsAsRowsDoes` (:90): a failing statement in a unit surfaces as the single read does and the unit keeps nothing — asserted at `v4/test/sqlite.spec.ts:120` (\"leaves nothing behind when a statement in the unit fails, DDL included\") and `v4/test/rqlite.spec.ts:143`. v4 has no `WriteFailed` class, so what surfaces is the driver's own message, not a typed one.",
    "kind": "retired"
   },
   {
@@ -845,7 +845,7 @@
    "dataProviders": 0,
    "state": "ported",
    "target": "v4/test/session/cookie.spec.ts",
-   "note": "`testTheSecureFlagFollowsTheRequestSettings` is asserted there, driven by the 8 `secureCookie` rows php-session.json captures out of `RequestScheme::secureCookie()`. `testNothingOpensASeparateSettingsConnection` is dropped as v3 mechanism — a source scan for `pg_connect` / `new PDO` / `TrustProxyReader` — with no v4 counterpart: one `Sql` interface, and no per-request settings connection to open. Not covered by the fixture, and recorded rather than hand-typed: a trusted proxy whose X-Forwarded-Proto is `http` (v3 answers not-Secure; the fixture has trusted+https, untrusted+https and untrusted+none).",
+   "note": "S1.7: `testTheSecureFlagFollowsTheRequestSettings` is asserted there, driven by the 8 `secureCookie` rows php-session.json captures out of `RequestScheme::secureCookie()`. `testNothingOpensASeparateSettingsConnection` is dropped as v3 mechanism — a source scan for `pg_connect` / `new PDO` / `TrustProxyReader` — with no v4 counterpart: one `Sql` interface, and no per-request settings connection to open. Not covered by the fixture, and recorded rather than hand-typed: a trusted proxy whose X-Forwarded-Proto is `http` (v3 answers not-Secure; the fixture has trusted+https, untrusted+https and untrusted+none).",
    "kind": "retired"
   },
   {
@@ -944,7 +944,7 @@
    "dataProviders": 1,
    "state": "ported",
    "target": "v4/test/sqlite.spec.ts",
-   "note": "`testRowsAreTypedAsLegacyPdoReturnsThem`: a row stored as JSON (an undo snapshot) reads back as it was written. The mechanism has no v4 counterpart and is dropped — `Writes::typedRows` normalised PDO's answers (pgsql types integers, floats and booleans, `numeric` stays a string; mysqli answers `1`) and v4 has no PDO and one storage family. The property is asserted at v4/test/sqlite.spec.ts, \"returns typed values, so a row survives a JSON round trip unchanged\".",
+   "note": "S1.7: `testRowsAreTypedAsLegacyPdoReturnsThem`: a row stored as JSON (an undo snapshot) reads back as it was written. The mechanism has no v4 counterpart and is dropped — `Writes::typedRows` normalised PDO's answers (pgsql types integers, floats and booleans, `numeric` stays a string; mysqli answers `1`) and v4 has no PDO and one storage family. The property is asserted at v4/test/sqlite.spec.ts, \"returns typed values, so a row survives a JSON round trip unchanged\".",
    "kind": "retired"
   },
   {
