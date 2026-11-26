@@ -402,9 +402,9 @@
    "path": "tests/Modules/Core/ApiResponseTest.php",
    "methods": 6,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the v3 API envelope across every controller",
+   "state": "ported",
+   "target": "v4/test/http/problem.spec.ts",
+   "note": "S1.7: all six ported to v4/test/http/problem.spec.ts, one test per method. The units are v4/src/http/problem.ts: `json()` (:149) is `ApiResponse::json()` \u2014 UTF-8, `no-store`, slashes and non-ASCII unescaped; `problem()` (:101) is `::problem()` \u2014 type/title/status/detail/code in PHP's order, `no-store`, `errors` only for a non-empty map, `Retry-After` as a header; `isApi()` (:17) is `::isApi()` over v3's nine paths; `apiHeaders()` (:71) is `ApiSecurityPolicy::headers()` \u2014 the six headers, HSTS only over https. Three deltas recorded, none a shape change: `isApi()` accepts a path with or without its leading slash (v3 compared `'/api'` and the `'/api/'` prefix; every routed path starts with the slash, so the chain sees the same answer); `json()` carries the whole `/api` header set where v3 set `Content-Type` and `Cache-Control` and left the rest to `ApiSecurityPolicy`; and `Retry-After` is `problem()`'s `extra` header rather than v3's sixth positional integer. What the chain makes of these answers is `router.spec.ts`'s and `refusal-cache.spec.ts`'s subject, not this row's.",
    "kind": "retired"
   },
   {
