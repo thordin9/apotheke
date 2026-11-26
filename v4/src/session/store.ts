@@ -58,6 +58,12 @@ export const writeSession = async (
 		readonly lifetimeSeconds: number;
 	},
 ): Promise<StoredSession> => {
+	// D114: the same gate `loadSession` and `destroySession` apply, in the same file, so a write cannot
+	// store a row no later reader would return. Thrown before the digest is computed and before any
+	// batch is sent; the caller is told, because a silent no-op is a caller bug nobody ever sees.
+	if (!SESSION_ID.test(input.id)) {
+		throw new TypeError("a session whose id does not match SESSION_ID can never be loaded");
+	}
 	const key = await sessionKey(input.id);
 	const data = encodeSession(input.values);
 	const expiresAt = input.now + input.lifetimeSeconds;

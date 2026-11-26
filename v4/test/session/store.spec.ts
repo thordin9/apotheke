@@ -122,6 +122,20 @@ describe("the session store", () => {
 		expect(await loadSession(sql, ID, NOW)).not.toBeNull();
 	});
 
+	it("refuses to write an id that could never be loaded, and writes no row", async () => {
+		// D114: `loadSession` and `destroySession` gate on `SESSION_ID`; `writeSession` did not, so it
+		// could store a row for an id no later reader returns. The property is the pair: nothing written,
+		// and the caller told rather than silently ignored.
+		await expect(
+			writeSession(sql, { id: "short", values: VALUES, now: NOW, lifetimeSeconds: LIFETIME }),
+		).rejects.toThrow("can never be loaded");
+		await expect(
+			writeSession(sql, { id: `${ID}/../`, values: VALUES, now: NOW, lifetimeSeconds: LIFETIME }),
+		).rejects.toThrow(TypeError);
+		const rows = await sql.all({ sql: "SELECT COUNT(*) AS n FROM sessions" });
+		expect(Number(rows[0]?.n)).toBe(0);
+	});
+
 	it("removes an expired row on read, so a copied cookie stops naming anything", async () => {
 		await writeSession(sql, { id: ID, values: VALUES, now: NOW, lifetimeSeconds: 60 });
 		const later = NOW + 61;
