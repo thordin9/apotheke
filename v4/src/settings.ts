@@ -8,12 +8,11 @@
 //   registrationOpen signInEnabled && !auth_register_disabled && !(hosted && no account yet)
 //   guestBrowsing    signInEnabled && !auth_guest_disabled
 //
-// and the shell's own values (`app_name`, `app_tagline`, `accent`, `theme_default`). The theme is
-// `theme_default` alone: v3 preferred a valid `theme` cookie to it (`Theme::pref()`), and v4 never
-// reads that cookie — the client writes it (`public/assets/app.js`), and `theme.js` restores it only
-// when it is absent, so once the cookie is set a visitor who picked Light or Dark is served
-// `theme_default` on the next request. That gap is named in the `LayoutTest` ledger row; until it
-// closes, this reads the setting.
+// and the shell's own values (`app_name`, `app_tagline`, `accent`, and the theme). The theme is
+// `Theme::pref()`'s decision (`modules/Layout/Theme.php:19-22`, called from `Page::theme()`,
+// `Page.php:57-60`): a valid `theme` cookie wins, else `theme_default`. The client writes the cookie
+// (`public/assets/app.js`) and the server reads it here, which is what `theme.js:2` has always
+// assumed; writing it is `POST /theme`, and that handler stays P2 (D152).
 
 import { decodeSetting, type SettingValue } from "./db/settings-schema";
 import type { Sql } from "./db/sql";
@@ -74,12 +73,43 @@ export const consentGiven = (cookieHeader: string | null, required = true): bool
 const CONSENT_COOKIE = "apotheke_consent";
 const CONSENT_CURRENT = "v1";
 
+/**
+ * One cookie's value by its exact name, the last occurrence winning (PHP's `$_COOKIE` keeps the last
+ * of a repeated name). No percent-decoding: `Theme::cookie()` writes a bare word and v3 compares it
+ * exactly.
+ */
+const cookieValue = (header: string | null, name: string): string | null => {
+	let found: string | null = null;
+	for (const part of (header ?? "").split(";")) {
+		const at = part.indexOf("=");
+		if (at === -1) continue;
+		if (part.slice(0, at).trim() !== name) continue;
+		found = part.slice(at + 1).trim();
+	}
+	return found;
+};
+
+/** `Theme::THEMES` (`Theme.php:14`): the three values a stored preference or a cookie may hold. */
+const THEMES: readonly string[] = ["auto", "light", "dark"];
+
+/**
+ * `Theme::pref()`: the cookie when it is one of the three, compared exactly (v3's strict `in_array`),
+ * else the setting — which v4 clamps to the same three where v3 returned a bad default verbatim. A
+ * `theme_default` row is written through `Theme::valid()`, so only a hand-edited row can tell the two
+ * apart; that delta is in the ledger's `LayoutTest` row.
+ */
+const themePref = (cookie: string | null, fallback: string): string => {
+	if (cookie !== null && THEMES.includes(cookie)) return cookie;
+	return THEMES.includes(fallback) ? fallback : "auto";
+};
+
 /** One query for every settings row, then PHP's decisions over the decoded values. */
 export const readPageData = async (
 	sql: Sql,
 	config: AppConfig,
 	requestUri: string,
 	consent = false,
+	cookies: string | null = null,
 ): Promise<PageData> => {
 	const rows = await sql.all({ sql: "SELECT name, value FROM settings" });
 	const values = new Map<string, SettingValue>();
@@ -108,13 +138,13 @@ export const readPageData = async (
 		!flag(values.get("auth_register_disabled") ?? null) &&
 		!(config.hosted && !(await hasAccounts(sql)));
 
-	const theme = text(values.get("theme_default") ?? null) || "auto";
+	const themeDefault = text(values.get("theme_default") ?? null) || "auto";
 
 	return {
 		page: {
 			appName: text(values.get("app_name") ?? null),
 			tagline: text(values.get("app_tagline") ?? null),
-			theme: theme === "light" || theme === "dark" ? theme : "auto",
+			theme: themePref(cookieValue(cookies, "theme"), themeDefault),
 			accent: text(values.get("accent") ?? null),
 			// No session exists until S1.2, so there is no token to print; the shell prints the empty
 			// attribute v3 prints for a first visit, and the golden test normalises it either way.
