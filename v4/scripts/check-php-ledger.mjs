@@ -10,8 +10,13 @@
 //
 // Rules:
 //   - 245 rows: 231 `retired` (deleted by 5d65939e) + 14 `surviving` (present under tests/).
-//     Retired totals are pinned at 1,435 methods / 379 data providers; there is no such total for
+//     Retired totals are pinned at 1,435 methods / 388 data providers; there is no such total for
 //     surviving files, which are tools, not test classes.
+//   - a retired row's dataProviders is the count of provider attributes in that file at
+//     5d65939e^, recounted from the tree with `git grep -c` when history is present. The harvest
+//     that wrote them first read the imported `#[DataProvider(` form only, so six files that spell
+//     the attribute out in full (`#[\PHPUnit\Framework\Attributes\DataProvider(`) read 0 until
+//     this check existed; a count typed once and copied is exactly what this refuses.
 //   - state is exactly one of ported / scheduled / dropped; `kind` is retired or surviving.
 //   - ported names a file that exists and carries tests (a .spec.ts) or a committed check (.mjs).
 //   - scheduled names a slice or gate the plan defines (S0.x, S1.x, P2..P8, G0..G7).
@@ -40,7 +45,7 @@ const RETIRED = 231;
 const SURVIVING = 14;
 const ROWS = RETIRED + SURVIVING;
 const METHODS = 1435;
-const DATA_PROVIDERS = 379;
+const DATA_PROVIDERS = 388;
 const EXCEPTIONS = 6;
 const DELETING_COMMIT = "5d65939e";
 
@@ -121,6 +126,17 @@ export function validate(ledger, io) {
 	if (methods !== expected.methods) errors.push(`${methods} retired test methods recorded, expected ${expected.methods}`);
 	if (providers !== expected.dataProviders) errors.push(`${providers} retired data providers recorded, expected ${expected.dataProviders}`);
 
+	if (io.providerCounts !== undefined) {
+		// A count is a claim about a file, so it is read from the file. Absent from the map means the
+		// file carries none, which is what `git grep -c` omits.
+		for (const row of ledger.rows) {
+			if (row.kind !== "retired") continue;
+			const seen = io.providerCounts[row.path] ?? 0;
+			const said = row.dataProviders ?? 0;
+			if (said !== seen) errors.push(`${row.path}: ${said} data providers recorded, the file carries ${seen}`);
+		}
+	}
+
 	const exSeen = new Set();
 	for (const ex of ledger.exceptions) {
 		if (typeof ex.path !== "string" || !ex.path.startsWith("v4/") || !ex.path.endsWith(".php")) {
@@ -179,6 +195,34 @@ function deletedBy(commit) {
 			.map((l) => l.split("\t")[1])
 			.filter(Boolean),
 	);
+}
+
+/**
+ * Provider attributes per retired path, counted in the tree the ledger was harvested from. `-c` counts
+ * matching lines per file; a file with none is absent from the output, which reads as 0.
+ */
+function providerCountsAt(commit) {
+	const pattern = "#\\[(\\\\?PHPUnit\\\\Framework\\\\Attributes\\\\)?DataProvider";
+	let out = "";
+	try {
+		out = execFileSync("git", ["grep", "-c", "-E", pattern, commit, "--", "tests"], {
+			cwd: REPO,
+			encoding: "utf8",
+		});
+	} catch (error) {
+		// git grep exits 1 when nothing matches at all; any other status is a failure, not "no providers".
+		if (error.status === 1) return {};
+		throw error;
+	}
+	const counts = {};
+	for (const line of out.split("\n")) {
+		if (line === "") continue;
+		const end = line.lastIndexOf(":");
+		const count = Number.parseInt(line.slice(end + 1), 10);
+		const rest = line.slice(0, end);
+		counts[rest.slice(rest.indexOf("tests/"))] = count;
+	}
+	return counts;
 }
 
 function targetProblem(target) {
@@ -248,6 +292,17 @@ function selfTest() {
 			{ treePhp: ["tests/live.php", "tests/new.php", "v4/scripts/gen-x.php"] },
 		],
 		[
+			"a row whose provider count is not the file's",
+			(() => {
+				const l = good();
+				l.rows[0].dataProviders = 378;
+				l.rows[1].dataProviders = 1;
+				return l;
+			})(),
+			(e) => e.some((x) => x.includes("data providers recorded, the file carries")),
+			{ providerCounts: { "tests/a.php": 378, "tests/b.php": 0 } },
+		],
+		[
 			"a .php under v4/ that is no exception",
 			good(),
 			(e) => e.some((x) => x.includes("v4/scripts/new.php: .php under v4/ that is not a named exception")),
@@ -279,6 +334,7 @@ selfTest();
 const plan = readFileSync(PLAN, "utf8");
 const slices = planSlices(plan);
 const deleted = deletedBy(DELETING_COMMIT);
+const providerCounts = deleted ? providerCountsAt(DELETING_COMMIT + "^") : undefined;
 const ledger = JSON.parse(readFileSync(LEDGER, "utf8"));
 const errors = validate(ledger, {
 	planSlices: slices,
@@ -287,6 +343,7 @@ const errors = validate(ledger, {
 	treePhp: treePhp(),
 	createdBy: deleted ? DELETING_COMMIT : undefined,
 	deleted,
+	providerCounts,
 });
 
 const rows = ledger.rows;
