@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The sign-in throttle (plan §5 S1.2, §4 rule 4): a port of `modules/Auth/RateLimiter.php` over the
 // shared `auth_attempts` table, so v3 and v4 count the same attempts while both run.
 //

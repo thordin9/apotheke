@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The database-backed settings and their defaults — a port of the `DEFINITIONS` table in
 // modules/Settings/SettingsSchema.php, key for key and default for default.
 //

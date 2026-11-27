@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // Control Panel → Users & sign-in (plan §5 S1.3, increment 1's surface): `SecurityController`'s page
 // and its users half.
 //

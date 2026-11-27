@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // `UserAdmin` and the `Accounts` checks it uses (plan §5 S1.3): accounts on Users & sign-in.
 //
 // Ported from `modules/Auth/UserAdmin.php` (itself legacy `user_create()`, `user_approve()`,

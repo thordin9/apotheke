@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // S1.7's port of `AuthStatusD1Test` (plan D37): "is sign-in on?" — the question v3's entrypoint asked
 // through `auth status` before it started, and the one v4 answers once per request in `readPageData()`.
 //

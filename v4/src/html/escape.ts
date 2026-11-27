@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // Escaping for the HTML layer (plan §5 S1.1), a port of `Page::e()` in
 // `modules/Layout/Page.php`:
 //

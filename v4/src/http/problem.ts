@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // problem+json and the security headers (plan §5 S0.5, §4 rule 3).
 //
 // One shape for every error the router answers, copied from the PHP app rather than invented:

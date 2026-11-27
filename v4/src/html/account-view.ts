@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // `/account` (plan §5 S1.5): `modules/Auth/Views/AuthViews.php`'s `account()`, ported.
 //
 // The page is one document — shell, header, menu, card, toast — so this file renders all of it and

@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The chain's order (plan §5 S0.5): asserted by running it, not by reading it.
 //
 // `routeRequest()` returns the filters that actually ran, in order. This test spells the expected

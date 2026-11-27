@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // Route parity (plan §5 S0.5): the table the Worker imports against the PHP app's own route data.
 //
 // The oracle is `test/fixtures/php-routes.json`, which `scripts/gen-routes.mjs` reads out of

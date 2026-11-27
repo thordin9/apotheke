@@ -22,6 +22,7 @@
     "workflows:check": "node scripts/check-workflows-php-free.mjs",
     "ledger:check": "node scripts/check-php-ledger.mjs",
     "skip-list:check": "node scripts/check-visual-skip-list.mjs",
+    "citations:check": "node scripts/check-retired-citations.mjs",
     "flip:check": "node scripts/check-visual-flip.mjs",
     "visual-boot:check": "node scripts/check-visual-boot.mjs",
     "cores:check": "node scripts/check-core-dumps.mjs"

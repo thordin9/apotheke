@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The 35 PHP migrations as typed steps, plus 0036, which exists only in v4 (D10's `_write_log`).
 // One SQLite dialect: D1, rqlite and local DO SQLite all run this file, and there is no dialect
 // branch anywhere in it (plan §10 rule 4).

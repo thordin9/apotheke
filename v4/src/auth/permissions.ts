@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // `Permissions` (plan §5 S1.3): the permission list and the built-in roles' defaults.
 //
 // Ported from `modules/Auth/Permissions.php`, including the part that is not obvious: how the

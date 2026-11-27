@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The session store (plan §5 S1.2): the row v3 would have written, the expiry rules, and the epoch
 // check that makes "sign out everywhere" mean something. This is also the re-homed half of
 // `tests/Modules/Core/DatabaseSessionHandlerTest.php` (D109): the 10 of its 26 methods that assert

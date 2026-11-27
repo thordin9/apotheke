@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The filter chain, in the order `app/Config/Filters.php` runs it (plan §5 S0.5).
 //
 // This file is a copy, deliberately: the Worker cannot read PHP, so the chain is data in code and

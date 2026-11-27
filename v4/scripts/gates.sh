@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# D30's six gates, then D105's core scan as a REPORT rather than a seventh gate.
+# D30's six gates and D172's seventh, then D105's core scan as a REPORT rather than a gate.
 #
 # The driver lives in the repo beside the checker it drives (D107): resolve the tree from this
 # script's own path, so it runs from a fresh clone instead of from one box's home directory.
@@ -11,7 +11,7 @@
 #
 # Logs: $APOTHEKE_GATE_LOGS, else $HOME; one gate-<name>.log per gate, overwritten each run.
 #
-# Exit: 0 only when all six gates passed, 1 when any did not (D111 - the first version returned the
+# Exit: 0 only when every gate passed, 1 when any did not (D111 - the first version returned the
 # status of its last command, so six failing gates printed `GATE ... exit=1` six times and exited 0,
 # because bash's status is the last command's and the REPORT ran last). The REPORT line never decides
 # the exit status: a core dump is evidence to read, not a failed gate, and a failed REPORT is named
@@ -66,6 +66,9 @@ gate biome npx biome check .
 gate depcruise npx depcruise src
 gate routes npm run routes:check
 gate fixtures npm run fixtures:check
+# D172: a comment that cites a path 5d65939e deleted names the commit that still holds it. It sits after
+# the generators and before the tests: it reads text, and a red here is a comment to fix, not a port.
+gate citations npm run citations:check
 gate vitest npx vitest run
 report cores node scripts/check-core-dumps.mjs --since "$START" --dir . --dir .. --dir "$HOME"
 

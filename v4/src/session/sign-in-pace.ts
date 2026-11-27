@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The failed sign-in deadline (plan §5 S1.4): `modules/Auth/SignInPace.php`, ported.
 //
 // v3 answers every *failed* sign-in at the same deadline after the attempt began, so the answer time

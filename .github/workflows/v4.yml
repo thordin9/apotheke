@@ -88,6 +88,11 @@ jobs:
       # fail one. It reads the map from tests/visual/ci4-unported.json, the copy the fixture reads, and
       # runs its own self-test first, so a parser that stops reading fails here rather than passing.
       - run: npm run skip-list:check
+      # D168/D170/D172: a comment under v4/src or v4/test that cites a path 5d65939e deleted must name
+      # that commit, because `git show 5d65939e^:<path>` resolves and `HEAD:<path>` does not. The class was
+      # kept by hand and rotted to 41 of 46 files; the generated fixtures and route table are excluded by
+      # rule, and it runs its own self-test first.
+      - run: npm run citations:check
       - run: npm test
 
   workerd-smoke:

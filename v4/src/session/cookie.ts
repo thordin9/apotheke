@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The session cookie (plan §4 rule 4, §5 S1.2): v3's name and flags, derived the way v3 derives
 // them — not the way the plan's first wording had them.
 //

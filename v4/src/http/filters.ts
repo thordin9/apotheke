@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The filter chain's filters (plan §5 S0.5): each one a named object, run in `chain.ts`'s order.
 //
 // Every filter here is a *decision*, ported from its PHP counterpart in `modules/Core/Filters/` and

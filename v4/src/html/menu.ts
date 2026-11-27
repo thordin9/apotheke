@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The page shell's header and menu (plan §5 S1.5): `modules/Layout/Page.php`'s `simpleHeader()`,
 // `menu()` and `Viewer::bodyClass()`, ported.
 //

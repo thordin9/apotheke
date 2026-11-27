@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The inline SVG icon set (plan §5 S1.1), a port of `modules/Layout/Icons.php`.
 //
 // Every icon is one `<svg>` element with the same attributes the PHP app prints, so a page's HTML is

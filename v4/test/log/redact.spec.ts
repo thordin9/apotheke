@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // v3: `tests/Modules/Core/RedactingFileHandlerTest.php` (2 methods) — the row the ledger had `dropped`
 // as "PHP log redaction of file writes" until D165 ruled that a rule written for a transport is still a
 // rule about the data. The cases are v3's own, string for string, including the ones that make the

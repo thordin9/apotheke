@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // Your own password and "sign out everywhere" (plan §5 S1.5): `modules/Auth/Accounts.php`'s
 // `checkCurrent()`/`changeOwnPassword()` and `modules/Auth/SignOutEverywhere.php`, ported.
 //

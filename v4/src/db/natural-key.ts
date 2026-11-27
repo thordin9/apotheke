@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // `fold()` and `natKey()` — the PHP app's case/accent folding and natural-sort key
 // (modules/Core/Libraries/Text.php, modules/Migrations/LegacyFunctions.php). Ported because
 // migration 0002 writes committed `sort_key` values with them and the import path will need them;

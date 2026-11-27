@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The `/api` envelope: JSON in UTF-8, RFC 9457 problem+json, and the API header set (plan §5 S1.7;
 // v3 `ApiResponseTest`, 6 methods).
 //

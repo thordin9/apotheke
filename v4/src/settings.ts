@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // What a rendered page needs from the settings table (plan §5 S1.1), read once per request.
 //
 // The PHP app reads settings per key through `SettingsService`; the Worker reads them in one query,

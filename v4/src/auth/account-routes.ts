@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // `/account`, `POST /account` and `POST /account/signout` (plan §5 S1.5): a port of
 // `modules/Auth/Controllers/AccountController.php`.
 //

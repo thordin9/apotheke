@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The Users & sign-in page (plan §5 S1.3): `SecurityView::page()`, ported.
 //
 // `modules/Auth/Views/SecurityView.php` is the source — its `security()` (legacy

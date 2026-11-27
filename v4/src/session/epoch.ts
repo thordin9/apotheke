@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The session epoch (plan §4 rule 4, migration 0028): the value a signed-in session must hold to stay
 // valid. `modules/Auth/SessionEpoch.php` is the oracle.
 //

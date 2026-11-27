@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // `RoleAdmin` and `RoleRepository` (plan §5 S1.3): the roles editor and its last-manager check.
 //
 // Ported from `modules/Auth/RoleAdmin.php` and `RoleRepository.php`. The messages and statuses are

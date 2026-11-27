@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // S1.7's port of `RegisterFormTest` (plan D37): a null character at either end of a new user name is
 // refused as sent, never trimmed away into a name that would have been valid (v3's N-261/N-291).
 //

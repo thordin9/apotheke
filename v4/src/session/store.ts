@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The session store (plan §4 rule 4, §5 S1.2): the `sessions` table 0034 creates —
 // `id, data, expires_at, lock_token, locked_until` — read and written the way
 // `modules/Core/Http/DatabaseSessionHandler.php` writes it on the D1 driver.

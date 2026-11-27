@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The config loader (plan §5 S0.3): the single defaults source the settings seed reads.
 //
 // It is a port of `config_defaults()` plus the normalisation half of `config_load()` in

@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // Form CSRF (plan §4 rule 4, §5 S1.2): `modules/Core/Http/CsrfCheck.php`, ported.
 //
 // The token lives in the session (`csrf` in `sessions.data`) and comes back in the `csrf` form field

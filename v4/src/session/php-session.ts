@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The `sessions.data` column (plan §4 rule 4, §5 S1.2 DoD): PHP's own session serialisation, because
 // the row v4 writes must be the row v3 would have written and v3 reads it with
 // `session.serialize_handler=php`.

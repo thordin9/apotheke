@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // `/api/v1/session` (GET, POST, DELETE) and `/api/v1/me` (plan §5 S1.4): v3's
 // `modules/Auth/Controllers/Api/SessionController.php`, ported.
 //

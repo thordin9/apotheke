@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The 5xx answers the Worker builds outside the filter chain (plan §5 S1.7, D151/D157).
 //
 // v3's `PlainHandler` is the source, and it says the rule twice: `BootError` — "one public sentence,

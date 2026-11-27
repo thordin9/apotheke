@@ -1,3 +1,6 @@
+// Citations (D168/D172): every `modules/`, `tests/Modules` and `app/Config` path below is read at
+// `5d65939e^`, the last commit before the PHP app was retired.
+//
 // The `Secrets` adapter (plan §4 rule 7, §5 S0.3): at-rest encryption for recoverable secrets.
 //
 // The envelope is the PHP app's, byte for byte (modules/Core/Security/SecretBox.php):
