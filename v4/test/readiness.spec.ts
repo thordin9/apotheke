@@ -205,6 +205,10 @@ describe("a 5xx answer (D151)", () => {
 		for (const [name, value] of Object.entries(PAGE_HEADERS)) {
 			expect(res.headers.get(name), name).toBe(value);
 		}
+		// Absence is asserted by name, presence by membership (D167): a loop over the constant proves
+		// only its members, so a fifth header added there would be asserted rather than caught. v3
+		// ends its HSTS method the other way round — `assertFalse($page->hasHeader(...), "pages are unchanged")`.
+		expect(res.headers.get("strict-transport-security")).toBeNull();
 		expect(await res.text()).toBe(PLAIN);
 	});
 
