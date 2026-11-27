@@ -4,7 +4,13 @@
 // the detail only in the error log" — and `PlainHandler` — "a 5xx detail is generic, never the
 // exception's text". So a page path renders the app's error page with one fixed sentence, a 5xx under
 // `/api` is RFC 9457 problem+json with `server_error` and the same sentence, and the exception's class
-// (never its text) is what a log line may carry.
+// is what every log line carries.
+//
+// The log's text is `RedactingFileHandler::strip()`ed (D165), not verbatim: v3's handler logged
+// `<class>: <message with DETAIL: (removed)>` and its file handler stripped the row detail on the way
+// out, because a driver's constraint failure appends the stored values. A rule about the data does not
+// die with the file transport it was written for, so `strip` runs here, on the one path a log line
+// takes, rather than at each caller.
 //
 // Why the headers are set here rather than by the `securityheaders` after-filter: these answers are
 // built before the chain, exactly as v3's handler built them after skipping the global filters — that
@@ -18,6 +24,7 @@
 import { e } from "../html/escape";
 import type { PageSettings } from "../html/page";
 import { errorPage } from "../html/views";
+import { strip } from "../log/redact";
 import { html, isApi, problem } from "./problem";
 
 /** `PlainHandler::render()` and `::problem()`: the sentence every 5xx carries, in v3's words. */
@@ -43,8 +50,12 @@ export const serverError = (pathname: string, https: boolean, settings?: PageSet
  * v3 logs the failure (`BootError`: "the detail only in the error log"). The body cannot carry the
  * text (D151/D159), so the log is the one place it may go, and it goes there from the site that
  * caught it: `detail` is that site's own text, passed only where a site has one (D161).
+ *
+ * `strip` is applied here rather than at the callers (D165): `RedactingFileHandler` ran on every line
+ * v3 wrote, and its rule is about the message's content — a constraint failure's `DETAIL:` holds the
+ * stored row — so the one function that writes a 5xx line is the one place it cannot be forgotten.
  */
 export const logServerError = (site: string, error: unknown, detail?: string): void => {
 	const name = error instanceof Error ? error.constructor.name : typeof error;
-	console.error(`[apotheke] 5xx ${site}: ${name}${detail === undefined ? "" : `: ${detail}`}`);
+	console.error(`[apotheke] 5xx ${site}: ${name}${detail === undefined ? "" : `: ${strip(detail)}`}`);
 };

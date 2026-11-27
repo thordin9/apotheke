@@ -726,9 +726,9 @@
    "path": "tests/Modules/Core/RedactingFileHandlerTest.php",
    "methods": 2,
    "dataProviders": 0,
-   "state": "dropped",
-   "target": "",
-   "note": "PHP log redaction of file writes",
+   "state": "scheduled",
+   "target": "S1.7",
+   "note": "`RedactingFileHandler::strip()` is policy about the data, not plumbing, so it survives the file transport it was written for (D165): ported as v4/src/log/redact.ts and applied on the one log path (`logServerError`, src/http/server-error.ts), so a constraint failure's `DETAIL:` never reaches console.error. v3's two methods' cases are at test/log/redact.spec.ts string for string: the row detail dropped to the last driver line, a value that itself holds the driver line, a lower-case `detail:`, a localised `D\u00c9TAIL :` label (#101 N-75), a query error with no detail keeping its driver line, and a message with no detail untouched. The file transport is gone, so the first method's 'the shipped log uses it' `Config\\\\Logger` assertion retires with CI4's Logger config and is replaced by the line the deployed path writes. Held at `scheduled` by D165's ruling; every assertion it asks for exists in this tree.",
    "kind": "retired"
   },
   {
