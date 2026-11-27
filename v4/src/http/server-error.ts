@@ -46,6 +46,9 @@ export const serverError = (pathname: string, https: boolean, settings?: PageSet
 		? problem(pathname, https, 503, "server_error", SERVER_ERROR)
 		: html(settings === undefined ? plainErrorPage() : errorPage(settings, SERVER_ERROR), 503);
 
+/** A caught value's text, for the log only: `String(error)` is what a non-Error throw has. */
+export const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
 /**
  * v3 logs the failure (`BootError`: "the detail only in the error log"). The body cannot carry the
  * text (D151/D159), so the log is the one place it may go, and it goes there from the site that
@@ -58,4 +61,20 @@ export const serverError = (pathname: string, https: boolean, settings?: PageSet
 export const logServerError = (site: string, error: unknown, detail?: string): void => {
 	const name = error instanceof Error ? error.constructor.name : typeof error;
 	console.error(`[apotheke] 5xx ${site}: ${name}${detail === undefined ? "" : `: ${strip(detail)}`}`);
+};
+
+/**
+ * The handler catch (`src/index.ts:173`) as one call: a 500 that is not a user error logs
+ * `<class>: <message with DETAIL: (removed)>` — `PlainHandler::beforeAnswer`'s second line
+ * (`modules/Core/Exceptions/PlainHandler.php:96-97`), which is the class AND the message — and the
+ * answer is the app's own page, because this is the one site holding the settings row (D157).
+ */
+export const handlerFailure = (
+	pathname: string,
+	https: boolean,
+	settings: PageSettings,
+	error: unknown,
+): Response => {
+	logServerError("handler", error, errorText(error));
+	return serverError(pathname, https, settings);
 };
