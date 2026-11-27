@@ -26,6 +26,18 @@ export type ReadyResult =
 	| { readonly ok: true; readonly schema: string; readonly seed: "done" }
 	| { readonly ok: false; readonly code: ReadyProblem; readonly detail: string };
 
+/** The arm of a `ReadyResult` that says no: the only one whose line `src/index.ts` logs. */
+export type ReadyFailure = Extract<ReadyResult, { ok: false }>;
+
+/**
+ * The line answered when the installation is not ready, as a function rather than a literal (D162).
+ * The branch that logs it needs an `Installation` whose boot returned a problem, which `SELF.fetch`
+ * cannot be given — but the sentence can be asserted, and a line is exercised by a call where a
+ * branch is exercised by a run (D59).
+ */
+export const notReadyLogLine = (result: ReadyFailure): string =>
+	`[apotheke] 5xx readiness: ${result.code}: ${result.detail}`;
+
 /** The newest migration this code knows: what a ready install reports. */
 export const schemaVersion = (): string => KNOWN_VERSIONS[KNOWN_VERSIONS.length - 1] ?? "";
 
@@ -52,10 +64,11 @@ export const prepareInstallation = async (sql: Sql, config: AppConfig, now: stri
 		}
 		// D159: `database` is the catch-all around a driver, and a driver's message is not a sentence
 		// v4 writes — it can carry a DSN, a host or a SQL fragment, and this body is answered to an
-		// unauthenticated caller. So it answers the sentence every other 5xx answers, and the log gets
-		// the class; `schema.newer`, `seed.refused` and `seed.pending` keep their details because
-		// those sentences are v4's own.
-		logServerError("readiness", error);
+		// unauthenticated caller. So it answers the sentence every other 5xx answers;
+		// `schema.newer`, `seed.refused` and `seed.pending` keep their details because those sentences
+		// are v4's own. The driver's text is not dropped: a public body and an operator log have
+		// opposite jobs, so it goes to the log, at the site that caught it (D161).
+		logServerError("readiness", error, error instanceof Error ? error.message : String(error));
 		return { ok: false, code: "database", detail: SERVER_ERROR };
 	}
 };

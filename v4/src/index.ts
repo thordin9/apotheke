@@ -27,7 +27,7 @@ import { HEALTHZ_PATH, READYZ_PATH } from "./http/probe-paths";
 import { handleRoute } from "./http/router";
 import { logServerError, serverError } from "./http/server-error";
 import { loadConfig } from "./platform/config";
-import { type ReadyResult, readinessResponse } from "./readiness";
+import { notReadyLogLine, type ReadyResult, readinessResponse } from "./readiness";
 import { secureCookie } from "./session/cookie";
 import { openSession } from "./session/request";
 import { consentGiven, readPageData } from "./settings";
@@ -97,8 +97,9 @@ export default {
 		}
 		if (!readiness.ok) {
 			// Not an exception, so there is no class to name: a readiness result keeps its code and
-			// its detail in the log (D159) — `BootError`'s "the detail only in the error log".
-			console.error(`[apotheke] 5xx readiness: ${readiness.code}: ${readiness.detail}`);
+			// its detail in the log (`BootError`'s "the detail only in the error log", D159). The
+			// sentence is a function so it can be asserted without reaching this branch (D162).
+			console.error(notReadyLogLine(readiness));
 			return serverError(pathname, httpsOf(url));
 		}
 

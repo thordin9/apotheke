@@ -40,10 +40,11 @@ export const serverError = (pathname: string, https: boolean, settings?: PageSet
 		: html(settings === undefined ? plainErrorPage() : errorPage(settings, SERVER_ERROR), 503);
 
 /**
- * v3 logs the failure (`BootError`: "the detail only in the error log"); what v4 keeps of that is the
- * class, because the text can carry a driver's host, a SQL fragment or a caller's data (D151).
+ * v3 logs the failure (`BootError`: "the detail only in the error log"). The body cannot carry the
+ * text (D151/D159), so the log is the one place it may go, and it goes there from the site that
+ * caught it: `detail` is that site's own text, passed only where a site has one (D161).
  */
-export const logServerError = (site: string, error: unknown): void => {
+export const logServerError = (site: string, error: unknown, detail?: string): void => {
 	const name = error instanceof Error ? error.constructor.name : typeof error;
-	console.error(`[apotheke] 5xx ${site}: ${name}`);
+	console.error(`[apotheke] 5xx ${site}: ${name}${detail === undefined ? "" : `: ${detail}`}`);
 };

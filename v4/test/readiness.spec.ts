@@ -10,7 +10,7 @@ import { type Sql, statement } from "../src/db/sql";
 import { PAGE_HEADERS } from "../src/http/problem";
 import { logServerError, plainErrorPage, SERVER_ERROR, serverError } from "../src/http/server-error";
 import { loadConfig } from "../src/platform/config";
-import { prepareInstallation, readinessResponse } from "../src/readiness";
+import { notReadyLogLine, prepareInstallation, readinessResponse } from "../src/readiness";
 import { SLOW_TEST_MS } from "./helpers/deadline";
 import { TEST_PAGE } from "./helpers/page";
 import { resetSchema } from "./helpers/schema";
@@ -150,7 +150,7 @@ describe("the readiness answer", () => {
 		);
 	});
 
-	it("logs the class of the exception whose text it keeps out of the body (D159)", async () => {
+	it("sends the driver's text to the log, where the body cannot carry it (D161)", async () => {
 		const lines: string[] = [];
 		const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
 			lines.push(String(line));
@@ -160,7 +160,23 @@ describe("the readiness answer", () => {
 		} finally {
 			spy.mockRestore();
 		}
-		expect(lines).toEqual(["[apotheke] 5xx readiness: Error"]);
+		expect(lines).toEqual(["[apotheke] 5xx readiness: Error: no such table: settings"]);
+	});
+
+	it("builds the not-ready line from the result, so a branch no test can reach is still asserted (D162)", () => {
+		// The sentence an operator greps for, spelled out rather than read back off the code.
+		expect(
+			notReadyLogLine({
+				ok: false,
+				code: "seed.pending",
+				detail: "The seed phase has not completed (state: pending).",
+			}),
+		).toBe("[apotheke] 5xx readiness: seed.pending: The seed phase has not completed (state: pending).");
+		// The catch-all: v4's own sentence, and the driver's text is not in it — that went to the catch's
+		// own log line (D161).
+		expect(notReadyLogLine({ ok: false, code: "database", detail: SERVER_ERROR })).toBe(
+			"[apotheke] 5xx readiness: database: Something went wrong on the server.",
+		);
 	});
 });
 
@@ -220,7 +236,7 @@ describe("a 5xx answer (D151)", () => {
 		);
 	});
 
-	it("logs the class and never the exception's text", () => {
+	it("logs the class always, and the text only where a site passes one (D161)", () => {
 		const lines: string[] = [];
 		const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
 			lines.push(String(line));
@@ -228,10 +244,17 @@ describe("a 5xx answer (D151)", () => {
 		try {
 			logServerError("boot", new TypeError("connect ECONNREFUSED postgres://apotheke:hunter2@db:5432"));
 			logServerError("handler", "not an Error");
+			// The site that caught a driver passes its text, and only there: the body belongs to the
+			// caller, the log to the operator (D161).
+			logServerError("readiness", new Error("no such table: settings"), "no such table: settings");
 		} finally {
 			spy.mockRestore();
 		}
-		expect(lines).toEqual(["[apotheke] 5xx boot: TypeError", "[apotheke] 5xx handler: string"]);
+		expect(lines).toEqual([
+			"[apotheke] 5xx boot: TypeError",
+			"[apotheke] 5xx handler: string",
+			"[apotheke] 5xx readiness: Error: no such table: settings",
+		]);
 	});
 
 	it("answers /readyz's 200 no-store too, so a cache cannot outlive the outage (D156)", async () => {
