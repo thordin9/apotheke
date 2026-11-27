@@ -8,7 +8,13 @@ import { durableObjectSql, type InstallationStub } from "../src/db/do-sql";
 import { runMigrations, seedState } from "../src/db/migration-runner";
 import { type Sql, statement } from "../src/db/sql";
 import { PAGE_HEADERS } from "../src/http/problem";
-import { logServerError, plainErrorPage, SERVER_ERROR, serverError } from "../src/http/server-error";
+import {
+	handlerFailure,
+	logServerError,
+	plainErrorPage,
+	SERVER_ERROR,
+	serverError,
+} from "../src/http/server-error";
 import { loadConfig } from "../src/platform/config";
 import { notReadyLogLine, prepareInstallation, readinessResponse } from "../src/readiness";
 import { SLOW_TEST_MS } from "./helpers/deadline";
@@ -255,6 +261,39 @@ describe("a 5xx answer (D151)", () => {
 			"[apotheke] 5xx handler: string",
 			"[apotheke] 5xx readiness: Error: no such table: settings",
 		]);
+	});
+
+	it("logs the handler's 500 as class and message, with the row detail stripped (D166)", async () => {
+		// `PlainHandler::beforeAnswer`'s second line (`modules/Core/Exceptions/PlainHandler.php:96-97`)
+		// is the class AND the message, through `strip()`; the first line (a cleanup failure, class
+		// alone, because its message can hold a path) waits for the upload cleanup it belongs to (P2).
+		const lines: string[] = [];
+		const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+			lines.push(String(line));
+		});
+		let res: Response;
+		try {
+			res = handlerFailure(
+				"/medicines",
+				false,
+				TEST_PAGE,
+				new Error(
+					'pg_query(): Query failed: ERROR:  duplicate key value violates unique constraint "k"\n' +
+						"DETAIL:  Key (name)=(placeholder-secret) already exists.\n" +
+						"in SYSTEMPATH/Database/Postgre/Connection.php on line 210.\n#0 trace",
+				),
+			);
+		} finally {
+			spy.mockRestore();
+		}
+		expect(lines).toEqual([
+			'[apotheke] 5xx handler: Error: pg_query(): Query failed: ERROR:  duplicate key value violates unique constraint "k"\nDETAIL: (removed)\nin SYSTEMPATH/Database/Postgre/Connection.php on line 210.\n#0 trace',
+		]);
+		expect(lines[0]).not.toContain("placeholder-secret");
+		// The one site with the settings row draws the app's own page, never the fallback (D157).
+		expect(res.status).toBe(503);
+		expect(res.headers.get("content-type")).toBe("text/html; charset=UTF-8");
+		expect(await res.text()).toContain(`<p>${SERVER_ERROR}</p>`);
 	});
 
 	it("answers /readyz's 200 no-store too, so a cache cannot outlive the outage (D156)", async () => {

@@ -26,7 +26,7 @@ import { serveAsset } from "./http/assets";
 import { HEALTHZ_PATH, READYZ_PATH } from "./http/probe-paths";
 import { httpsOf } from "./http/problem";
 import { handleRoute } from "./http/router";
-import { logServerError, serverError } from "./http/server-error";
+import { handlerFailure, logServerError, serverError } from "./http/server-error";
 import { loadConfig } from "./platform/config";
 import { notReadyLogLine, type ReadyResult, readinessResponse } from "./readiness";
 import { secureCookie } from "./session/cookie";
@@ -169,9 +169,9 @@ export default {
 			// not answer 303, which is why a failure here becomes a 503 rather than a lost session.
 			await session.flush();
 		} catch (error) {
-			// The one site with the settings row in hand, so the one that can draw the app's own page.
-			logServerError("handler", error);
-			return serverError(pathname, httpsOf(url, config.publicUrl), data.page);
+			// The one site with the settings row in hand, so the one that can draw the app's own page,
+			// and the one whose 500 logs the message (D166): `handlerFailure` does both.
+			return handlerFailure(pathname, httpsOf(url, config.publicUrl), data.page, error);
 		}
 
 		const lines = session.cookieLines();

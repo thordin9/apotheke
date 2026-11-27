@@ -17,7 +17,7 @@ import { runMigrations, SchemaNewerThanCodeError, seedState } from "./db/migrati
 import { KNOWN_VERSIONS } from "./db/migrations";
 import { runSeeds, SeedRefusedError } from "./db/seed";
 import type { Sql } from "./db/sql";
-import { logServerError, SERVER_ERROR } from "./http/server-error";
+import { errorText, logServerError, SERVER_ERROR } from "./http/server-error";
 import type { AppConfig } from "./platform/config";
 
 export type ReadyProblem = "schema.newer" | "seed.refused" | "seed.pending" | "backend" | "database";
@@ -68,7 +68,7 @@ export const prepareInstallation = async (sql: Sql, config: AppConfig, now: stri
 		// `schema.newer`, `seed.refused` and `seed.pending` keep their details because those sentences
 		// are v4's own. The driver's text is not dropped: a public body and an operator log have
 		// opposite jobs, so it goes to the log, at the site that caught it (D161).
-		logServerError("readiness", error, error instanceof Error ? error.message : String(error));
+		logServerError("readiness", error, errorText(error));
 		return { ok: false, code: "database", detail: SERVER_ERROR };
 	}
 };
