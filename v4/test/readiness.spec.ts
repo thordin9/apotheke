@@ -1,5 +1,8 @@
 // Readiness (plan §5 S0.3): the gate that makes "seed pending" impossible to serve through, and the
 // one probe that must keep answering whatever the database is doing (§11 rule 7).
+//
+// Citations (D168/D170): every `modules/` path below is read at `5d65939e^`, the last commit where the
+// PHP tree exists; every `src/` line below at `55bd1a1a`.
 
 import { SELF } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -126,7 +129,7 @@ describe("the readiness answer", () => {
 	it("answers a caught driver failure with one fixed sentence, never its text (D159)", async () => {
 		// `no such table: settings` is a driver's own sentence; on a real outage the same field can
 		// carry a DSN, a host or a SQL fragment, and `/readyz` answers before the router to an
-		// unauthenticated caller (`src/index.ts:81-83`).
+		// unauthenticated caller (`src/index.ts:88-90`, read at `55bd1a1a`).
 		const ready = await prepareInstallation(
 			brokenSql("no such table: settings"),
 			config,
@@ -187,12 +190,12 @@ describe("the readiness answer", () => {
 });
 
 // A 5xx (plan §5 S1.7, D151): v3 states the rule twice — `BootError`, "one public sentence, the detail
-// only in the error log" (modules/Core/Boot/BootError.php:7), and `PlainHandler`, "a 5xx detail is
+// only in the error log" (modules/Core/Boot/BootError.php:7, read at `5d65939e^`), and `PlainHandler`, "a 5xx detail is
 // generic, never the exception's text", its `problem()` answering `server_error` with "Something went
-// wrong on the server." (modules/Core/Exceptions/PlainHandler.php:23, :133, :163). The path decides the
+// wrong on the server." (modules/Core/Exceptions/PlainHandler.php:34, :133, :163, read at `5d65939e^`; `:23` is a `use` line, the quoted sentence is the class docblock's). The path decides the
 // body, the four page headers are set by hand because no after-filter runs (SEC-N8), and which page a
 // site may draw is decided by what it has in hand (D157): only `index.ts`'s handler catch has the
-// settings row, because it is read at `index.ts:99` — every earlier site answers the plain page.
+// settings row, because it is read at `index.ts:113` (read at `55bd1a1a`) — every earlier site answers the plain page.
 describe("a 5xx answer (D151)", () => {
 	const PLAIN = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Error</title></head><body><p>${SERVER_ERROR}</p></body></html>`;
 
@@ -268,9 +271,9 @@ describe("a 5xx answer (D151)", () => {
 	});
 
 	it("logs the handler's 500 as class and message, with the row detail stripped (D166)", async () => {
-		// `PlainHandler::beforeAnswer`'s second line (`modules/Core/Exceptions/PlainHandler.php:96-97`)
+		// `PlainHandler::beforeAnswer`'s second line (`modules/Core/Exceptions/PlainHandler.php:96-97`, read at `5d65939e^`)
 		// is the class AND the message, through `strip()`; the first line (a cleanup failure, class
-		// alone, because its message can hold a path) waits for the upload cleanup it belongs to (P2).
+		// alone, because its message can hold a path) waits for the upload cleanup it belongs to (P4, D166).
 		const lines: string[] = [];
 		const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
 			lines.push(String(line));

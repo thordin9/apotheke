@@ -17,7 +17,7 @@
 // is SEC-N8, and `html()` applies the same four `SecurityPolicy` headers the filter would have.
 //
 // Which page a site may draw is decided by what it has in hand, not by taste (D157): the settings row
-// is read at `src/index.ts:99`, so only the catch around the handler has `data`; the three sites that
+// is read at `src/index.ts:113` (read at `55bd1a1a`), so only the catch around the handler has `data`; the three sites that
 // answer before it — the boot gate's throw, "not ready", the settings read's own catch — cannot draw
 // the shell and answer `Layout\ErrorPage`'s `FALLBACK_PREFIX` document instead.
 
@@ -64,7 +64,7 @@ export const logServerError = (site: string, error: unknown, detail?: string): v
 };
 
 /**
- * The handler catch (`src/index.ts:173`) as one call: a 500 that is not a user error logs
+ * The handler catch (`src/index.ts:171`, `handlerFailure` at `:174` — read at `55bd1a1a`) as one call: a 500 that is not a user error logs
  * `<class>: <message with DETAIL: (removed)>` — `PlainHandler::beforeAnswer`'s second line
  * (`modules/Core/Exceptions/PlainHandler.php:96-97`), which is the class AND the message — and the
  * answer is the app's own page, because this is the one site holding the settings row (D157).

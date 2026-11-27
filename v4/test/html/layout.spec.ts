@@ -1,14 +1,17 @@
 // The Layout module's own subjects (plan §5 S1.7), judged method by method against `src/html/`:
-// `tests/Modules/Layout/LayoutTest.php` held six, and five of their subjects exist in v4.
+// `tests/Modules/Layout/LayoutTest.php` (read at `5d65939e^`) held six, and five of their subjects exist in v4.
+// Every `modules/` path below is read at that commit (D168); every `v4/` line at `55bd1a1a`.
 //
 // What is *not* here, because v4 has neither shape:
 //   * v3's `ErrorPage` guarded a lazy page closure that could throw while the shell was drawn
-//     (`modules/Layout/ErrorPage.php:37-51`). v4's error page is a pure function of the settings the
-//     request read before routing (`src/html/views.ts:104`), so that failure cannot happen inside it.
+//     (`modules/Layout/ErrorPage.php:29-46`: the closure is called at `:32`, the catch is `:39`). v4's error
+//     page is a pure function of the settings the request read before routing (`src/html/views.ts:104`),
+//     so that failure cannot happen inside it.
 //   * v3's `Viewer` read the user through closures on every call and caught a throw from the read
 //     (`modules/Layout/Viewer.php:66-69`); v4 passes a resolved viewer or `null` (`src/html/menu.ts:43`).
-//   * The server-side `theme` cookie (`Theme::cookie()`): no v4 code reads or writes it, and
-//     `POST /theme` is unported. Recorded in the ledger row's note rather than asserted here.
+//   * The server-side `theme` cookie (`Theme::cookie()`): v4 reads it since D152 (`src/settings.ts:101`,
+//     `:147`); writing it (`POST /theme`) is still P2. Asserted in `test/settings.spec.ts`, and recorded
+//     in the ledger row's note.
 //
 // The escaping case is v3's own: hostile values in every setting the shell prints, and hostile text
 // in the message, so a value that reaches the document unescaped is a red test rather than a review.
