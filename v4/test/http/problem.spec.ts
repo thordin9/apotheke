@@ -18,7 +18,7 @@
 //     parameter; the value sent is the same string.
 
 import { describe, expect, it } from "vitest";
-import { apiHeaders, isApi, json, problem } from "../../src/http/problem";
+import { apiHeaders, httpsOf, isApi, json, problem } from "../../src/http/problem";
 
 describe("the /api envelope", () => {
 	it("answers UTF-8 JSON, never cached, leaving slashes and non-ASCII alone", async () => {
@@ -70,6 +70,19 @@ describe("the /api envelope", () => {
 		for (const path of ["/", "/apiary", "/item/1", "/api-docs", ""]) {
 			expect(isApi(path), path).toBe(false);
 		}
+	});
+
+	// v3 `PlainHandlerTest::testApiErrorHstsFollowsTheConfiguredPublicUrl`: the HSTS input is the
+	// request's scheme, or a `PUBLIC_URL` that says https in any case — and an unset one counts as no.
+	it("counts a PUBLIC_URL that says https, in any case, and nothing else", () => {
+		const https = (url: string, publicUrl?: string): boolean =>
+			publicUrl === undefined ? httpsOf(new URL(url)) : httpsOf(new URL(url), publicUrl);
+		expect(https("https://apotheke.test/")).toBe(true);
+		expect(https("http://apotheke.test/", "https://inv.example.test")).toBe(true);
+		expect(https("http://apotheke.test/", "HTTPS://inv.example.test")).toBe(true);
+		expect(https("http://apotheke.test/", "http://inv.example.test")).toBe(false);
+		expect(https("http://apotheke.test/", "")).toBe(false);
+		expect(https("http://apotheke.test/")).toBe(false);
 	});
 
 	it("locks the /api response down, and adds HSTS only over https", () => {

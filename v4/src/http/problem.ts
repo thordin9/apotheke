@@ -85,6 +85,14 @@ export const apiHeaders = (https: boolean): Record<string, string> => {
 	return headers;
 };
 
+/**
+ * `PlainHandler::problem()`'s HSTS input: a direct HTTPS connection counts, and so does a
+ * `PUBLIC_URL` that says https, in any case. The sites that answer before `loadConfig()` runs have
+ * no config to ask, so they pass the request alone rather than a guess (D151).
+ */
+export const httpsOf = (url: URL, publicUrl = ""): boolean =>
+	url.protocol === "https:" || publicUrl.toLowerCase().startsWith("https://");
+
 /** The headers an error on this path carries: the API's under /api, the page's elsewhere. */
 export const headersFor = (path: string, https: boolean): Record<string, string> =>
 	isApi(path) ? apiHeaders(https) : { ...PAGE_HEADERS };

@@ -690,9 +690,9 @@
    "path": "tests/Modules/Core/PlainHandlerTest.php",
    "methods": 7,
    "dataProviders": 1,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the v3 top-level handler's headers/exit paths",
+   "state": "ported",
+   "target": "v4/test/readiness.spec.ts",
+   "note": "`PlainHandler` has no v4 counterpart: the 5xx answer is v4/src/http/server-error.ts (one fixed sentence, the page under a page path and RFC 9457 under /api), the /api envelope is v4/src/http/problem.ts, and the four page headers are PAGE_HEADERS plus the `securityheaders` after-filter (v4/src/http/filters.ts). Asserted live: page-vs-/api and the headers by hand (readiness.spec.ts, D151 block), a stricter route CSP kept (test/http/filters.spec.ts), the /api codes (test/http/problem.spec.ts, test/http/router.spec.ts), the class-only log line with the detail only where a site passes one (readiness.spec.ts, D161), and the PUBLIC_URL HSTS input (`httpsOf`, test/http/problem.spec.ts). Retired with the mechanism: the text/plain body (v4 answers an HTML page or problem+json), the beforeAnswer cleanup line (no write path until P2) and the FrankenPHP worker-exit flag (a Workers handler always returns)",
    "kind": "retired"
   },
   {

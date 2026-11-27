@@ -24,6 +24,7 @@ import { requestSql } from "./db/request-sql";
 import type { Env } from "./env";
 import { serveAsset } from "./http/assets";
 import { HEALTHZ_PATH, READYZ_PATH } from "./http/probe-paths";
+import { httpsOf } from "./http/problem";
 import { handleRoute } from "./http/router";
 import { logServerError, serverError } from "./http/server-error";
 import { loadConfig } from "./platform/config";
@@ -56,14 +57,6 @@ type InstallationHandle = InstallationRpc & InstallationStub;
 
 const installationStub = (env: Env): InstallationHandle =>
 	env.INSTALLATION.get(env.INSTALLATION.idFromName(INSTALLATION)) as unknown as InstallationHandle;
-
-/**
- * `PlainHandler::problem()`'s HSTS input: a direct HTTPS connection counts, and so does a `PUBLIC_URL`
- * that is https. The three sites that answer before `loadConfig()` runs have no config to ask, so they
- * pass the request alone rather than a guess.
- */
-const httpsOf = (url: URL, publicUrl = ""): boolean =>
-	url.protocol === "https:" || publicUrl.toLowerCase().startsWith("https://");
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
