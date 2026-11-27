@@ -1,4 +1,4 @@
-// v3: `modules/Core/Log/RedactingFileHandler.php:24-40` (#97 N-33, #101 N-75).
+// v3: `modules/Core/Log/RedactingFileHandler.php:25-31`, read at `5d65939e^` (#97 N-33, #101 N-75).
 //
 // A driver's message can carry a stored value: a PostgreSQL constraint failure appends
 // `DETAIL:  Failing row contains (…)` or `Key (…)=(…)`. v3's rule is not about the log file, it is

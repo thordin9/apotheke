@@ -690,9 +690,9 @@
    "path": "tests/Modules/Core/PlainHandlerTest.php",
    "methods": 7,
    "dataProviders": 1,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "`PlainHandler` has no v4 counterpart: the 5xx answer is v4/src/http/server-error.ts (one fixed sentence, the page under a page path and RFC 9457 under /api), the /api envelope is v4/src/http/problem.ts, and the four page headers are PAGE_HEADERS plus the `securityheaders` after-filter (v4/src/http/filters.ts). Asserted live: page-vs-/api and the headers by hand plus the absent HSTS by name (readiness.spec.ts, D151/D167), a stricter route CSP kept (test/http/filters.spec.ts), the /api codes (test/http/problem.spec.ts, test/http/router.spec.ts), the handler 500's log line as class and message with the row detail stripped (readiness.spec.ts through `handlerFailure`, D166; the strip itself in test/log/redact.spec.ts), and the PUBLIC_URL HSTS input (`httpsOf`, test/http/problem.spec.ts). Retired with the mechanism: the text/plain body (v4 answers an HTML page or problem+json), the throwing PUBLIC_URL lookup (`PlainHandlerTest.php:165-167` - v4 passes a loaded string where v3 passed a closure that could throw), and the FrankenPHP worker-exit flag (a Workers handler always returns). Still scheduled for one line: `beforeAnswer`'s cleanup failure, logged by class alone because its message can hold a path (`modules/Core/Exceptions/PlainHandler.php:81-87`), waits for the upload cleanup it belongs to (P2); the earlier note's 'no write path until P2' was false, because `session.flush()` writes at src/index.ts:170.",
+   "state": "ported",
+   "target": "v4/test/readiness.spec.ts",
+   "note": "S1.7 (opened at 22 rows / 153 methods): `PlainHandler` has no v4 counterpart: the 5xx answer is v4/src/http/server-error.ts (one fixed sentence, the page under a page path and RFC 9457 under /api), the /api envelope is v4/src/http/problem.ts, and the four page headers are PAGE_HEADERS plus the `securityheaders` after-filter (v4/src/http/filters.ts). Both of `beforeAnswer`'s lines are asserted at `bf65914a`: a 500 that is not a `UserError` logs the class and the stripped message (`modules/Core/Exceptions/PlainHandler.php:96-97`, read at `5d65939e^`) through `handlerFailure` (v4/src/http/server-error.ts:72-80, read at `bf65914a`), asserted verbatim in v4/test/readiness.spec.ts. Also live: page-vs-/api and the four page headers by hand plus the absent HSTS by name (v4/test/readiness.spec.ts, D151/D167), a stricter route CSP kept (v4/test/http/filters.spec.ts), the /api codes (v4/test/http/problem.spec.ts, v4/test/http/router.spec.ts), the strip itself (v4/test/log/redact.spec.ts), and the PUBLIC_URL HSTS input (`httpsOf`, v4/test/http/problem.spec.ts). Retired with the mechanism: the text/plain body (v4 answers an HTML page or problem+json), the throwing PUBLIC_URL lookup (`tests/Modules/Core/PlainHandlerTest.php:165-167`, read at `5d65939e^`: v4 passes a loaded string where v3 passed a closure that could throw), and the FrankenPHP worker-exit flag (a Workers handler always returns). The first line of `beforeAnswer` - a cleanup failure logged by the class alone, because its message can hold a path (`:83-84`, the cleanup log at `:91-94`) - is not this row's remainder: it waits for the upload cleanup it belongs to and rides `tests/Modules/Media/MediaTest.php`'s note (P4, D166). The earlier note's 'no write path until P2' was false: `session.flush()` writes at v4/src/index.ts:170 (read at `bf65914a`).",
    "kind": "retired"
   },
   {
@@ -726,9 +726,9 @@
    "path": "tests/Modules/Core/RedactingFileHandlerTest.php",
    "methods": 2,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "`RedactingFileHandler::strip()` is policy about the data, not plumbing, so it survives the file transport it was written for (D165): ported as v4/src/log/redact.ts and applied on the one log path (`logServerError`, src/http/server-error.ts), so a constraint failure's `DETAIL:` never reaches console.error. v3's two methods' cases are at test/log/redact.spec.ts string for string: the row detail dropped to the last driver line, a value that itself holds the driver line, a lower-case `detail:`, a localised `D\u00c9TAIL :` label (#101 N-75), a query error with no detail keeping its driver line, and a message with no detail untouched. The file transport is gone, so the first method's 'the shipped log uses it' `Config\\\\Logger` assertion retires with CI4's Logger config and is replaced by the line the deployed path writes. Held at `scheduled` by D165's ruling; every assertion it asks for exists in this tree.",
+   "state": "ported",
+   "target": "v4/test/log/redact.spec.ts",
+   "note": "S1.7 (opened at 22 rows / 153 methods): `RedactingFileHandler::strip()` (`modules/Core/Log/RedactingFileHandler.php:25-31`, read at `5d65939e^`) is policy about the data, not plumbing, so it survives the file transport it was written for (D165): ported as v4/src/log/redact.ts and applied at the one write, `logServerError` (v4/src/http/server-error.ts:63, read at `bf65914a`), so a constraint failure's `DETAIL:` never reaches console.error. v3's two methods' cases are at v4/test/log/redact.spec.ts string for string: the row detail dropped to the last driver line, a value that itself holds the driver line, a lower-case `detail:`, a localised `D\u00c9TAIL :` label (#101 N-75), a query error with no detail keeping its driver line, and a message with no detail untouched. The file transport is gone, so the first method's 'the shipped log uses it' `Config\\Logger` assertion retires with CI4's Logger config and is replaced by the line the deployed path writes. Ported at `bf65914a` on D165's condition - every case it names exists in the tree.",
    "kind": "retired"
   },
   {
@@ -1034,7 +1034,7 @@
    "dataProviders": 2,
    "state": "scheduled",
    "target": "P4",
-   "note": "upload, thumbnails, originals (D2)",
+   "note": "upload, thumbnails, originals (D2). P4 builds the media pipeline, and with it the cleanup half of v3's `PlainHandler::beforeAnswer` (`modules/Core/Exceptions/PlainHandler.php:86-99`, read at `5d65939e^`): a cleanup failure logs the class alone - `[apotheke] request cleanup failed (<Class>)`, `:91-94` - because its message can hold a path (`:83-84`). Recorded here rather than in `PlainHandlerTest`'s state: revision 134 corrected the owner from P2 to P4 (D166).",
    "kind": "retired"
   },
   {
