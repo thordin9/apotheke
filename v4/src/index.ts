@@ -96,8 +96,9 @@ export default {
 			return readinessResponse(readiness, env.DB_DRIVER);
 		}
 		if (!readiness.ok) {
-			// Not an exception, so there is no class to name: the reason code is what the log keeps.
-			console.error(`[apotheke] 5xx readiness: ${readiness.code}`);
+			// Not an exception, so there is no class to name: a readiness result keeps its code and
+			// its detail in the log (D159) — `BootError`'s "the detail only in the error log".
+			console.error(`[apotheke] 5xx readiness: ${readiness.code}: ${readiness.detail}`);
 			return serverError(pathname, httpsOf(url));
 		}
 

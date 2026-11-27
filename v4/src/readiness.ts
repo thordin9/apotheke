@@ -9,13 +9,15 @@
 //     stack (§11 rule 7). The self-host healthcheck probes `/healthz`, never `/readyz`.
 //   - `/readyz` is where the reason goes: 200 with the schema version, or 503 problem+json naming
 //     what is wrong. It is answered before the router (S0.5, `src/index.ts`), so it stays a bare
-//     probe that an unauthenticated caller can read; the compose stack still defaults to `/healthz`,
-//     because a 503 there means "still booting", not "restart me".
+//     probe that an unauthenticated caller can read — which is why the one code that can carry a
+//     driver's own text answers the same fixed sentence every other 5xx carries (D159). The compose
+//     stack still defaults to `/healthz`, because a 503 there means "still booting", not "restart me".
 
 import { runMigrations, SchemaNewerThanCodeError, seedState } from "./db/migration-runner";
 import { KNOWN_VERSIONS } from "./db/migrations";
 import { runSeeds, SeedRefusedError } from "./db/seed";
 import type { Sql } from "./db/sql";
+import { logServerError, SERVER_ERROR } from "./http/server-error";
 import type { AppConfig } from "./platform/config";
 
 export type ReadyProblem = "schema.newer" | "seed.refused" | "seed.pending" | "backend" | "database";
@@ -48,7 +50,13 @@ export const prepareInstallation = async (sql: Sql, config: AppConfig, now: stri
 		if (error instanceof SeedRefusedError) {
 			return { ok: false, code: "seed.refused", detail: error.message };
 		}
-		return { ok: false, code: "database", detail: error instanceof Error ? error.message : String(error) };
+		// D159: `database` is the catch-all around a driver, and a driver's message is not a sentence
+		// v4 writes — it can carry a DSN, a host or a SQL fragment, and this body is answered to an
+		// unauthenticated caller. So it answers the sentence every other 5xx answers, and the log gets
+		// the class; `schema.newer`, `seed.refused` and `seed.pending` keep their details because
+		// those sentences are v4's own.
+		logServerError("readiness", error);
+		return { ok: false, code: "database", detail: SERVER_ERROR };
 	}
 };
 

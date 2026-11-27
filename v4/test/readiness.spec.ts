@@ -10,7 +10,7 @@ import { type Sql, statement } from "../src/db/sql";
 import { PAGE_HEADERS } from "../src/http/problem";
 import { logServerError, plainErrorPage, SERVER_ERROR, serverError } from "../src/http/server-error";
 import { loadConfig } from "../src/platform/config";
-import { prepareInstallation, problem, readinessResponse } from "../src/readiness";
+import { prepareInstallation, readinessResponse } from "../src/readiness";
 import { SLOW_TEST_MS } from "./helpers/deadline";
 import { TEST_PAGE } from "./helpers/page";
 import { resetSchema } from "./helpers/schema";
@@ -19,6 +19,15 @@ const sqlite = (name: string): Sql =>
 	durableObjectSql(env.INSTALLATION.get(env.INSTALLATION.idFromName(name)) as unknown as InstallationStub);
 
 const config = loadConfig({ APP_PASSWORD: "correct horse battery staple 2026", TZ: "UTC" });
+
+/** A driver that throws: what `database` catches, and what `/readyz` must not quote (D159). */
+const brokenSql = (message: string): Sql => {
+	const fail = async (): Promise<never> => {
+		throw new Error(message);
+	};
+
+	return { all: fail, batch: fail };
+};
 
 describe("/readyz and /healthz", () => {
 	it("/readyz reports the schema and a completed seed once boot has run", async () => {
@@ -108,13 +117,50 @@ describe("the readiness answer", () => {
 		expect(await seedState(sql)).toBe("done");
 	});
 
-	it("turns any other failure into a 503 with the message, not a crash", () => {
-		const res = problem(503, "database", "no such table: settings");
+	it("answers a caught driver failure with one fixed sentence, never its text (D159)", async () => {
+		// `no such table: settings` is a driver's own sentence; on a real outage the same field can
+		// carry a DSN, a host or a SQL fragment, and `/readyz` answers before the router to an
+		// unauthenticated caller (`src/index.ts:81-83`).
+		const ready = await prepareInstallation(
+			brokenSql("no such table: settings"),
+			config,
+			"2026-11-23 12:00:00",
+		);
+		expect(ready).toEqual({ ok: false, code: "database", detail: SERVER_ERROR });
+
+		const res = readinessResponse(ready, "sqlite");
 		expect(res.status).toBe(503);
-		expect(res.headers.get("content-type")).toContain("application/problem+json");
+		expect(res.headers.get("content-type")).toBe("application/problem+json; charset=utf-8");
 		// A failure answer is never cached: v3's `PlainHandler` sent `no-store` on every answer it
 		// rendered, and v4's boot, readiness and session-flush failures all come through here (D136).
 		expect(res.headers.get("cache-control")).toBe("no-store");
+		// The whole body, because "does not contain the message" passes on an empty body too.
+		expect(await res.text()).toBe(
+			'{"type":"about:blank","title":"database","status":503,"detail":"Something went wrong on the server."}',
+		);
+	});
+
+	it("keeps the three details v4 writes itself, because those are sentences, not a driver's (D159)", async () => {
+		const res = readinessResponse(
+			{ ok: false, code: "seed.pending", detail: "The seed phase has not completed (state: pending)." },
+			"sqlite",
+		);
+		expect(await res.text()).toBe(
+			'{"type":"about:blank","title":"seed.pending","status":503,"detail":"The seed phase has not completed (state: pending)."}',
+		);
+	});
+
+	it("logs the class of the exception whose text it keeps out of the body (D159)", async () => {
+		const lines: string[] = [];
+		const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+			lines.push(String(line));
+		});
+		try {
+			await prepareInstallation(brokenSql("no such table: settings"), config, "2026-11-23 12:00:00");
+		} finally {
+			spy.mockRestore();
+		}
+		expect(lines).toEqual(["[apotheke] 5xx readiness: Error"]);
 	});
 });
 
