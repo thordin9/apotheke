@@ -11,7 +11,7 @@
     "release:plan": "php scripts/release.php plan"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.11.2",
+    "@axe-core/playwright": "4.14.0",
     "@playwright/test": "1.65.1"
   }
 }
