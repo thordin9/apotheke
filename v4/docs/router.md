@@ -86,7 +86,8 @@ Two consequences worth knowing:
 | Wrong method (under `/api`, or a fetch) | 405 problem+json + `Allow` | `method_not_allowed` |
 | Body past `MAX_UPLOAD_MB` (page) | 413, v3's error page (fetch: 413 JSON) | — (`PostTooLarge`) |
 | Body past `MAX_UPLOAD_MB` (under `/api`) | 413 problem+json | `upload.too_large` |
-| A failure answering before a route runs (boot, readiness, the session flush) | 503 problem+json, `no-store` | — (`/readyz` names the reason in `title`) |
+| A failure answering before a route runs (the boot gate, readiness, the session flush), page path | 503 `text/html`, the app's error page with the four page headers and `no-store`, v3's one sentence; `Layout\ErrorPage`'s plain page where the settings row was not read (D157) | — |
+| The same under `/api` | 503 problem+json, `no-store`, `Something went wrong on the server.` | `server_error` |
 | Controller not ported yet | 501 problem+json | `route.not_implemented` |
 | Page answer (S1.1) | 200 `text/html`, `no-store` | — |
 | Sign-in accepted, a sign-out, a consent answer (S1.2) | 303, `Location`, `no-store` | — |
@@ -265,5 +266,7 @@ set and no `.env`, so the settings row is the fresh-install one.
 Still not ported, because nothing renders them yet: the undo bar, custom branding (`logo`/`app_icon`)
 and the `/theme.css` stylesheet a non-default accent links to. The menu, the header and the toast are
 ported since S1.5 (`menu.ts`), and the page shell prints the default accent's markup and the consent
-notice a first visit gets. The `theme` cookie is not read yet — the menu shows `theme_default` — and
-`POST /theme` still answers 501.
+notice a first visit gets. The `theme` cookie is read since S1.7 (D152): `readPageData` resolves
+`Theme::pref()` over the request's cookies and falls back to the `theme_default` setting, so a visitor
+who has picked a theme gets it back on the next request, before first paint. What is not ported is the
+**write**: `POST /theme` (`ThemeController::save`) is P2 and still answers 501.
