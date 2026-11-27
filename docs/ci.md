@@ -122,11 +122,18 @@ gitleaks is the official CLI binary from its GitHub release (version **8.30.1**,
 workflow). The organization-licensed `gitleaks-action` is not used.
 
 The job fails on any finding (`--exit-code 1`) and redacts secrets in the log (`--redact`). `.gitleaks.toml`
-allowlists one migrate-banner fixture, `SecretMissingEq99`, which `generic-api-key` flags and which remains in
-history. The allowlist uses `condition = "AND"`: the path must be `tests/Unit/MigrateDsnTest.php` and the secret
-must be exactly that placeholder. The same literal in any other file is still reported. If a later scan flags
-another known placeholder, add the smallest possible pattern with a comment saying why. Do not allowlist a
-real-looking secret; remove it from history instead.
+allowlists findings that are fixture data rather than credentials, each with `condition = "AND"`: the path must
+match **and** the secret must be exactly one of the listed values. The same literal in any other file is still
+reported. The entries fall into two groups. Four predate v4: a migrate-banner fixture
+(`SecretMissingEq99` in `tests/Unit/MigrateDsnTest.php`), the CI4 `APP_KEY` test placeholders, a Control Panel
+parity token, and a pinned migration sha256. Four were added on 2026-11-27 (D178) after `generic-api-key` read
+v4's fixtures as keys: twelve findings across the nine distinct sha256 **provenance digests** of v3 sources
+recorded in the generated `/api` fixture manifests, the session fixture's `authEpoch` placeholder
+`a1b2c3d4e5f60718`, the secretbox fixture's `key_base64` (the counting bytes `01`-`20`), and `wrangler.jsonc`'s
+dev `APP_KEY` (the base64 of a SHA-256 of a sentence saying it is not a secret). Each entry's comment says why the
+value is not a credential and that the commit holding it stays in history: this file allowlists, it never
+rewrites. If a later scan flags another known placeholder, add the smallest possible pattern with a comment
+saying why. Do not allowlist a real-looking secret; remove it from history instead.
 
 Scan locally with `gitleaks git`, not `gitleaks dir`. gitleaks 8.30.1's directory walk skips a file when an
 allowlist path matches and it ignores `condition = "AND"`, so `gitleaks dir` skips all of

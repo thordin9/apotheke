@@ -37,3 +37,65 @@ condition = "AND"
 commits = ['1b5f5c81dcfa91a194c2dd5a46f5a595aee4a88d']
 paths = ['''^tests/Unit/Ci4MigrateTest\.php$''']
 regexes = ['''^f8066324b818295d8c616b37a9598691c7ac568b00867a59ced15c5357ac2d75$''']
+
+# ---- 2026-11-27: the 17 findings under v4/ are fixture data and a documented
+# dev default, not credentials (D178). generic-api-key matches any high-entropy
+# hex or base64 run, and in v4/ that is sha256 provenance digests, one session
+# placeholder and two documented dev values. Every commit below stays in
+# history: no rebase, no filter, --exit-code 1 unchanged. Each entry is scoped
+# to both the path and the exact value, like the four above.
+
+# The generated /api fixture manifests record, per v3 source, the sha256 of the
+# file the answers were captured from (scripts/gen-api-fixture.mjs writes
+# `sources`, and its check mode verifies them). Nine distinct digests are
+# flagged, added by ta9d661c (php-api, 2026-11-25), a90feb2a (php-html,
+# 2026-11-24), 8d382a83 (php-claim, 2026-11-24) and 8075c68e (php-account,
+# 2026-11-25) - twelve findings in all, because php-account.json, php-claim.json
+# and php-api.json each repeat a digest. These files are generated: D172 forbids
+# editing them, and regenerating them mints new digests, which this entry will
+# not cover by design - a new digest is a new finding to assess, not a silent
+# pass.
+[[allowlists]]
+description = "v4 /api fixture manifests: sha256 provenance digests of v3 sources, flagged by generic-api-key (D178)."
+condition = "AND"
+paths = ['''^v4/test/fixtures/php-(api|account|claim|html)\.json$''']
+regexes = [
+    '''^0463df79d97237d5e58b4310b1af9a18905137ab673578e33d4cccfafad122e4$''',
+    '''^396b84bd3053fb7868afd8cc757604e612dd56aa21613f98949eb51fff23be5d$''',
+    '''^6006e349b2d46643d257a49800d6e0dc6581ab100ed9ad43d8c1b376e3145cdc$''',
+    '''^74c9b7d53b61fd96813ea591fa00f39833c6d7be788233168983ce128a9645ea$''',
+    '''^7876ed60ea917172758c6f7ae9893f81d7b2159acc590c200436e833d1397291$''',
+    '''^7f43e1ed7b268d0ff7d88d1a47406e56d633c5ed1b6c03a2a0be00c3053dc11a$''',
+    '''^8501f9efe1952448ee0fe21e7b9aedf89f45e49bf73b7077cffddbf766f3eba4$''',
+    '''^8d295457b2e33ba24cd9d4b58cd2396ccddec9b535ada34ee7b1406f552372f2$''',
+    '''^f0aefa2f2b48ba37d583f979d3fdf65307649a6c57e7648e61fe8945fa8d0b2f$''',
+]
+
+# The session fixture's authEpoch: eight literal bytes, spelled as 16 hex digits,
+# because the field is a 64-bit integer in v3. Written by 327cec2e (2026-11-24)
+# into the generator, the captured fixture and the spec that reads it; that
+# commit stays in history.
+[[allowlists]]
+description = "v4 session fixture: the authEpoch dev placeholder a1b2c3d4e5f60718 (D178)."
+condition = "AND"
+paths = ['''^v4/scripts/gen-session-fixture\.php$''', '''^v4/test/fixtures/php-session\.json$''', '''^v4/test/session/store\.spec\.ts$''']
+regexes = ['''^a1b2c3d4e5f60718$''']
+
+# secretbox.json's key_base64 is the base64 of the 32 bytes 01, 02 ... 20, a
+# counting fixture so the sealed value is reproducible. Added by 744bc946
+# (2026-11-23), which stays in history.
+[[allowlists]]
+description = "v4 secretbox fixture: key_base64 is the counting bytes 01-20, not a key (D178)."
+condition = "AND"
+paths = ['''^v4/test/fixtures/secretbox\.json$''']
+regexes = ['''^AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=$''']
+
+# wrangler.jsonc's APP_KEY is the local dev/test default: the base64 of a SHA-256
+# of a sentence that says it is not a secret (the comment above it in that file).
+# Self-host sets it in .env and hosted sets it as a Worker secret. Added by
+# 744bc946 (2026-11-23), which stays in history.
+[[allowlists]]
+description = "v4 wrangler.jsonc: APP_KEY dev default, base64 of a sha256 of a sentence saying so (D178)."
+condition = "AND"
+paths = ['''^v4/wrangler\.jsonc$''']
+regexes = ['''^k\+5r\+\+/Wg74Gd/XmNDDEfN8Ob7Shh6pX8\+usbXG4wPU=$''']
