@@ -717,9 +717,9 @@
    "path": "tests/Modules/Core/ReadCacheTest.php",
    "methods": 9,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the per-request read cache",
+   "state": "dropped",
+   "target": "",
+   "note": "D109, read at 5d65939e^: the nine methods assert one memo in front of a per-read network hop on v3's D1 bridge (ReadCache, WriteClock, RequestReads::prefetch, Writes::rowsMany), and v4 has no such layer - grep scoped to v4/src finds none of the four, because a request reads what it needs once (requestSql, src/db/request-sql.ts) and a write unit is one batch (src/db/sql.ts). What survives is asserted where the behaviour lives: a row written earlier in a request is read back through the same Sql (test/settings.spec.ts, 'is the stored row once there is one'; test/session/store.spec.ts, 'replaces the row on a rewrite instead of growing a second one')",
    "kind": "retired"
   },
   {
