@@ -48,7 +48,7 @@ regexes = ['''^f8066324b818295d8c616b37a9598691c7ac568b00867a59ced15c5357ac2d75$
 # The generated /api fixture manifests record, per v3 source, the sha256 of the
 # file the answers were captured from (scripts/gen-api-fixture.mjs writes
 # `sources`, and its check mode verifies them). Nine distinct digests are
-# flagged, added by ta9d661c (php-api, 2026-11-25), a90feb2a (php-html,
+# flagged, added by ae9d661c (php-api, 2026-11-25), a90feb2a (php-html,
 # 2026-11-24), 8d382a83 (php-claim, 2026-11-24) and 8075c68e (php-account,
 # 2026-11-25) - twelve findings in all, because php-account.json, php-claim.json
 # and php-api.json each repeat a digest. These files are generated: D172 forbids
