@@ -1050,9 +1050,8 @@
    "path": "tests/Modules/Migrations/D1BootstrapTest.php",
    "methods": 12,
    "dataProviders": 0,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "D1 bootstrap and race refusal; v4's DO gate is built, the concurrent-open case is untested",
+   "state": "dropped",
+   "note": "dropped (D109, D183): the migration lease is replaced by the object's single-writer boot. runMigrations (src/db/migration-runner.ts:135) has no owner, term, takeover or release, and it runs inside the Installation object's blockConcurrencyWhile (D12, src/readiness.ts:1-5), so two boots at once is not a state the runtime produces. Surviving subjects already green: test/migrations.spec.ts:66 the whole chain once, :77 a no-op on a second run, :110 atomic per migration, :96 the seed stamp's guarded insert. v3's :254 concurrent bootstraps becomes the object boot itself, which S0.9 already exercises. The P5 jobs lease stays P5's.",
    "kind": "retired"
   },
   {
