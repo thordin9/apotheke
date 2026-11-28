@@ -619,8 +619,8 @@
    "methods": 16,
    "dataProviders": 9,
    "state": "scheduled",
-   "target": "S1.7",
-   "note": "hosted ceilings (the Postgres-parallel methods drop with D1)",
+   "target": "P6",
+   "note": "re-targeted to P6 (D182, D185): no ceiling is read anywhere in v4/src - config.hosted (src/platform/config.ts:19-20,87) only gates sign-in, registration and the first-admin claim. Phase 6 names the quota obligation and G6 asserts where the ceilings are supplied and that a hosted install refuses the add that exceeds one. The three Postgres parallel-add methods (:230, :248, :265) are dropped inside the row: v4 never speaks Postgres.",
    "kind": "retired"
   },
   {
