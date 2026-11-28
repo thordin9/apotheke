@@ -708,9 +708,9 @@
    "path": "tests/Modules/Core/PublicBaseTest.php",
    "methods": 9,
    "dataProviders": 8,
-   "state": "scheduled",
-   "target": "S1.7",
-   "note": "the per-request base URL and settings fallback",
+   "state": "dropped",
+   "target": "",
+   "note": "D109/D181: v4 replaced the base-URL layer, so six of the nine have no subject (PublicBase::absolute, base_url, site_url and current_url are absent from src; a host failing the allow-list is refused 421 rather than replaced by localhost; an unreadable settings row is 5xx by D157); absolute()'s eight data rows move to P2 with api/v1/branding, and the publicUrl fallback is re-homed in test/settings.spec.ts",
    "kind": "retired"
   },
   {

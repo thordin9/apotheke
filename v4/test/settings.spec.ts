@@ -241,3 +241,44 @@ describe("the theme: Theme::pref() over Theme::valid()", () => {
 		expect(await bad.text()).toContain('<html lang="en" data-theme="auto"');
 	});
 });
+
+// The re-homed half of `PublicBaseTest` (plan D181, which dropped the other eight methods with a
+// reason). v3 answered "where is this page?" by resolving a base URL per request
+// (`tests/Modules/Core/PublicBaseTest.php:87`, `testPublicUrlFromTheEnvironmentWithoutAStoredSetting`):
+// the stored `public_url` row, else the config's PUBLIC_URL as the setting's default. v4 renders
+// relative URLs and built no such layer, so the one value it still reads is
+// `readPageData`'s `security.publicUrl` (`src/settings.ts:166-168`) — and that read was unasserted
+// until here. The `||` is deliberate and is v3's: an empty row is not an address, so the config answers.
+describe("the public URL a page trusts (PublicBaseTest re-homed, D181)", () => {
+	let sql: Sql;
+	const config = loadConfig({ APP_PASSWORD: PASSWORD, PUBLIC_URL: "https://env.example:8443/" });
+
+	beforeEach(async () => {
+		sql = sqlite("s1.7-public-url");
+		await resetSchema(sql);
+		await sql.batch([{ sql: SETTINGS_TABLE }]);
+	});
+
+	const store = (name: string, value: string): Promise<unknown> =>
+		sql.batch([
+			{ sql: "INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)", params: [name, value, NOW] },
+		]);
+
+	const publicUrl = async (): Promise<string> => (await readPageData(sql, config, "/")).security.publicUrl;
+
+	it("is the config's PUBLIC_URL while the settings table has no public_url row", async () => {
+		// The env value is given with a trailing slash on purpose: `loadConfig` strips it, so the
+		// answer is the origin and not the string the environment happened to hold.
+		expect(await publicUrl()).toBe("https://env.example:8443");
+	});
+
+	it("is the stored row once there is one", async () => {
+		await store("public_url", JSON.stringify("https://shelf.example"));
+		expect(await publicUrl()).toBe("https://shelf.example");
+	});
+
+	it("falls back to the config for an empty row, the way v3's `||` does", async () => {
+		await store("public_url", JSON.stringify(""));
+		expect(await publicUrl()).toBe("https://env.example:8443");
+	});
+});
