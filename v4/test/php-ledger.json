@@ -817,7 +817,7 @@
    "methods": 9,
    "dataProviders": 6,
    "state": "dropped",
-   "note": "dropped (D109, D184): ConnectionExecutor is not a v4 object - v4 has Sql.all/Sql.batch over sqlite, rqlite and d1, and one batch is one unit. Re-homed: a failed statement leaving nothing behind is test/sqlite.spec.ts:120; the parameter bound is :89 with MAX_BOUND_PARAMS and TooManyBoundParams at src/db/d1.ts:13-33 (D117 - v4 refuses the 101st rather than splitting the list, so a caller with a long list chunks at the caller); the sqlite-version methods (:349, :369) have no subject because :154 asserts v4 never names or tunes its engine. LocalBatchExecutor (:141, :309) was a v3 test double for D1; the d1 job runs the real binding.",
+   "note": "dropped (D109, D184): ConnectionExecutor is not a v4 object - v4 has Sql.all/Sql.batch over sqlite, rqlite and d1, and one batch is one unit. Re-homed: a failed statement leaving nothing behind is test/sqlite.spec.ts:120; the parameter bound is :89 with MAX_BOUND_PARAMS and TooManyBoundParams at src/db/d1.ts:11 (MAX_BOUND_PARAMS) and :19 (TooManyBoundParams), D117 - v4 refuses the 101st rather than splitting the list, so a caller with a long list chunks at the caller); the sqlite-version methods (:349, :369) have no subject because :154 asserts v4 never names or tunes its engine. LocalBatchExecutor (:141, :309) was a v3 test double for D1; the d1 job runs the real binding.",
    "kind": "retired"
   },
   {
